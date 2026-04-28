@@ -26,8 +26,12 @@
 - スティッキーヘッダーで統計表が見やすい
 
 ## ファイル構成
-- `badminton-court-app.html` … 本体
+- `index.html` … 本体（GitHub Pages のエントリポイント）
 - `test_algorithm.js` … アルゴリズム検証用テスト（Node.jsで実行）
+
+## 公開URL
+- https://sasukewebjob-ai.github.io/badminton-doubles-court/
+- リポジトリ: https://github.com/sasukewebjob-ai/badminton-doubles-court
 
 ## 検証状況
 975テスト合格（195構成 × 5試行）。詳細は `test_algorithm.js`。
