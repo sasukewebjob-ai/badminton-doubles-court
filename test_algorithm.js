@@ -4,59 +4,102 @@
 const COURT_LABELS = ['A','B','C','D'];
 let TOTAL_ROUNDS = 20;
 
+function makeStrideGroups(N, cycle, restCount) {
+  const stride = cycle;
+  const used = new Set();
+  const groups = [];
+  for (let offset = 0; offset < stride; offset++) {
+    const candidates = [];
+    for (let i = 0; offset + 1 + i * stride <= N; i++) {
+      candidates.push(offset + 1 + i * stride);
+    }
+    for (let i = 0; i + restCount <= candidates.length; i += restCount) {
+      const group = candidates.slice(i, i + restCount);
+      groups.push(group);
+      group.forEach(p => used.add(p));
+    }
+  }
+  const leftovers = [];
+  for (let p = 1; p <= N; p++) {
+    if (!used.has(p)) leftovers.push(p);
+  }
+  for (let i = 0; i < leftovers.length; i += restCount) {
+    groups.push(leftovers.slice(i, i + restCount));
+  }
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups;
+}
+
+function strideLinearOrder(N, cycle, restCount) {
+  return makeStrideGroups(N, cycle, restCount).flat();
+}
+
 function generateRestSchedule(totalPlayers, restCount) {
   if (restCount === 0) return Array.from({length: TOTAL_ROUNDS}, () => []);
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
-  const restSchedule = [];
   const restCounts = {};
-  allPlayers.forEach(p => restCounts[p] = 0);
+  const boundaryHits = {};
+  allPlayers.forEach(p => { restCounts[p] = 0; boundaryHits[p] = 0; });
 
-  const shuffle = (arr) => {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+  const restSchedule = [];
+  let prevSet = new Set();
+  const linearOrderCache = {};
+  const getLinearOrder = (cycle) => {
+    if (!linearOrderCache[cycle]) {
+      linearOrderCache[cycle] = strideLinearOrder(totalPlayers, cycle, restCount);
     }
-    return a;
+    return linearOrderCache[cycle];
   };
 
-  for (let startIdx = 0; startIdx < totalPlayers; startIdx += restCount) {
-    if (restSchedule.length >= TOTAL_ROUNDS) break;
-    const group = [];
-    for (let i = 0; i < restCount; i++) {
-      const idx = startIdx + i;
-      if (idx < totalPlayers) group.push(allPlayers[idx]);
-    }
-    if (group.length === restCount) {
-      restSchedule.push(group.sort((a, b) => a - b));
-      group.forEach(p => restCounts[p]++);
-    }
-  }
-
-  const zeroPlayers = allPlayers.filter(p => restCounts[p] === 0);
-  if (zeroPlayers.length > 0 && restSchedule.length < TOTAL_ROUNDS) {
-    const onePlayers = shuffle(allPlayers.filter(p => restCounts[p] === 1));
-    const needed = restCount - zeroPlayers.length;
-    const fill = onePlayers.slice(0, needed);
-    const group = [...zeroPlayers, ...fill].sort((a, b) => a - b);
-    restSchedule.push(group);
-    group.forEach(p => restCounts[p]++);
-  }
-
   while (restSchedule.length < TOTAL_ROUNDS) {
-    const curMin = Math.min(...allPlayers.map(p => restCounts[p]));
-    const prevSet = new Set(restSchedule[restSchedule.length - 1]);
-    const pool = allPlayers.filter(p => restCounts[p] === curMin);
-    const pool2 = allPlayers.filter(p => restCounts[p] === curMin + 1);
-    const prioritize = (arr) => {
-      const notPrev = shuffle(arr.filter(p => !prevSet.has(p)));
-      const inPrev = shuffle(arr.filter(p => prevSet.has(p)));
-      return [...notPrev, ...inPrev];
-    };
-    const candidates = [...prioritize(pool), ...prioritize(pool2)];
-    const group = candidates.slice(0, restCount).sort((a, b) => a - b);
-    restSchedule.push(group);
-    group.forEach(p => restCounts[p]++);
+    let curMin = Infinity;
+    for (const p of allPlayers) {
+      if (restCounts[p] < curMin) curMin = restCounts[p];
+    }
+    const poolA = allPlayers.filter(p => restCounts[p] === curMin);
+    const poolB = allPlayers.filter(p => restCounts[p] === curMin + 1);
+
+    const cycleA = curMin + 1;
+    const linearA = getLinearOrder(cycleA);
+    const rankA = new Map();
+    linearA.forEach((p, i) => rankA.set(p, i));
+
+    const orderedA = poolA.slice().sort((a, b) => {
+      const ra = rankA.has(a) ? rankA.get(a) : 0;
+      const rb = rankA.has(b) ? rankA.get(b) : 0;
+      return ra - rb;
+    });
+
+    let picks;
+    let fillersFromB = [];
+
+    if (orderedA.length >= restCount) {
+      picks = orderedA.slice(0, restCount);
+    } else {
+      const need = restCount - orderedA.length;
+      const cycleB = curMin + 2;
+      const linearB = getLinearOrder(cycleB);
+      const rankB = new Map();
+      linearB.forEach((p, i) => rankB.set(p, i));
+
+      const orderedB = poolB.slice().sort((a, b) => {
+        if (boundaryHits[a] !== boundaryHits[b]) {
+          return boundaryHits[a] - boundaryHits[b];
+        }
+        const ra = rankB.has(a) ? rankB.get(a) : 0;
+        const rb = rankB.has(b) ? rankB.get(b) : 0;
+        return ra - rb;
+      });
+
+      const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+      fillersFromB = (nonPrevB.length >= need ? nonPrevB : orderedB).slice(0, need);
+      picks = orderedA.concat(fillersFromB);
+    }
+
+    fillersFromB.forEach(p => boundaryHits[p]++);
+    picks.forEach(p => restCounts[p]++);
+    restSchedule.push(picks.slice().sort((a, b) => a - b));
+    prevSet = new Set(picks);
   }
 
   return restSchedule;
@@ -366,8 +409,8 @@ if (errorDetails.length > 0) {
 }
 console.log(totalErrors === 0 ? '\n✅ すべてのテスト合格' : '\n❌ エラー検出');
 
-// 第1節がランダム化されたか検証
-console.log('\n=== 第1節の決定論問題テスト ===');
+// 第1節がランダム化されたか検証（コート割は依然ランダム）
+console.log('\n=== 第1節のコート割ランダム化テスト ===');
 const round1Results = new Set();
 for (let i = 0; i < 20; i++) {
   const result = generate(4, 16, 20);
@@ -377,3 +420,103 @@ for (let i = 0; i < 20; i++) {
 }
 console.log(`第1節のユニークパターン数（20回中）: ${round1Results.size}`);
 console.log(round1Results.size > 1 ? '✅ ランダム化済み' : '❌ まだ決定論的');
+
+// =========================
+// ストライド方式の検証
+// =========================
+console.log('\n=== ストライド方式 検証 ===');
+
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function strideTest(label, N, restCount, totalRounds, expectedRounds) {
+  TOTAL_ROUNDS = totalRounds;
+  const sched = generateRestSchedule(N, restCount);
+  let ok = true;
+  for (let i = 0; i < expectedRounds.length; i++) {
+    if (!arraysEqual(sched[i], expectedRounds[i])) {
+      console.log(`  ❌ ${label} 節${i+1}: 期待${JSON.stringify(expectedRounds[i])} 実際${JSON.stringify(sched[i])}`);
+      ok = false;
+    }
+  }
+  if (ok) console.log(`  ✅ ${label} (${expectedRounds.length}節パターン一致)`);
+  return ok;
+}
+
+// N=6, restCount=3 (割り切れ): 1周目[1,2,3][4,5,6] 2周目[1,3,5][2,4,6] 3周目[1,4]... 但しstride3でN=6は[1,4]+[2,5]+[3,6]
+strideTest('N=6 r=3', 6, 3, 6, [
+  [1,2,3], [4,5,6],
+  [1,3,5], [2,4,6],
+  [1,2,3], [4,5,6]  // 3周目stride3だが、グループ[1,4][2,5][3,6]はrestCount3に満たないので残り[1,2,3,4,5,6]連番化
+]);
+
+// N=9, restCount=3: 周目通りユーザー例
+strideTest('N=9 r=3', 9, 3, 9, [
+  [1,2,3], [4,5,6], [7,8,9],            // 1周目
+  [1,3,5], [2,4,6], [7,8,9],            // 2周目（ユーザー例）
+  [1,4,7], [2,5,8], [3,6,9]             // 3周目（ユーザー例）
+]);
+
+// N=12, restCount=3: 4の倍数
+strideTest('N=12 r=3 cycle1-2', 12, 3, 8, [
+  [1,2,3], [4,5,6], [7,8,9], [10,11,12], // 1周目
+  [1,3,5], [2,4,6], [7,9,11], [8,10,12]  // 2周目
+]);
+
+// =========================
+// 境目公平性 (boundaryHits) の検証
+// =========================
+console.log('\n=== 境目公平性検証 (N=22, r=3, 30節) ===');
+{
+  TOTAL_ROUNDS = 30;
+  const sched = generateRestSchedule(22, 3);
+  // 各人の休み回数
+  const counts = {};
+  for (let p = 1; p <= 22; p++) counts[p] = 0;
+  sched.forEach(g => g.forEach(p => counts[p]++));
+  const vals = Object.values(counts);
+  const maxC = Math.max(...vals), minC = Math.min(...vals);
+  console.log(`  休み回数 min=${minC}, max=${maxC}, 差=${maxC - minC} ${maxC - minC <= 1 ? '✅' : '❌'}`);
+  console.log(`  休み内訳:`, counts);
+  // 第1節は[1,2,3]で固定（決定論）
+  console.log(`  第1節: ${JSON.stringify(sched[0])} ${arraysEqual(sched[0], [1,2,3]) ? '✅' : '❌'}`);
+  console.log(`  第8節（境目）: ${JSON.stringify(sched[7])}`);
+  // 30節全部
+  console.log('\n  全30節:');
+  sched.forEach((g, i) => console.log(`    節${i+1}: [${g.join(',')}]`));
+}
+
+// =========================
+// 全構成で最大-最小=1 厳守の確認（決定論版）
+// =========================
+console.log('\n=== 休み均等化（差≤1）全構成テスト ===');
+{
+  let fails = 0;
+  let total = 0;
+  for (const courts of [2, 3, 4]) {
+    for (let players = courts * 4; players <= 24; players++) {
+      for (const rounds of [10, 15, 20, 25, 30]) {
+        const restCount = players - courts * 4;
+        if (restCount === 0) continue;
+        TOTAL_ROUNDS = rounds;
+        const sched = generateRestSchedule(players, restCount);
+        const cnt = {};
+        for (let p = 1; p <= players; p++) cnt[p] = 0;
+        sched.forEach(g => g.forEach(p => cnt[p]++));
+        const vals = Object.values(cnt);
+        const diff = Math.max(...vals) - Math.min(...vals);
+        total++;
+        if (diff > 1) {
+          fails++;
+          if (fails <= 5) {
+            console.log(`  ❌ ${courts}c×${players}p×${rounds}r: 差=${diff}`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`  ${total}構成中 ${fails === 0 ? `✅ 全構成で差≤1 達成` : `❌ ${fails}構成で違反`}`);
+}

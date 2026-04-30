@@ -263,74 +263,118 @@ function updateInfo() {
   info.innerHTML = html;
 }
 
-// --- 休み人決定（均等化重視） ---
+// --- 休み人決定（ストライド方式 + 境目公平化） ---
 // 方針:
-//   1周目: 連番ブロック (1,2,3,4,5), (6,7,8,9,10)... で全員1回ずつ休む
-//   2周目以降: ランダムに選ぶ（休み回数の均等化 + 連続休み回避）
-//   差1以内を厳密に保証
+//   各周k は stride=k で休みグループを形成（番号順をベース）
+//     1周目 stride1: [1,2,3] [4,5,6] ...
+//     2周目 stride2: [1,3,5] [2,4,6] ... (端数は連番)
+//     3周目 stride3: [1,4,7] [2,5,8] [3,6,9] ...
+//   各周内ではグループの最小番号順で出題（小番号が早く休む）
+//   N が restCount で割り切れない場合は、周の境目で次周の先頭を「先取り」して休む。
+//   その先取りは boundaryHits をローテーションして全員に均等配分（公平化）。
+//   休み回数の差は常に最大1を厳守。
+
+function makeStrideGroups(N, cycle, restCount) {
+  const stride = cycle;
+  const used = new Set();
+  const groups = [];
+
+  for (let offset = 0; offset < stride; offset++) {
+    const candidates = [];
+    for (let i = 0; offset + 1 + i * stride <= N; i++) {
+      candidates.push(offset + 1 + i * stride);
+    }
+    for (let i = 0; i + restCount <= candidates.length; i += restCount) {
+      const group = candidates.slice(i, i + restCount);
+      groups.push(group);
+      group.forEach(p => used.add(p));
+    }
+  }
+
+  const leftovers = [];
+  for (let p = 1; p <= N; p++) {
+    if (!used.has(p)) leftovers.push(p);
+  }
+  for (let i = 0; i < leftovers.length; i += restCount) {
+    groups.push(leftovers.slice(i, i + restCount));
+  }
+
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups;
+}
+
+function strideLinearOrder(N, cycle, restCount) {
+  return makeStrideGroups(N, cycle, restCount).flat();
+}
+
 function generateRestSchedule(totalPlayers, restCount) {
   if (restCount === 0) return Array.from({length: TOTAL_ROUNDS}, () => []);
 
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
-  const restSchedule = [];
   const restCounts = {};
-  allPlayers.forEach(p => restCounts[p] = 0);
+  const boundaryHits = {};
+  allPlayers.forEach(p => { restCounts[p] = 0; boundaryHits[p] = 0; });
 
-  // シャッフル関数
-  const shuffle = (arr) => {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+  const restSchedule = [];
+  let prevSet = new Set();
+  const linearOrderCache = {};
+  const getLinearOrder = (cycle) => {
+    if (!linearOrderCache[cycle]) {
+      linearOrderCache[cycle] = strideLinearOrder(totalPlayers, cycle, restCount);
     }
-    return a;
+    return linearOrderCache[cycle];
   };
 
-  // フェーズ1: 連番ブロックで1周目
-  for (let startIdx = 0; startIdx < totalPlayers; startIdx += restCount) {
-    if (restSchedule.length >= TOTAL_ROUNDS) break;
-    const group = [];
-    for (let i = 0; i < restCount; i++) {
-      const idx = startIdx + i;
-      if (idx < totalPlayers) group.push(allPlayers[idx]);
-    }
-    // 端数ブロック（人数がrestCountに満たない）はスキップ
-    if (group.length === restCount) {
-      restSchedule.push(group.sort((a, b) => a - b));
-      group.forEach(p => restCounts[p]++);
-    }
-  }
-
-  // フェーズ1の端数処理: まだ0回の人がいたら、1回の人とランダムに混ぜて1グループ作る
-  const zeroPlayers = allPlayers.filter(p => restCounts[p] === 0);
-  if (zeroPlayers.length > 0 && restSchedule.length < TOTAL_ROUNDS) {
-    const onePlayers = shuffle(allPlayers.filter(p => restCounts[p] === 1));
-    const needed = restCount - zeroPlayers.length;
-    const fill = onePlayers.slice(0, needed);
-    const group = [...zeroPlayers, ...fill].sort((a, b) => a - b);
-    restSchedule.push(group);
-    group.forEach(p => restCounts[p]++);
-  }
-
-  // フェーズ2: 2周目以降はランダムに選ぶ
   while (restSchedule.length < TOTAL_ROUNDS) {
-    const curMin = Math.min(...allPlayers.map(p => restCounts[p]));
-    const prevSet = new Set(restSchedule[restSchedule.length - 1]);
+    let curMin = Infinity;
+    for (const p of allPlayers) {
+      if (restCounts[p] < curMin) curMin = restCounts[p];
+    }
+    const poolA = allPlayers.filter(p => restCounts[p] === curMin);
+    const poolB = allPlayers.filter(p => restCounts[p] === curMin + 1);
 
-    const pool = allPlayers.filter(p => restCounts[p] === curMin);
-    const pool2 = allPlayers.filter(p => restCounts[p] === curMin + 1);
+    const cycleA = curMin + 1;
+    const linearA = getLinearOrder(cycleA);
+    const rankA = new Map();
+    linearA.forEach((p, i) => rankA.set(p, i));
 
-    // 各プール内をシャッフルし、前回休んだ人は後回し
-    const prioritize = (arr) => {
-      const notPrev = shuffle(arr.filter(p => !prevSet.has(p)));
-      const inPrev = shuffle(arr.filter(p => prevSet.has(p)));
-      return [...notPrev, ...inPrev];
-    };
+    const orderedA = poolA.slice().sort((a, b) => {
+      const ra = rankA.has(a) ? rankA.get(a) : 0;
+      const rb = rankA.has(b) ? rankA.get(b) : 0;
+      return ra - rb;
+    });
 
-    const candidates = [...prioritize(pool), ...prioritize(pool2)];
-    const group = candidates.slice(0, restCount).sort((a, b) => a - b);
-    restSchedule.push(group);
-    group.forEach(p => restCounts[p]++);
+    let picks;
+    let fillersFromB = [];
+
+    if (orderedA.length >= restCount) {
+      // ストライド順を厳守（連続休み回避はpoolBの軟制約のみ）
+      picks = orderedA.slice(0, restCount);
+    } else {
+      const need = restCount - orderedA.length;
+      const cycleB = curMin + 2;
+      const linearB = getLinearOrder(cycleB);
+      const rankB = new Map();
+      linearB.forEach((p, i) => rankB.set(p, i));
+
+      const orderedB = poolB.slice().sort((a, b) => {
+        if (boundaryHits[a] !== boundaryHits[b]) {
+          return boundaryHits[a] - boundaryHits[b];
+        }
+        const ra = rankB.has(a) ? rankB.get(a) : 0;
+        const rb = rankB.has(b) ? rankB.get(b) : 0;
+        return ra - rb;
+      });
+
+      const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+      fillersFromB = (nonPrevB.length >= need ? nonPrevB : orderedB).slice(0, need);
+      picks = orderedA.concat(fillersFromB);
+    }
+
+    fillersFromB.forEach(p => boundaryHits[p]++);
+    picks.forEach(p => restCounts[p]++);
+    restSchedule.push(picks.slice().sort((a, b) => a - b));
+    prevSet = new Set(picks);
   }
 
   return restSchedule;
