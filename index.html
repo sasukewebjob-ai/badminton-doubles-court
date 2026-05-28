@@ -553,16 +553,19 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
     html += `</div>`;
 
     round.assignments.forEach((court, idx) => {
+      const p1 = [...court.pair1].sort((a, b) => a - b);
+      const p2 = [...court.pair2].sort((a, b) => a - b);
+      const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
       html += `<span class="match-detail">`;
-      html += `<span class="pair">${court.pair1[0]}番</span>`;
+      html += `<span class="pair">${left[0]}番</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${court.pair1[1]}番</span>`;
+      html += `<span class="pair">${left[1]}番</span>`;
       html += `<span class="vs"> VS </span>`;
-      html += `<span class="pair">${court.pair2[0]}番</span>`;
+      html += `<span class="pair">${right[0]}番</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${court.pair2[1]}番</span>`;
+      html += `<span class="pair">${right[1]}番</span>`;
       html += `</span>`;
       html += `</div>`;
     });
