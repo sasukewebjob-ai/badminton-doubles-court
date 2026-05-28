@@ -178,6 +178,38 @@ h1 {
   color: #555;
   line-height: 1.6;
 }
+.btn-save {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #2980b9, #3498db);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  transition: transform 0.1s;
+}
+.btn-save:active { transform: scale(0.97); }
+.btn-save:disabled { background: #bdc3c7; }
+.save-hint {
+  font-size: 0.78em;
+  color: #666;
+  text-align: center;
+  margin-bottom: 8px;
+}
+#imagePreview {
+  margin-top: 8px;
+  text-align: center;
+}
+#imagePreview img {
+  max-width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
 </style>
 </head>
 <body>
@@ -216,6 +248,7 @@ h1 {
 <script>
 const COURT_LABELS = ['A','B','C','D'];
 let TOTAL_ROUNDS = 20;
+let lastRounds = null;
 
 // --- UI初期化 ---
 function initUI() {
@@ -534,6 +567,7 @@ function generate() {
     rounds.push({ round: r + 1, resting, assignments });
   }
 
+  lastRounds = rounds;
   renderResults(rounds, courts, totalPlayers, restCount, restHistory, pairHistory);
 }
 
@@ -572,6 +606,11 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
 
     html += `</div>`;
   }
+
+  // 画像保存ボタン
+  html += `<button class="btn-save" onclick="saveAsImage()">📷 対戦表を画像として保存</button>`;
+  html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
+  html += `<div id="imagePreview"></div>`;
 
   // 休み履歴
   html += `<div class="stats-section">`;
@@ -634,6 +673,197 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
 
   document.getElementById('results').innerHTML = html;
   document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+// --- 画像保存 ---
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function saveAsImage() {
+  if (!lastRounds || lastRounds.length === 0) return;
+
+  const W = 600;
+  const PAD = 16;
+  const CARD_GAP = 12;
+  const CARD_R = 12;
+  const HEADER_H = 44;
+  const COURT_H = 38;
+  const TITLE_H = 56;
+  const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
+
+  // 高さ計算
+  let totalH = PAD + TITLE_H + PAD;
+  lastRounds.forEach((round, i) => {
+    totalH += HEADER_H + round.assignments.length * COURT_H;
+    if (i < lastRounds.length - 1) totalH += CARD_GAP;
+  });
+  totalH += PAD;
+
+  // モバイルCanvasの寸法上限（おおむね8192px）に収まるようDPRを抑制
+  const MAX_DIM = 8192;
+  const maxScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1, maxScale));
+  const canvas = document.createElement('canvas');
+  canvas.width = W * dpr;
+  canvas.height = totalH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // 背景
+  ctx.fillStyle = '#f0f4f8';
+  ctx.fillRect(0, 0, W, totalH);
+
+  // タイトル
+  ctx.fillStyle = '#c6e3d6';
+  roundRectPath(ctx, PAD, PAD, W - PAD * 2, TITLE_H - 8, 10);
+  ctx.fill();
+  ctx.fillStyle = '#1a5276';
+  ctx.font = `bold 22px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏸 ダブルス コート割', W / 2, PAD + (TITLE_H - 8) / 2);
+
+  // 各節カード
+  let y = PAD + TITLE_H;
+  for (let ri = 0; ri < lastRounds.length; ri++) {
+    const round = lastRounds[ri];
+    const cardH = HEADER_H + round.assignments.length * COURT_H;
+    const cardW = W - PAD * 2;
+
+    // カード背景（白角丸）+ シャドウ
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.08)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = '#fff';
+    roundRectPath(ctx, PAD, y, cardW, cardH, CARD_R);
+    ctx.fill();
+    ctx.restore();
+
+    // ヘッダー（カード上部のみ）
+    ctx.save();
+    roundRectPath(ctx, PAD, y, cardW, HEADER_H + 1, CARD_R);
+    ctx.clip();
+    ctx.fillStyle = '#34495e';
+    ctx.fillRect(PAD, y, cardW, HEADER_H);
+    ctx.restore();
+
+    // "第N節"
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold 16px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`第${round.round}節`, PAD + 14, y + HEADER_H / 2);
+
+    // 休みバッジ
+    const restingSorted = [...round.resting].sort((a, b) => a - b);
+    const hasRest = restingSorted.length > 0;
+    const badgeText = hasRest
+      ? `休み: ${restingSorted.map(p => p + '番').join(' ')}`
+      : '休みなし';
+    ctx.font = `bold 13px ${FONT}`;
+    const badgeTextW = ctx.measureText(badgeText).width;
+    const badgePadX = 10;
+    const badgeW = badgeTextW + badgePadX * 2;
+    const badgeH = 22;
+    const badgeX = PAD + cardW - 14 - badgeW;
+    const badgeY = y + HEADER_H / 2 - badgeH / 2;
+    ctx.fillStyle = hasRest ? '#e74c3c' : '#27ae60';
+    roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, badgeX + badgeW / 2, y + HEADER_H / 2);
+
+    // コート行
+    let cy = y + HEADER_H;
+    round.assignments.forEach((court, idx) => {
+      // 区切り線（最後以外）
+      if (idx < round.assignments.length - 1) {
+        ctx.fillStyle = '#ecf0f1';
+        ctx.fillRect(PAD + 14, cy + COURT_H - 1, cardW - 28, 1);
+      }
+
+      // コートラベル
+      const labelW = 34;
+      const labelH = 26;
+      const labelX = PAD + 14;
+      const labelY = cy + COURT_H / 2 - labelH / 2;
+      ctx.fillStyle = '#3498db';
+      roundRectPath(ctx, labelX, labelY, labelW, labelH, 6);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold 15px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(COURT_LABELS[idx], labelX + labelW / 2, cy + COURT_H / 2);
+
+      // 対戦表示（小さい番号を左に）
+      const p1 = [...court.pair1].sort((a, b) => a - b);
+      const p2 = [...court.pair2].sort((a, b) => a - b);
+      const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
+
+      const segs = [
+        { t: `${left[0]}番`, c: '#2c3e50' },
+        { t: '・',          c: '#7f8c8d' },
+        { t: `${left[1]}番`, c: '#2c3e50' },
+        { t: '  VS  ',      c: '#e74c3c' },
+        { t: `${right[0]}番`, c: '#2c3e50' },
+        { t: '・',          c: '#7f8c8d' },
+        { t: `${right[1]}番`, c: '#2c3e50' },
+      ];
+      ctx.font = `bold 16px ${FONT}`;
+      let segW = 0;
+      for (const s of segs) segW += ctx.measureText(s.t).width;
+
+      // コートラベル右端 〜 カード右端 の中央に配置
+      const areaLeft = labelX + labelW + 6;
+      const areaRight = PAD + cardW - 14;
+      let tx = areaLeft + (areaRight - areaLeft - segW) / 2;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      for (const s of segs) {
+        ctx.fillStyle = s.c;
+        ctx.fillText(s.t, tx, cy + COURT_H / 2);
+        tx += ctx.measureText(s.t).width;
+      }
+
+      cy += COURT_H;
+    });
+
+    y += cardH + CARD_GAP;
+  }
+
+  // ダウンロード & プレビュー
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const d = new Date();
+    const pad2 = n => String(n).padStart(2, '0');
+    const ts = `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+    const filename = `badminton_${ts}.png`;
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // プレビュー表示（スマホ長押し保存用）
+    const preview = document.getElementById('imagePreview');
+    if (preview) {
+      preview.innerHTML = `<img src="${url}" alt="対戦表"/>`;
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }, 'image/png');
 }
 
 // 起動
