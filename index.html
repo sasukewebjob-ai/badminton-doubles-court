@@ -689,13 +689,18 @@ function roundRectPath(ctx, x, y, w, h, r) {
 function saveAsImage() {
   if (!lastRounds || lastRounds.length === 0) return;
 
-  const W = 600;
-  const PAD = 16;
-  const CARD_GAP = 12;
-  const CARD_R = 12;
-  const HEADER_H = 44;
-  const COURT_H = 38;
-  const TITLE_H = 56;
+  // 10/15節向け最適化：節数が少ないときはレイアウト寸法を拡大して可読性UP
+  // 15節以下は2倍、16-25節は1.2倍、26節以上は等倍（Canvas寸法上限内で最大化）
+  const n = lastRounds.length;
+  const SCALE = n <= 15 ? 2.0 : (n <= 25 ? 1.2 : 1.0);
+
+  const W = 600 * SCALE;
+  const PAD = 16 * SCALE;
+  const CARD_GAP = 12 * SCALE;
+  const CARD_R = 12 * SCALE;
+  const HEADER_H = 44 * SCALE;
+  const COURT_H = 38 * SCALE;
+  const TITLE_H = 56 * SCALE;
   const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
 
   // 高さ計算
@@ -712,7 +717,7 @@ function saveAsImage() {
   const MAX_AREA = 16384 * 4096; // ピクセル総量の保険
   const dimScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
   const areaScale = Math.sqrt(MAX_AREA / (W * totalH));
-  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1, dimScale, areaScale));
+  const dpr = Math.max(1, Math.min(4, window.devicePixelRatio || 1, dimScale, areaScale));
   const canvas = document.createElement('canvas');
   canvas.width = W * dpr;
   canvas.height = totalH * dpr;
@@ -725,13 +730,13 @@ function saveAsImage() {
 
   // タイトル
   ctx.fillStyle = '#c6e3d6';
-  roundRectPath(ctx, PAD, PAD, W - PAD * 2, TITLE_H - 8, 10);
+  roundRectPath(ctx, PAD, PAD, W - PAD * 2, TITLE_H - 8 * SCALE, 10 * SCALE);
   ctx.fill();
   ctx.fillStyle = '#1a5276';
-  ctx.font = `bold 22px ${FONT}`;
+  ctx.font = `bold ${22 * SCALE}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('🏸 ダブルス コート割', W / 2, PAD + (TITLE_H - 8) / 2);
+  ctx.fillText('🏸 ダブルス コート割', W / 2, PAD + (TITLE_H - 8 * SCALE) / 2);
 
   // 各節カード
   let y = PAD + TITLE_H;
@@ -743,8 +748,8 @@ function saveAsImage() {
     // カード背景（白角丸）+ シャドウ
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.08)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 2;
+    ctx.shadowBlur = 6 * SCALE;
+    ctx.shadowOffsetY = 2 * SCALE;
     ctx.fillStyle = '#fff';
     roundRectPath(ctx, PAD, y, cardW, cardH, CARD_R);
     ctx.fill();
@@ -760,10 +765,10 @@ function saveAsImage() {
 
     // "第N節"
     ctx.fillStyle = '#fff';
-    ctx.font = `bold 16px ${FONT}`;
+    ctx.font = `bold ${16 * SCALE}px ${FONT}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`第${round.round}節`, PAD + 14, y + HEADER_H / 2);
+    ctx.fillText(`第${round.round}節`, PAD + 14 * SCALE, y + HEADER_H / 2);
 
     // 休みバッジ
     const restingSorted = [...round.resting].sort((a, b) => a - b);
@@ -771,12 +776,12 @@ function saveAsImage() {
     const badgeText = hasRest
       ? `休み: ${restingSorted.map(p => p + '番').join(' ')}`
       : '休みなし';
-    ctx.font = `bold 13px ${FONT}`;
+    ctx.font = `bold ${13 * SCALE}px ${FONT}`;
     const badgeTextW = ctx.measureText(badgeText).width;
-    const badgePadX = 10;
+    const badgePadX = 10 * SCALE;
     const badgeW = badgeTextW + badgePadX * 2;
-    const badgeH = 22;
-    const badgeX = PAD + cardW - 14 - badgeW;
+    const badgeH = 22 * SCALE;
+    const badgeX = PAD + cardW - 14 * SCALE - badgeW;
     const badgeY = y + HEADER_H / 2 - badgeH / 2;
     ctx.fillStyle = hasRest ? '#e74c3c' : '#27ae60';
     roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
@@ -791,19 +796,19 @@ function saveAsImage() {
       // 区切り線（最後以外）
       if (idx < round.assignments.length - 1) {
         ctx.fillStyle = '#ecf0f1';
-        ctx.fillRect(PAD + 14, cy + COURT_H - 1, cardW - 28, 1);
+        ctx.fillRect(PAD + 14 * SCALE, cy + COURT_H - 1, cardW - 28 * SCALE, 1);
       }
 
       // コートラベル
-      const labelW = 34;
-      const labelH = 26;
-      const labelX = PAD + 14;
+      const labelW = 34 * SCALE;
+      const labelH = 26 * SCALE;
+      const labelX = PAD + 14 * SCALE;
       const labelY = cy + COURT_H / 2 - labelH / 2;
       ctx.fillStyle = '#3498db';
-      roundRectPath(ctx, labelX, labelY, labelW, labelH, 6);
+      roundRectPath(ctx, labelX, labelY, labelW, labelH, 6 * SCALE);
       ctx.fill();
       ctx.fillStyle = '#fff';
-      ctx.font = `bold 15px ${FONT}`;
+      ctx.font = `bold ${15 * SCALE}px ${FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(COURT_LABELS[idx], labelX + labelW / 2, cy + COURT_H / 2);
@@ -822,13 +827,13 @@ function saveAsImage() {
         { t: '・',          c: '#7f8c8d' },
         { t: `${right[1]}番`, c: '#2c3e50' },
       ];
-      ctx.font = `bold 16px ${FONT}`;
+      ctx.font = `bold ${16 * SCALE}px ${FONT}`;
       let segW = 0;
       for (const s of segs) segW += ctx.measureText(s.t).width;
 
       // コートラベル右端 〜 カード右端 の中央に配置
-      const areaLeft = labelX + labelW + 6;
-      const areaRight = PAD + cardW - 14;
+      const areaLeft = labelX + labelW + 6 * SCALE;
+      const areaRight = PAD + cardW - 14 * SCALE;
       let tx = areaLeft + (areaRight - areaLeft - segW) / 2;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
