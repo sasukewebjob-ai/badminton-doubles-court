@@ -529,6 +529,57 @@ function updateHistories(assignments, pairHistory, opponentHistory) {
   }
 }
 
+// マッチアップ自体は変更せず、A/B/C/Dの割当順だけを過去登場回数で最適化
+// 二乗ペナルティ：count² の合計を最小化。高頻度コートへの再割当を強く抑制
+function balanceCourts(assignments, courtHistory) {
+  if (!assignments || assignments.length <= 1) return assignments;
+  const n = assignments.length;
+
+  // n! 通りの順列を列挙（最大 4! = 24 通り）
+  const perms = [];
+  (function permute(arr, current) {
+    if (arr.length === 0) { perms.push(current); return; }
+    for (let i = 0; i < arr.length; i++) {
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      permute(rest, current.concat(arr[i]));
+    }
+  })([...Array(n).keys()], []);
+
+  let bestScore = Infinity;
+  let bestPerm = perms[0];
+  for (const perm of perms) {
+    let score = 0;
+    for (let courtIdx = 0; courtIdx < n; courtIdx++) {
+      const m = assignments[perm[courtIdx]];
+      const players = m.pair1.concat(m.pair2);
+      for (const p of players) {
+        const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+        // (count+1)² = この割当を採用した場合の二乗ペナルティ
+        score += (cur + 1) * (cur + 1);
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestPerm = perm;
+    }
+  }
+
+  return bestPerm.map(i => assignments[i]);
+}
+
+function updateCourtHistory(assignments, courtHistory) {
+  assignments.forEach((m, courtIdx) => {
+    for (const p of m.pair1) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+    for (const p of m.pair2) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+  });
+}
+
 function addHistory(hist, a, b) {
   if (!hist[a]) hist[a] = {};
   if (!hist[b]) hist[b] = {};
@@ -550,6 +601,7 @@ function generate() {
   const pairHistory = {};
   const opponentHistory = {};
   const restHistory = {};
+  const courtHistory = {};
   allPlayers.forEach(p => restHistory[p] = 0);
 
   const rounds = [];
@@ -561,8 +613,10 @@ function generate() {
 
     resting.forEach(p => restHistory[p]++);
 
-    const assignments = assignCourts(active, courts, pairHistory, opponentHistory);
+    let assignments = assignCourts(active, courts, pairHistory, opponentHistory);
+    assignments = balanceCourts(assignments, courtHistory);
     updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
 
     rounds.push({ round: r + 1, resting, assignments });
   }

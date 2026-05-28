@@ -205,6 +205,50 @@ function updateHistories(assignments, pairHistory, opponentHistory) {
   }
 }
 
+function balanceCourts(assignments, courtHistory) {
+  if (!assignments || assignments.length <= 1) return assignments;
+  const n = assignments.length;
+  const perms = [];
+  (function permute(arr, current) {
+    if (arr.length === 0) { perms.push(current); return; }
+    for (let i = 0; i < arr.length; i++) {
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      permute(rest, current.concat(arr[i]));
+    }
+  })([...Array(n).keys()], []);
+  let bestScore = Infinity;
+  let bestPerm = perms[0];
+  for (const perm of perms) {
+    let score = 0;
+    for (let courtIdx = 0; courtIdx < n; courtIdx++) {
+      const m = assignments[perm[courtIdx]];
+      const players = m.pair1.concat(m.pair2);
+      for (const p of players) {
+        const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+        score += (cur + 1) * (cur + 1);
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestPerm = perm;
+    }
+  }
+  return bestPerm.map(i => assignments[i]);
+}
+
+function updateCourtHistory(assignments, courtHistory) {
+  assignments.forEach((m, courtIdx) => {
+    for (const p of m.pair1) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+    for (const p of m.pair2) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+  });
+}
+
 function addHistory(hist, a, b) {
   if (!hist[a]) hist[a] = {};
   if (!hist[b]) hist[b] = {};
@@ -221,6 +265,7 @@ function generate(courts, totalPlayers, numRounds) {
   const pairHistory = {};
   const opponentHistory = {};
   const restHistory = {};
+  const courtHistory = {};
   allPlayers.forEach(p => restHistory[p] = 0);
   const rounds = [];
   for (let r = 0; r < TOTAL_ROUNDS; r++) {
@@ -228,11 +273,13 @@ function generate(courts, totalPlayers, numRounds) {
     const restSet = new Set(resting);
     const active = allPlayers.filter(p => !restSet.has(p));
     resting.forEach(p => restHistory[p]++);
-    const assignments = assignCourts(active, courts, pairHistory, opponentHistory);
+    let assignments = assignCourts(active, courts, pairHistory, opponentHistory);
+    assignments = balanceCourts(assignments, courtHistory);
     updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
     rounds.push({ round: r + 1, resting, assignments });
   }
-  return { rounds, courts, totalPlayers, restCount, restHistory, pairHistory, opponentHistory };
+  return { rounds, courts, totalPlayers, restCount, restHistory, pairHistory, opponentHistory, courtHistory };
 }
 
 // =========================
@@ -519,4 +566,102 @@ console.log('\n=== 休み均等化（差≤1）全構成テスト ===');
     }
   }
   console.log(`  ${total}構成中 ${fails === 0 ? `✅ 全構成で差≤1 達成` : `❌ ${fails}構成で違反`}`);
+}
+
+// =========================
+// コート均等化検証（新機能）
+// =========================
+console.log('\n=== コート均等化検証 ===');
+{
+  // プレイヤーごとの (max-min) コート登場差を計算
+  function courtDiffStats(result) {
+    const { courts, totalPlayers, courtHistory, rounds } = result;
+    const perPlayerDiff = [];
+    const worstCase = { player: null, court: null, count: 0, plays: 0 };
+    for (let p = 1; p <= totalPlayers; p++) {
+      // 各コートの登場回数
+      const counts = new Array(courts).fill(0);
+      for (let c = 0; c < courts; c++) {
+        counts[c] = (courtHistory[p] && courtHistory[p][c]) || 0;
+      }
+      const plays = counts.reduce((s, x) => s + x, 0);
+      if (plays === 0) continue; // 全休みのケース
+      const mx = Math.max(...counts), mn = Math.min(...counts);
+      perPlayerDiff.push(mx - mn);
+      if (mx > worstCase.count) {
+        worstCase.player = p;
+        worstCase.count = mx;
+        worstCase.plays = plays;
+        worstCase.court = counts.indexOf(mx);
+      }
+    }
+    return {
+      maxDiff: Math.max(...perPlayerDiff),
+      avgDiff: perPlayerDiff.reduce((s, x) => s + x, 0) / perPlayerDiff.length,
+      worstCase
+    };
+  }
+
+  console.log('構成（c×p×r） |  最大差 |  平均差 | 最頻コート登場');
+  for (const courts of [2, 3, 4]) {
+    for (const players of [courts * 4, courts * 4 + 2, Math.min(24, courts * 4 + 4)]) {
+      for (const rounds of [10, 15, 20]) {
+        let totalMax = 0, totalAvg = 0, runs = 5;
+        for (let t = 0; t < runs; t++) {
+          const result = generate(courts, players, rounds);
+          const s = courtDiffStats(result);
+          totalMax = Math.max(totalMax, s.maxDiff);
+          totalAvg += s.avgDiff;
+        }
+        console.log(`  ${courts}c×${players}p×${rounds}r | ${String(totalMax).padStart(4)}   | ${(totalAvg/runs).toFixed(2)}    |`);
+      }
+    }
+  }
+
+  // フェアネス全構成テスト：最大差が一定以下か
+  console.log('\n=== 全構成でのコート最大差統計 ===');
+  const buckets = { '0-1': 0, '2': 0, '3': 0, '4+': 0 };
+  let total = 0;
+  for (const courts of [2, 3, 4]) {
+    for (let players = courts * 4; players <= 24; players++) {
+      for (const rounds of [10, 15, 20]) {
+        for (let t = 0; t < 3; t++) {
+          const result = generate(courts, players, rounds);
+          const s = courtDiffStats(result);
+          total++;
+          if (s.maxDiff <= 1) buckets['0-1']++;
+          else if (s.maxDiff === 2) buckets['2']++;
+          else if (s.maxDiff === 3) buckets['3']++;
+          else buckets['4+']++;
+        }
+      }
+    }
+  }
+  console.log(`  全${total}回中:`);
+  console.log(`    最大差 0-1: ${buckets['0-1']} (${(buckets['0-1']/total*100).toFixed(1)}%)`);
+  console.log(`    最大差  2 : ${buckets['2']} (${(buckets['2']/total*100).toFixed(1)}%)`);
+  console.log(`    最大差  3 : ${buckets['3']} (${(buckets['3']/total*100).toFixed(1)}%)`);
+  console.log(`    最大差 4+ : ${buckets['4+']} (${(buckets['4+']/total*100).toFixed(1)}%)`);
+
+  // ユーザー報告のケース（ずっとAコート）を再現させない
+  console.log('\n=== 「ずっと同じコート」回避テスト ===');
+  let stuckCases = 0;
+  let stuckSamples = [];
+  for (let t = 0; t < 30; t++) {
+    const result = generate(4, 16, 15);
+    for (let p = 1; p <= 16; p++) {
+      const counts = [0,1,2,3].map(c => (result.courtHistory[p] && result.courtHistory[p][c]) || 0);
+      const plays = counts.reduce((s,x)=>s+x, 0);
+      // 全試合中、1つのコートに 80%以上集中していたら「ずっと同じ」
+      const mx = Math.max(...counts);
+      if (plays >= 10 && mx / plays >= 0.8) {
+        stuckCases++;
+        if (stuckSamples.length < 3) {
+          stuckSamples.push(`trial${t} player${p}: ${counts.join('/')} (plays=${plays})`);
+        }
+      }
+    }
+  }
+  console.log(`  30試行×16人=${30*16}ケース中、80%以上同コート集中: ${stuckCases}件 ${stuckCases === 0 ? '✅' : '❌'}`);
+  stuckSamples.forEach(s => console.log(`    例: ${s}`));
 }
