@@ -706,10 +706,13 @@ function saveAsImage() {
   });
   totalH += PAD;
 
-  // モバイルCanvasの寸法上限（おおむね8192px）に収まるようDPRを抑制
-  const MAX_DIM = 8192;
-  const maxScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1, maxScale));
+  // モバイルCanvasの寸法上限に収まる範囲で最大解像度を確保
+  // iOS Safari16+ / Android Chrome は16384px、念のため少し余裕を持たせる
+  const MAX_DIM = 16384;
+  const MAX_AREA = 16384 * 4096; // ピクセル総量の保険
+  const dimScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
+  const areaScale = Math.sqrt(MAX_AREA / (W * totalH));
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1, dimScale, areaScale));
   const canvas = document.createElement('canvas');
   canvas.width = W * dpr;
   canvas.height = totalH * dpr;
