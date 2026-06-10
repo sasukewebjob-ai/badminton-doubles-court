@@ -331,6 +331,13 @@ h1 {
       <option value="30">30節</option>
     </select>
   </div>
+  <div class="input-row">
+    <label>休み順</label>
+    <select id="restOrder">
+      <option value="asc" selected>1番から休む</option>
+      <option value="desc">最後の番号から休む</option>
+    </select>
+  </div>
   <div class="info-box" id="infoBox"></div>
   <button class="btn" id="generateBtn" onclick="generate()">コート割を作成</button>
 </div>
@@ -404,6 +411,8 @@ function restoreSession() {
   if (roundSel.querySelector(`option[value="${s.totalRounds}"]`)) {
     roundSel.value = s.totalRounds;
   }
+  // 旧バージョンの保存データには restOrder が無い → 従来仕様の「1番から」
+  document.getElementById('restOrder').value = s.restOrder === 'desc' ? 'desc' : 'asc';
 
   renderResults();
   return true;
@@ -502,10 +511,11 @@ function strideLinearOrder(N, cycle, restCount) {
 // players: 参加者番号の配列（欠番可）
 // initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
 // prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting) {
+// reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
-  const allPlayers = players.slice().sort((a, b) => a - b);
+  const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
   const M = allPlayers.length;
   // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
   const playerAt = pos => allPlayers[pos - 1];
@@ -809,8 +819,9 @@ function generate() {
   const playingCount = courts * 4;
   const restCount = totalPlayers - playingCount;
 
+  const restOrder = document.getElementById('restOrder').value;
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
-  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS);
+  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null, restOrder === 'desc');
 
   const pairHistory = {};
   const opponentHistory = {};
@@ -839,6 +850,7 @@ function generate() {
     totalRounds: TOTAL_ROUNDS,
     initialCourts: courts,
     courts,
+    restOrder,
     players: allPlayers.slice(),
     everPlayers: allPlayers.slice(),
     maxNumber: totalPlayers,
@@ -914,7 +926,7 @@ function applyMemberChange() {
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc');
 
   // 残りの節を、引き継いだ履歴をもとに再生成
   const newRounds = [];

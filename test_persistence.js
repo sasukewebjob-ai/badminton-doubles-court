@@ -94,6 +94,37 @@ function check(name, cond) {
   check('壊れたデータでもエラーなく起動', await page.locator('#generateBtn').count() === 1);
   check('復元はされない', await page.locator('.round-card').count() === 0);
 
+  // --- 6. 休み順の逆順オプション ---
+  console.log('[6] 休み順「最後の番号から」');
+  await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
+  await page.reload();
+  await page.selectOption('#courtCount', '2');
+  await page.selectOption('#playerCount', '10');
+  await page.selectOption('#roundCount', '10');
+  await page.selectOption('#restOrder', 'desc');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  const firstRest = await page.locator('.round-card .rest-badge').first().textContent();
+  check('第1節の休みが9・10番', firstRest.includes('9番') && firstRest.includes('10番'));
+
+  await page.reload();
+  await page.waitForSelector('.round-card');
+  check('リロード後も休み順desc復元', await page.inputValue('#restOrder') === 'desc');
+  const firstRest2 = await page.locator('.round-card .rest-badge').first().textContent();
+  check('復元後も第1節は9・10番', firstRest2.includes('9番') && firstRest2.includes('10番'));
+
+  // メンバー変更後も逆順を引き継ぐ（11番追加→以降の新規休みは大きい番号優先のまま公平）
+  await page.selectOption('#consumedRound', '2');
+  await page.selectOption('#addCount', '1');
+  await page.click('.btn-change');
+  await page.waitForSelector('.change-divider');
+  const keepsReverse = await page.evaluate(() => session.restOrder === 'desc');
+  check('変更後もsession.restOrder=desc', keepsReverse);
+
+  const overflow2 = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check('休み順セレクト追加後も375pxはみ出しなし', overflow2 <= 0);
+
   await browser.close();
   console.log(`\n結果: ${pass} OK / ${fail} NG`);
   process.exit(fail > 0 ? 1 : 0);

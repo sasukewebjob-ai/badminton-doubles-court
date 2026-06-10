@@ -41,10 +41,10 @@ function playersN(n) {
 // players: 参加者番号の配列（欠番可）
 // initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
 // prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting) {
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
-  const allPlayers = players.slice().sort((a, b) => a - b);
+  const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
   const M = allPlayers.length;
   // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
   const playerAt = pos => allPlayers[pos - 1];
@@ -895,3 +895,79 @@ changeErrors += validateChangeScenario('2c10p15節 7節終了時 +1人/−1人(4
 }
 
 console.log(changeErrors === 0 ? '\n✅ メンバー途中変更 全テスト合格' : `\n❌ メンバー途中変更 ${changeErrors}件のエラー`);
+
+// =========================
+// 休み順の逆順化（最後の番号から休む）検証
+// =========================
+console.log('\n=== 休み順逆順化（reverse） 検証 ===');
+{
+  let revErrors = 0;
+
+  // 1. 第1節は最大番号側から休む（N=10, r=2 → [9,10]）
+  {
+    const sched = generateRestSchedule(playersN(10), 2, 10, null, null, true);
+    const expectFirst5 = [[9,10],[7,8],[5,6],[3,4],[1,2]];
+    let ok = true;
+    for (let i = 0; i < 5; i++) {
+      if (JSON.stringify(sched[i]) !== JSON.stringify(expectFirst5[i])) ok = false;
+    }
+    console.log(`  ${ok ? '✅' : '❌'} N=10 r=2: 1周目が[9,10]→[7,8]→…→[1,2]`);
+    if (!ok) { revErrors++; sched.slice(0,5).forEach((g,i)=>console.log(`     節${i+1}: [${g}]`)); }
+  }
+
+  // 2. ミラー性: reverse版 = 通常版を p→N+1-p で写像したものと完全一致
+  {
+    let fails = 0, total = 0;
+    for (const courts of [2, 3, 4]) {
+      for (let players = courts * 4 + 1; players <= 24; players++) {
+        for (const rounds of [10, 15, 30]) {
+          const restCount = players - courts * 4;
+          const asc = generateRestSchedule(playersN(players), restCount, rounds);
+          const desc = generateRestSchedule(playersN(players), restCount, rounds, null, null, true);
+          const mirrored = asc.map(g => g.map(p => players + 1 - p).sort((a, b) => a - b));
+          total++;
+          if (JSON.stringify(desc) !== JSON.stringify(mirrored)) fails++;
+        }
+      }
+    }
+    console.log(`  ${fails === 0 ? '✅' : '❌'} ミラー性: ${total}構成中${total - fails}構成で 逆順=通常の鏡像`);
+    if (fails > 0) revErrors++;
+  }
+
+  // 3. 公平性: 逆順でも休み回数の差≤1
+  {
+    let fails = 0, total = 0;
+    for (const courts of [2, 3, 4]) {
+      for (let players = courts * 4 + 1; players <= 24; players++) {
+        for (const rounds of [10, 15, 20, 25, 30]) {
+          const restCount = players - courts * 4;
+          const sched = generateRestSchedule(playersN(players), restCount, rounds, null, null, true);
+          const cnt = {};
+          for (let p = 1; p <= players; p++) cnt[p] = 0;
+          sched.forEach(g => g.forEach(p => cnt[p]++));
+          const vals = Object.values(cnt);
+          total++;
+          if (Math.max(...vals) - Math.min(...vals) > 1) fails++;
+        }
+      }
+    }
+    console.log(`  ${fails === 0 ? '✅' : '❌'} 休み均等化: ${total}構成中${total - fails}構成で差≤1`);
+    if (fails > 0) revErrors++;
+  }
+
+  // 4. 欠番あり（途中離脱後の番号構成）でも逆順が機能する
+  {
+    const players = [1, 2, 4, 5, 6, 8, 9, 10, 11, 12]; // 3,7欠番
+    const sched = generateRestSchedule(players, 2, 10, null, null, true);
+    const ok1 = JSON.stringify(sched[0]) === JSON.stringify([11, 12]);
+    const cnt = {};
+    players.forEach(p => cnt[p] = 0);
+    sched.forEach(g => g.forEach(p => cnt[p]++));
+    const vals = Object.values(cnt);
+    const ok2 = Math.max(...vals) - Math.min(...vals) <= 1;
+    console.log(`  ${ok1 && ok2 ? '✅' : '❌'} 欠番あり(3,7抜け): 第1節[11,12]・差≤1`);
+    if (!(ok1 && ok2)) revErrors++;
+  }
+
+  console.log(revErrors === 0 ? '\n✅ 休み順逆順化 全テスト合格' : `\n❌ 休み順逆順化 ${revErrors}件のエラー`);
+}
