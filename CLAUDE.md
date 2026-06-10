@@ -33,6 +33,7 @@
 - `index.html` … 本体（GitHub Pages のエントリポイント）
 - `test_algorithm.js` … アルゴリズム検証用テスト（Node.jsで実行）
 - `test_persistence.js` … localStorage永続化のブラウザ検証（Playwright、375px幅）
+- `check_deploy.js` … デプロイ後に本番URLで動作確認するスクリプト（Playwright）
 
 ## 公開URL
 - https://sasukewebjob-ai.github.io/badminton-doubles-court/
