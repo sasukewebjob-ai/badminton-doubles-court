@@ -34,24 +34,39 @@ function strideLinearOrder(N, cycle, restCount) {
   return makeStrideGroups(N, cycle, restCount).flat();
 }
 
-function generateRestSchedule(totalPlayers, restCount) {
-  if (restCount === 0) return Array.from({length: TOTAL_ROUNDS}, () => []);
-  const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
+function playersN(n) {
+  return Array.from({length: n}, (_, i) => i + 1);
+}
+
+// players: 参加者番号の配列（欠番可）
+// initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
+// prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting) {
+  if (restCount === 0) return Array.from({length: numRounds}, () => []);
+
+  const allPlayers = players.slice().sort((a, b) => a - b);
+  const M = allPlayers.length;
+  // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
+  const playerAt = pos => allPlayers[pos - 1];
+
   const restCounts = {};
   const boundaryHits = {};
-  allPlayers.forEach(p => { restCounts[p] = 0; boundaryHits[p] = 0; });
+  allPlayers.forEach(p => {
+    restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    boundaryHits[p] = 0;
+  });
 
   const restSchedule = [];
-  let prevSet = new Set();
+  let prevSet = new Set(prevResting || []);
   const linearOrderCache = {};
   const getLinearOrder = (cycle) => {
     if (!linearOrderCache[cycle]) {
-      linearOrderCache[cycle] = strideLinearOrder(totalPlayers, cycle, restCount);
+      linearOrderCache[cycle] = strideLinearOrder(M, cycle, restCount).map(playerAt);
     }
     return linearOrderCache[cycle];
   };
 
-  while (restSchedule.length < TOTAL_ROUNDS) {
+  while (restSchedule.length < numRounds) {
     let curMin = Infinity;
     for (const p of allPlayers) {
       if (restCounts[p] < curMin) curMin = restCounts[p];
@@ -302,8 +317,8 @@ function generate(courts, totalPlayers, numRounds) {
   TOTAL_ROUNDS = numRounds || 20;
   const playingCount = courts * 4;
   const restCount = totalPlayers - playingCount;
-  const restSchedule = generateRestSchedule(totalPlayers, restCount);
-  const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
+  const allPlayers = playersN(totalPlayers);
+  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS);
   const pairHistory = {};
   const opponentHistory = {};
   const restHistory = {};
@@ -322,6 +337,75 @@ function generate(courts, totalPlayers, numRounds) {
     rounds.push({ round: r + 1, resting, assignments });
   }
   return { rounds, courts, totalPlayers, restCount, restHistory, pairHistory, opponentHistory, courtHistory };
+}
+
+// --- メンバー途中変更（index.html の applyMemberChange と同じロジック） ---
+function generateSession(courts, totalPlayers, numRounds) {
+  const res = generate(courts, totalPlayers, numRounds);
+  return {
+    totalRounds: numRounds,
+    initialCourts: courts,
+    courts,
+    players: playersN(totalPlayers),
+    everPlayers: playersN(totalPlayers),
+    maxNumber: totalPlayers,
+    changes: [],
+    rounds: res.rounds
+  };
+}
+
+function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCourts) {
+  const remaining = session.totalRounds - consumed;
+
+  const removedSet = new Set(removeNumbers);
+  const continuing = session.players.filter(p => !removedSet.has(p));
+  const newNumbers = [];
+  for (let i = 1; i <= addCount; i++) newNumbers.push(session.maxNumber + i);
+  const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
+
+  const kept = session.rounds.slice(0, consumed);
+  const pairHistory = {};
+  const opponentHistory = {};
+  const courtHistory = {};
+  const restHistory = {};
+  session.everPlayers.concat(newNumbers).forEach(p => restHistory[p] = 0);
+  for (const round of kept) {
+    round.resting.forEach(p => restHistory[p]++);
+    updateHistories(round.assignments, pairHistory, opponentHistory);
+    updateCourtHistory(round.assignments, courtHistory);
+  }
+
+  const contCounts = continuing.map(p => restHistory[p]);
+  const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
+  const initialRestCounts = {};
+  continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+  newNumbers.forEach(p => initialRestCounts[p] = minCont);
+
+  const restCount = newPlayers.length - newCourts * 4;
+  const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting);
+
+  const newRounds = [];
+  for (let r = 0; r < remaining; r++) {
+    const resting = restSchedule[r];
+    const restSet = new Set(resting);
+    const active = newPlayers.filter(p => !restSet.has(p));
+    resting.forEach(p => restHistory[p]++);
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory);
+    assignments = balanceCourts(assignments, courtHistory);
+    updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
+    newRounds.push({ round: consumed + r + 1, resting, assignments });
+  }
+
+  session.rounds = kept.concat(newRounds);
+  session.players = newPlayers;
+  session.everPlayers = session.everPlayers.concat(newNumbers);
+  session.maxNumber += addCount;
+  session.courts = newCourts;
+  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, courts: newCourts });
+
+  return { newNumbers, initialRestCounts };
 }
 
 // =========================
@@ -523,7 +607,7 @@ function arraysEqual(a, b) {
 
 function strideTest(label, N, restCount, totalRounds, expectedRounds) {
   TOTAL_ROUNDS = totalRounds;
-  const sched = generateRestSchedule(N, restCount);
+  const sched = generateRestSchedule(playersN(N), restCount, totalRounds);
   let ok = true;
   for (let i = 0; i < expectedRounds.length; i++) {
     if (!arraysEqual(sched[i], expectedRounds[i])) {
@@ -561,7 +645,7 @@ strideTest('N=12 r=3 cycle1-2', 12, 3, 8, [
 console.log('\n=== 境目公平性検証 (N=22, r=3, 30節) ===');
 {
   TOTAL_ROUNDS = 30;
-  const sched = generateRestSchedule(22, 3);
+  const sched = generateRestSchedule(playersN(22), 3, 30);
   // 各人の休み回数
   const counts = {};
   for (let p = 1; p <= 22; p++) counts[p] = 0;
@@ -591,7 +675,7 @@ console.log('\n=== 休み均等化（差≤1）全構成テスト ===');
         const restCount = players - courts * 4;
         if (restCount === 0) continue;
         TOTAL_ROUNDS = rounds;
-        const sched = generateRestSchedule(players, restCount);
+        const sched = generateRestSchedule(playersN(players), restCount, rounds);
         const cnt = {};
         for (let p = 1; p <= players; p++) cnt[p] = 0;
         sched.forEach(g => g.forEach(p => cnt[p]++));
@@ -707,3 +791,107 @@ console.log('\n=== コート均等化検証 ===');
   console.log(`  30試行×16人=${30*16}ケース中、80%以上同コート集中: ${stuckCases}件 ${stuckCases === 0 ? '✅' : '❌'}`);
   stuckSamples.forEach(s => console.log(`    例: ${s}`));
 }
+
+// =========================
+// メンバー途中変更 検証
+// =========================
+console.log('\n=== メンバー途中変更 検証 ===');
+
+function roundPlayers(round) {
+  const ps = [...round.resting];
+  round.assignments.forEach(m => ps.push(...m.pair1, ...m.pair2));
+  return ps;
+}
+
+function validateChangeScenario(label, courts, players, totalRounds, consumed, addCount, removeNumbers, newCourts, opts) {
+  const errors = [];
+  const trials = 3;
+  let maxOppSeen = 0;
+  for (let t = 0; t < trials; t++) {
+    const sess = generateSession(courts, players, totalRounds);
+    const origRounds = JSON.parse(JSON.stringify(sess.rounds));
+    const { newNumbers, initialRestCounts } = applyMemberChangeTest(sess, consumed, addCount, removeNumbers, newCourts);
+
+    // 1. 消化済み節が不変
+    for (let i = 0; i < consumed; i++) {
+      if (JSON.stringify(sess.rounds[i]) !== JSON.stringify(origRounds[i])) {
+        errors.push(`第${i+1}節（消化済み）が変わってしまった`);
+      }
+    }
+    // 2. 変更後: 参加者がちょうど揃い、離脱者・重複なし、コート数一致
+    const newSet = new Set(sess.players);
+    for (let i = consumed; i < totalRounds; i++) {
+      const r = sess.rounds[i];
+      const ps = roundPlayers(r);
+      if (ps.length !== sess.players.length) errors.push(`第${i+1}節 人数不一致 ${ps.length}≠${sess.players.length}`);
+      const seen = new Set();
+      for (const p of ps) {
+        if (seen.has(p)) errors.push(`第${i+1}節 ${p}番が重複`);
+        seen.add(p);
+        if (!newSet.has(p)) errors.push(`第${i+1}節 不参加の${p}番が登場`);
+      }
+      if (r.assignments.length !== newCourts) errors.push(`第${i+1}節 コート数 ${r.assignments.length}≠${newCourts}`);
+    }
+    // 3. 変更前に新規参加者が登場しない
+    for (let i = 0; i < consumed; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      for (const p of newNumbers) {
+        if (ps.includes(p)) errors.push(`新規${p}番が変更前の第${i+1}節に登場`);
+      }
+    }
+    // 4. ペア厳守（余裕のある構成のみ）: 全節通して同じペアが2回発生しないこと
+    if (opts && opts.strictPair) {
+      const pairHistory = {};
+      sess.rounds.forEach(r => updateHistories(r.assignments, pairHistory, {}));
+      let maxPair = 0;
+      for (const a in pairHistory) for (const b in pairHistory[a]) maxPair = Math.max(maxPair, pairHistory[a][b]);
+      if (maxPair > 1) errors.push(`同じペアが${maxPair}回発生（厳守違反）`);
+    }
+    // 5. 休み公平性: 仮想カウント（引き継ぎ初期値＋変更後実績）の差 ≤ 1
+    if (sess.players.length > newCourts * 4) {
+      const virtual = Object.assign({}, initialRestCounts);
+      for (let i = consumed; i < totalRounds; i++) {
+        sess.rounds[i].resting.forEach(p => virtual[p]++);
+      }
+      const vals = sess.players.map(p => virtual[p]);
+      const diff = Math.max(...vals) - Math.min(...vals);
+      if (diff > 1) errors.push(`変更後の休み公平性 差=${diff} > 1`);
+    }
+    // 6. 対戦回数の最大値（参考情報）
+    {
+      const oppHistory = {};
+      sess.rounds.forEach(r => updateHistories(r.assignments, {}, oppHistory));
+      for (const a in oppHistory) for (const b in oppHistory[a]) maxOppSeen = Math.max(maxOppSeen, oppHistory[a][b]);
+    }
+  }
+  const ok = errors.length === 0;
+  console.log(`  ${ok ? '✅' : '❌'} ${label}（最大対戦${maxOppSeen}回）`);
+  errors.slice(0, 5).forEach(e => console.log(`     - ${e}`));
+  return errors.length;
+}
+
+let changeErrors = 0;
+changeErrors += validateChangeScenario('4c20p15節 5節終了時 +2人/−2人(3,7番)', 4, 20, 15, 5, 2, [3, 7], 4, { strictPair: true });
+changeErrors += validateChangeScenario('4c18p12節 4節終了時 −2人(5,9番)→3コート', 4, 18, 12, 4, 0, [5, 9], 3, { strictPair: true });
+changeErrors += validateChangeScenario('4c18p12節 4節終了時 −5人→3コート', 4, 18, 12, 4, 0, [2, 5, 9, 11, 17], 3, {});
+changeErrors += validateChangeScenario('4c16p10節(休みなし) 3節終了時 +2人', 4, 16, 10, 3, 2, [], 4, { strictPair: true });
+changeErrors += validateChangeScenario('4c17p10節 5節終了時 −1人(17番)→休みなし', 4, 17, 10, 5, 0, [17], 4, { strictPair: true });
+changeErrors += validateChangeScenario('2c10p15節 7節終了時 +1人/−1人(4番)', 2, 10, 15, 7, 1, [4], 2, {});
+
+// 二重変更（変更のあとにさらに変更。直前変更で入った人の離脱も含む）
+{
+  const sess = generateSession(4, 20, 15);
+  applyMemberChangeTest(sess, 5, 2, [3, 7], 4);
+  const before = JSON.parse(JSON.stringify(sess.rounds.slice(0, 8)));
+  applyMemberChangeTest(sess, 8, 1, [21], 4);
+  let ok = JSON.stringify(sess.rounds.slice(0, 8)) === JSON.stringify(before);
+  for (let i = 8; i < 15; i++) {
+    const ps = roundPlayers(sess.rounds[i]);
+    if (ps.includes(21) || ps.includes(3) || ps.includes(7)) ok = false;
+    if (!ps.includes(23)) ok = false; // 2回目の追加者
+  }
+  console.log(`  ${ok ? '✅' : '❌'} 二重変更（5節後 +21,22/−3,7 → 8節後 +23/−21）`);
+  if (!ok) changeErrors++;
+}
+
+console.log(changeErrors === 0 ? '\n✅ メンバー途中変更 全テスト合格' : `\n❌ メンバー途中変更 ${changeErrors}件のエラー`);

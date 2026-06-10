@@ -178,6 +178,73 @@ h1 {
   color: #555;
   line-height: 1.6;
 }
+
+.change-divider {
+  background: #fff3e0;
+  border-left: 4px solid #ff9800;
+  color: #e65100;
+  font-weight: bold;
+  font-size: 0.88em;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 14px 0 12px;
+}
+.change-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-top: 4px solid #ff9800;
+}
+.change-section h2 {
+  font-size: 1.05em;
+  margin-bottom: 8px;
+  color: #e65100;
+}
+.change-info {
+  font-size: 0.82em;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.chips-label {
+  font-weight: bold;
+  font-size: 0.95em;
+  margin-bottom: 6px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.chip {
+  padding: 7px 13px;
+  border-radius: 18px;
+  border: 1.5px solid #bbb;
+  background: #f8f9fa;
+  color: #333;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.chip.selected {
+  background: #e74c3c;
+  color: #fff;
+  border-color: #e74c3c;
+  font-weight: bold;
+}
+.btn-change {
+  background: linear-gradient(135deg, #e67e22, #f39c12);
+}
+.player-note {
+  font-size: 0.78em;
+  color: #999;
+}
+.departed-row td {
+  color: #aaa;
+  background: #fafafa;
+}
 .btn-save {
   display: block;
   width: 100%;
@@ -249,6 +316,9 @@ h1 {
 const COURT_LABELS = ['A','B','C','D'];
 let TOTAL_ROUNDS = 20;
 let lastRounds = null;
+// セッション状態（途中のメンバー変更に使用）
+// players: 現在の参加者番号 / everPlayers: 参加経験のある全番号 / changes: 変更履歴
+let session = null;
 
 // --- UI初期化 ---
 function initUI() {
@@ -340,25 +410,35 @@ function strideLinearOrder(N, cycle, restCount) {
   return makeStrideGroups(N, cycle, restCount).flat();
 }
 
-function generateRestSchedule(totalPlayers, restCount) {
-  if (restCount === 0) return Array.from({length: TOTAL_ROUNDS}, () => []);
+// players: 参加者番号の配列（欠番可）
+// initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
+// prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting) {
+  if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
-  const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
+  const allPlayers = players.slice().sort((a, b) => a - b);
+  const M = allPlayers.length;
+  // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
+  const playerAt = pos => allPlayers[pos - 1];
+
   const restCounts = {};
   const boundaryHits = {};
-  allPlayers.forEach(p => { restCounts[p] = 0; boundaryHits[p] = 0; });
+  allPlayers.forEach(p => {
+    restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    boundaryHits[p] = 0;
+  });
 
   const restSchedule = [];
-  let prevSet = new Set();
+  let prevSet = new Set(prevResting || []);
   const linearOrderCache = {};
   const getLinearOrder = (cycle) => {
     if (!linearOrderCache[cycle]) {
-      linearOrderCache[cycle] = strideLinearOrder(totalPlayers, cycle, restCount);
+      linearOrderCache[cycle] = strideLinearOrder(M, cycle, restCount).map(playerAt);
     }
     return linearOrderCache[cycle];
   };
 
-  while (restSchedule.length < TOTAL_ROUNDS) {
+  while (restSchedule.length < numRounds) {
     let curMin = Infinity;
     for (const p of allPlayers) {
       if (restCounts[p] < curMin) curMin = restCounts[p];
@@ -637,8 +717,8 @@ function generate() {
   const playingCount = courts * 4;
   const restCount = totalPlayers - playingCount;
 
-  const restSchedule = generateRestSchedule(totalPlayers, restCount);
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
+  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS);
 
   const pairHistory = {};
   const opponentHistory = {};
@@ -663,15 +743,147 @@ function generate() {
     rounds.push({ round: r + 1, resting, assignments });
   }
 
+  session = {
+    totalRounds: TOTAL_ROUNDS,
+    initialCourts: courts,
+    courts,
+    players: allPlayers.slice(),
+    everPlayers: allPlayers.slice(),
+    maxNumber: totalPlayers,
+    changes: [],
+    rounds
+  };
   lastRounds = rounds;
-  renderResults(rounds, courts, totalPlayers, restCount, restHistory, pairHistory);
+  renderResults();
+}
+
+// --- メンバー変更（途中追加・離脱） ---
+function toggleChip(btn) {
+  btn.classList.toggle('selected');
+}
+
+function changeLabel(change, prevCourts) {
+  const parts = [];
+  if (change.added.length > 0) parts.push('＋' + change.added.map(p => p + '番').join('・'));
+  if (change.removed.length > 0) parts.push('−' + change.removed.map(p => p + '番').join('・'));
+  if (change.courts !== prevCourts) parts.push(change.courts + 'コートへ変更');
+  return '↻ メンバー変更' + (parts.length > 0 ? '：' + parts.join(' ／ ') : '（組み直し）');
+}
+
+function applyMemberChange() {
+  if (!session) return;
+
+  const consumed = parseInt(document.getElementById('consumedRound').value);
+  const addCount = parseInt(document.getElementById('addCount').value);
+  const newCourts = parseInt(document.getElementById('changeCourtCount').value);
+  const removeNumbers = Array.from(document.querySelectorAll('#removeChips .chip.selected'))
+    .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
+
+  const remaining = session.totalRounds - consumed;
+  if (remaining <= 0) return;
+
+  // 新しい参加者リスト（追加は続き番号、離脱は欠番に）
+  const removedSet = new Set(removeNumbers);
+  const continuing = session.players.filter(p => !removedSet.has(p));
+  const newNumbers = [];
+  for (let i = 1; i <= addCount; i++) newNumbers.push(session.maxNumber + i);
+  const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
+
+  if (newPlayers.length < newCourts * 4) {
+    alert(`人数が足りません。${newCourts}コートには${newCourts * 4}人必要です（変更後: ${newPlayers.length}人）。\nコート数を減らしてください。`);
+    return;
+  }
+  if (newPlayers.length > 24) {
+    alert('参加人数の上限は24人です。');
+    return;
+  }
+
+  // 消化済み節から履歴を再構築
+  const kept = session.rounds.slice(0, consumed);
+  const pairHistory = {};
+  const opponentHistory = {};
+  const courtHistory = {};
+  const restHistory = {};
+  session.everPlayers.concat(newNumbers).forEach(p => restHistory[p] = 0);
+  for (const round of kept) {
+    round.resting.forEach(p => restHistory[p]++);
+    updateHistories(round.assignments, pairHistory, opponentHistory);
+    updateCourtHistory(round.assignments, courtHistory);
+  }
+
+  // 休み回数の引き継ぎ。途中参加者は「現時点の最少回数」扱いで以降を公平に
+  const contCounts = continuing.map(p => restHistory[p]);
+  const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
+  const initialRestCounts = {};
+  continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+  newNumbers.forEach(p => initialRestCounts[p] = minCont);
+
+  const restCount = newPlayers.length - newCourts * 4;
+  const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting);
+
+  // 残りの節を、引き継いだ履歴をもとに再生成
+  const newRounds = [];
+  for (let r = 0; r < remaining; r++) {
+    const resting = restSchedule[r];
+    const restSet = new Set(resting);
+    const active = newPlayers.filter(p => !restSet.has(p));
+
+    resting.forEach(p => restHistory[p]++);
+
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory);
+    assignments = balanceCourts(assignments, courtHistory);
+    updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
+
+    newRounds.push({ round: consumed + r + 1, resting, assignments });
+  }
+
+  session.rounds = kept.concat(newRounds);
+  session.players = newPlayers;
+  session.everPlayers = session.everPlayers.concat(newNumbers);
+  session.maxNumber += addCount;
+  session.courts = newCourts;
+  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, courts: newCourts });
+
+  lastRounds = session.rounds;
+  renderResults();
+  alert(`第${consumed + 1}節以降を作り直しました。`);
 }
 
 // --- 描画 ---
-function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pairHistory) {
+function renderResults() {
+  const rounds = session.rounds;
+  const hasChanges = session.changes.length > 0;
+
+  // 履歴を全節から再計算（途中変更後も常に正確に）
+  const pairHistory = {};
+  const opponentHistory = {};
+  const restHistory = {};
+  session.everPlayers.forEach(p => restHistory[p] = 0);
+  for (const round of rounds) {
+    round.resting.forEach(p => restHistory[p]++);
+    updateHistories(round.assignments, pairHistory, opponentHistory);
+  }
+
+  // 途中参加・離脱の情報
+  const joinedAt = {};   // 番号 → 参加開始節
+  const departedAt = {}; // 番号 → 離脱節（この節から不参加）
+  for (const c of session.changes) {
+    c.added.forEach(p => joinedAt[p] = c.atRound);
+    c.removed.forEach(p => departedAt[p] = c.atRound);
+  }
+
   let html = '';
 
+  let prevCourts = session.initialCourts;
   for (const round of rounds) {
+    const change = session.changes.find(c => c.atRound === round.round);
+    if (change) {
+      html += `<div class="change-divider">${changeLabel(change, prevCourts)}</div>`;
+      prevCourts = change.courts;
+    }
+
     html += `<div class="round-card">`;
     html += `<div class="round-header">`;
     html += `<span>第${round.round}節</span>`;
@@ -708,30 +920,71 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
   html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
   html += `<div id="imagePreview"></div>`;
 
+  // メンバー変更UI
+  const minConsumed = hasChanges
+    ? session.changes[session.changes.length - 1].atRound
+    : 1;
+  html += `<div class="change-section">`;
+  html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
+  html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
+  html += `<div class="input-row"><label>消化済み</label><select id="consumedRound">`;
+  for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
+    html += `<option value="${k}">第${k}節まで終了</option>`;
+  }
+  html += `</select></div>`;
+  html += `<div class="input-row"><label>追加人数</label><select id="addCount">`;
+  for (let i = 0; i <= 8; i++) {
+    const label = i === 0
+      ? 'なし'
+      : `+${i}人（${Array.from({length: i}, (_, j) => (session.maxNumber + 1 + j) + '番').join('・')}）`;
+    html += `<option value="${i}">${label}</option>`;
+  }
+  html += `</select></div>`;
+  html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
+  html += `<div class="chips" id="removeChips">`;
+  for (const p of session.players) {
+    html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+  }
+  html += `</div>`;
+  html += `<div class="input-row"><label>コート数</label><select id="changeCourtCount">`;
+  for (let c = 2; c <= 4; c++) {
+    html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
+  }
+  html += `</select></div>`;
+  html += `<button class="btn btn-change" onclick="applyMemberChange()">残りの節を作り直す</button>`;
+  html += `</div>`;
+
   // 休み履歴
   html += `<div class="stats-section">`;
   html += `<h2>休み回数</h2>`;
   html += `<table class="stats-table">`;
   html += `<tr><th>番号</th><th>休み回数</th><th>休んだ節</th></tr>`;
 
-  const restValues = Object.values(restHistory);
-  const minRest = Math.min(...restValues);
-  const maxRest = Math.max(...restValues);
+  const currentSet = new Set(session.players);
+  const currentRestValues = session.players.map(p => restHistory[p]);
+  const minRest = currentRestValues.length > 0 ? Math.min(...currentRestValues) : 0;
+  const maxRest = currentRestValues.length > 0 ? Math.max(...currentRestValues) : 0;
 
-  for (let p = 1; p <= totalPlayers; p++) {
+  for (const p of session.everPlayers) {
     const restRounds = rounds
       .filter(r => r.resting.includes(p))
       .map(r => r.round);
-    html += `<tr>`;
-    html += `<td>${p}番</td>`;
+    let note = '';
+    if (departedAt[p]) note = `<span class="player-note">（第${departedAt[p]}節〜離脱）</span>`;
+    else if (joinedAt[p]) note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
+    html += `<tr${currentSet.has(p) ? '' : ' class="departed-row"'}>`;
+    html += `<td>${p}番${note}</td>`;
     html += `<td>${restHistory[p]}</td>`;
     html += `<td style="font-size:0.8em">${restRounds.length > 0 ? restRounds.join(', ') : '-'}</td>`;
     html += `</tr>`;
   }
   html += `</table>`;
   html += `<div style="margin-top:8px;font-size:0.82em;color:#666">`;
-  if (restCount > 0) {
-    html += `休み回数: 最小${minRest}回 〜 最大${maxRest}回（差: ${maxRest - minRest}回）`;
+  if (maxRest > 0) {
+    html += `休み回数（現メンバー）: 最小${minRest}回 〜 最大${maxRest}回（差: ${maxRest - minRest}回）`;
+    if (hasChanges) {
+      html += `<br>※ 途中参加・離脱があるため、在籍期間によって回数に差が出ることがあります`;
+    }
   }
   html += `</div>`;
   html += `</div>`;
@@ -753,7 +1006,8 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
       }
     }
   }
-  const totalPossiblePairs = totalPlayers * (totalPlayers - 1) / 2;
+  const everCount = session.everPlayers.length;
+  const totalPossiblePairs = everCount * (everCount - 1) / 2;
   const neverPaired = totalPossiblePairs - occurredPairs;
 
   html += `<strong>同じペアの回数分布:</strong><br>`;
@@ -765,6 +1019,9 @@ function renderResults(rounds, courts, totalPlayers, restCount, restHistory, pai
     html += `${count}回ペア: ${pairCounts[count]}組<br>`;
   }
   html += `<br><em>※ 全${totalPossiblePairs}組中、組めたのは${occurredPairs}組（ペア回数が少ないほど偏りが小さい）</em>`;
+  if (hasChanges) {
+    html += `<br><em>※ 途中参加・離脱した人を含むため、組めない組み合わせがあります</em>`;
+  }
   html += `</div></div>`;
 
   document.getElementById('results').innerHTML = html;
@@ -797,11 +1054,17 @@ function saveAsImage() {
   const HEADER_H = 44 * SCALE;
   const COURT_H = 38 * SCALE;
   const TITLE_H = 56 * SCALE;
+  const MARK_H = 34 * SCALE; // メンバー変更マーカー帯の高さ
   const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
+
+  const changes = (session && session.changes) || [];
 
   // 高さ計算
   let totalH = PAD + TITLE_H + PAD;
   lastRounds.forEach((round, i) => {
+    if (changes.some(c => c.atRound === round.round)) {
+      totalH += MARK_H + CARD_GAP;
+    }
     totalH += HEADER_H + round.assignments.length * COURT_H;
     if (i < lastRounds.length - 1) totalH += CARD_GAP;
   });
@@ -836,10 +1099,39 @@ function saveAsImage() {
 
   // 各節カード
   let y = PAD + TITLE_H;
+  let prevCourts = session ? session.initialCourts : lastRounds[0].assignments.length;
   for (let ri = 0; ri < lastRounds.length; ri++) {
     const round = lastRounds[ri];
     const cardH = HEADER_H + round.assignments.length * COURT_H;
     const cardW = W - PAD * 2;
+
+    // メンバー変更マーカー帯
+    const change = changes.find(c => c.atRound === round.round);
+    if (change) {
+      ctx.fillStyle = '#fff3e0';
+      roundRectPath(ctx, PAD, y, cardW, MARK_H, 8 * SCALE);
+      ctx.fill();
+      ctx.fillStyle = '#ff9800';
+      ctx.fillRect(PAD, y + 4 * SCALE, 4 * SCALE, MARK_H - 8 * SCALE);
+
+      const label = changeLabel(change, prevCourts);
+      prevCourts = change.courts;
+      // 帯に収まるようフォントサイズを自動調整
+      let fontSize = 13 * SCALE;
+      const maxTextW = cardW - 28 * SCALE;
+      ctx.font = `bold ${fontSize}px ${FONT}`;
+      const textW = ctx.measureText(label).width;
+      if (textW > maxTextW) {
+        fontSize = Math.max(9 * SCALE, fontSize * maxTextW / textW);
+        ctx.font = `bold ${fontSize}px ${FONT}`;
+      }
+      ctx.fillStyle = '#e65100';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, PAD + 14 * SCALE, y + MARK_H / 2);
+
+      y += MARK_H + CARD_GAP;
+    }
 
     // カード背景（白角丸）+ シャドウ
     ctx.save();
