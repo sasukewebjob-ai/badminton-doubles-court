@@ -246,6 +246,30 @@ h1 {
   color: #aaa;
   background: #fafafa;
 }
+.restore-banner {
+  background: #fff8e1;
+  border: 1.5px solid #f0c36d;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.88em;
+  color: #6d5a1e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.restore-banner button {
+  border: 1px solid #d9b85c;
+  background: #fff;
+  color: #8a6d1f;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 .btn-save {
   display: block;
   width: 100%;
@@ -320,6 +344,70 @@ let lastRounds = null;
 // セッション状態（途中のメンバー変更に使用）
 // players: 現在の参加者番号 / everPlayers: 参加経験のある全番号 / changes: 変更履歴
 let session = null;
+
+// --- localStorage永続化 ---
+// 体育館でタブが落ちても状態が残るよう、生成・メンバー変更のたびに保存する
+const STORAGE_KEY = 'badminton-court-session-v1';
+let restoredAt = null; // 復元直後のみ保存日時が入る（バナー表示用）
+
+function saveSession() {
+  if (!session) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, savedAt: Date.now(), session }));
+  } catch (e) {
+    // プライベートモード等で保存できなくてもアプリは継続
+  }
+}
+
+function clearSavedSession() {
+  if (!confirm('保存されたコート割を消去して、最初からやり直しますか？')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  session = null;
+  lastRounds = null;
+  restoredAt = null;
+  document.getElementById('results').replaceChildren();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function restoreSession() {
+  let data;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch (e) {
+    return false;
+  }
+  const s = data && data.session;
+  if (!s || !Array.isArray(s.rounds) || s.rounds.length === 0 ||
+      !Array.isArray(s.players) || !Array.isArray(s.everPlayers) || !Array.isArray(s.changes)) {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    return false;
+  }
+  session = s;
+  lastRounds = s.rounds;
+  TOTAL_ROUNDS = s.totalRounds;
+  restoredAt = data.savedAt || null;
+
+  // 入力欄も復元したセッションに合わせる（次回再生成時の初期値として自然に）
+  const courtSel = document.getElementById('courtCount');
+  if (courtSel.querySelector(`option[value="${s.courts}"]`)) {
+    courtSel.value = s.courts;
+    courtSel.dispatchEvent(new Event('change')); // 人数の選択肢を再構築
+  }
+  const playerSel = document.getElementById('playerCount');
+  if (playerSel.querySelector(`option[value="${s.players.length}"]`)) {
+    playerSel.value = s.players.length;
+    updateInfo();
+  }
+  const roundSel = document.getElementById('roundCount');
+  if (roundSel.querySelector(`option[value="${s.totalRounds}"]`)) {
+    roundSel.value = s.totalRounds;
+  }
+
+  renderResults();
+  return true;
+}
 
 // --- UI初期化 ---
 function initUI() {
@@ -712,6 +800,9 @@ function addHistory(hist, a, b) {
 
 // --- メイン生成 ---
 function generate() {
+  // 保存済みの状態を誤タップで失わないよう、既存セッションがあるときは確認する
+  if (session && !confirm('現在のコート割を破棄して、新しく作成しますか？')) return;
+
   TOTAL_ROUNDS = parseInt(document.getElementById('roundCount').value);
   const courts = parseInt(document.getElementById('courtCount').value);
   const totalPlayers = parseInt(document.getElementById('playerCount').value);
@@ -755,6 +846,8 @@ function generate() {
     rounds
   };
   lastRounds = rounds;
+  restoredAt = null;
+  saveSession();
   renderResults();
 }
 
@@ -848,6 +941,8 @@ function applyMemberChange() {
   session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, courts: newCourts });
 
   lastRounds = session.rounds;
+  restoredAt = null;
+  saveSession();
   renderResults();
   alert(`第${consumed + 1}節以降を作り直しました。`);
 }
@@ -876,6 +971,13 @@ function renderResults() {
   }
 
   let html = '';
+
+  if (restoredAt) {
+    const d = new Date(restoredAt);
+    const ts = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    html += `<div class="restore-banner">💾 前回のコート割を復元しました（${ts} 保存）`;
+    html += `<button onclick="clearSavedSession()">消去して最初から</button></div>`;
+  }
 
   let prevCourts = session.initialCourts;
   for (const round of rounds) {
@@ -1267,6 +1369,7 @@ function saveAsImage() {
 
 // 起動
 initUI();
+restoreSession();
 </script>
 
 </body>
