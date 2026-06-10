@@ -354,14 +354,14 @@ function generateSession(courts, totalPlayers, numRounds) {
   };
 }
 
-function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCourts) {
+function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCourts, returnNumbers = []) {
   const remaining = session.totalRounds - consumed;
 
   const removedSet = new Set(removeNumbers);
   const continuing = session.players.filter(p => !removedSet.has(p));
   const newNumbers = [];
   for (let i = 1; i <= addCount; i++) newNumbers.push(session.maxNumber + i);
-  const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
+  const newPlayers = continuing.concat(returnNumbers).concat(newNumbers).sort((a, b) => a - b);
 
   const kept = session.rounds.slice(0, consumed);
   const pairHistory = {};
@@ -379,6 +379,7 @@ function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCo
   const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
   const initialRestCounts = {};
   continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+  returnNumbers.forEach(p => initialRestCounts[p] = Math.max(restHistory[p], minCont));
   newNumbers.forEach(p => initialRestCounts[p] = minCont);
 
   const restCount = newPlayers.length - newCourts * 4;
@@ -403,7 +404,7 @@ function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCo
   session.everPlayers = session.everPlayers.concat(newNumbers);
   session.maxNumber += addCount;
   session.courts = newCourts;
-  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, courts: newCourts });
+  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, returned: returnNumbers, courts: newCourts });
 
   return { newNumbers, initialRestCounts };
 }
@@ -970,4 +971,108 @@ console.log('\n=== 休み順逆順化（reverse） 検証 ===');
   }
 
   console.log(revErrors === 0 ? '\n✅ 休み順逆順化 全テスト合格' : `\n❌ 休み順逆順化 ${revErrors}件のエラー`);
+}
+
+// =========================
+// 離脱者の同番号復帰 検証
+// =========================
+console.log('\n=== 離脱者の同番号復帰 検証 ===');
+{
+  let retErrors = 0;
+
+  // 1. 基本: 5節後に3,7離脱 → 9節後に3だけ復帰
+  {
+    const sess = generateSession(4, 20, 15);
+    applyMemberChangeTest(sess, 5, 0, [3, 7], 4);
+    const before = JSON.parse(JSON.stringify(sess.rounds.slice(0, 9)));
+    const { initialRestCounts } = applyMemberChangeTest(sess, 9, 0, [], 4, [3]);
+
+    let ok = true;
+    const issues = [];
+    if (JSON.stringify(sess.rounds.slice(0, 9)) !== JSON.stringify(before)) {
+      ok = false; issues.push('消化済み節が変わった');
+    }
+    for (let i = 5; i < 9; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      if (ps.includes(3) || ps.includes(7)) { ok = false; issues.push(`節${i+1}に離脱者が登場`); }
+    }
+    let appears3 = false;
+    for (let i = 9; i < 15; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      if (ps.includes(3)) appears3 = true;
+      if (ps.includes(7)) { ok = false; issues.push(`節${i+1}に7番（離脱中）が登場`); }
+    }
+    if (!appears3) { ok = false; issues.push('復帰した3番が一度も登場しない'); }
+    if (!sess.players.includes(3)) { ok = false; issues.push('playersに3番が戻っていない'); }
+    if (sess.everPlayers.filter(p => p === 3).length !== 1) { ok = false; issues.push('everPlayersに3番が重複'); }
+    if (sess.players.length !== 19) { ok = false; issues.push(`人数が${sess.players.length}（期待19）`); }
+    // 各節で重複・人数不整合がないこと
+    for (let i = 9; i < 15; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      if (new Set(ps).size !== ps.length) { ok = false; issues.push(`節${i+1}で番号重複`); }
+      if (ps.length !== 19) { ok = false; issues.push(`節${i+1}の人数が${ps.length}`); }
+    }
+    console.log(`  ${ok ? '✅' : '❌'} 基本復帰（3番のみ復帰、7番は離脱継続）`);
+    issues.slice(0, 5).forEach(e => console.log(`     - ${e}`));
+    if (!ok) retErrors++;
+  }
+
+  // 2. 復帰と同時に別の人が離脱＋新規追加
+  {
+    const sess = generateSession(4, 18, 12);
+    applyMemberChangeTest(sess, 4, 0, [5], 4);              // 5離脱（17人）
+    applyMemberChangeTest(sess, 7, 1, [10], 4, [5]);        // 5復帰・10離脱・19番追加（18人）
+    let ok = true;
+    for (let i = 7; i < 12; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      if (!ps.includes(5) && !sess.rounds[i].resting.includes(5)) {} // 登場チェックは下でまとめて
+      if (ps.includes(10)) ok = false;
+    }
+    const appears = { 5: false, 19: false };
+    for (let i = 7; i < 12; i++) {
+      const ps = roundPlayers(sess.rounds[i]);
+      if (ps.includes(5)) appears[5] = true;
+      if (ps.includes(19)) appears[19] = true;
+    }
+    if (!appears[5] || !appears[19]) ok = false;
+    if (sess.players.length !== 18) ok = false;
+    console.log(`  ${ok ? '✅' : '❌'} 復帰＋離脱＋新規追加の同時変更`);
+    if (!ok) retErrors++;
+  }
+
+  // 3. 復帰→再離脱
+  {
+    const sess = generateSession(2, 10, 15);
+    applyMemberChangeTest(sess, 4, 0, [4], 2);          // 4離脱
+    applyMemberChangeTest(sess, 8, 0, [], 2, [4]);      // 4復帰
+    applyMemberChangeTest(sess, 11, 0, [4], 2);         // 4再離脱
+    let ok = true;
+    for (let i = 4; i < 8; i++) if (roundPlayers(sess.rounds[i]).includes(4)) ok = false;
+    let appearsMid = false;
+    for (let i = 8; i < 11; i++) if (roundPlayers(sess.rounds[i]).includes(4)) appearsMid = true;
+    if (!appearsMid) ok = false;
+    for (let i = 11; i < 15; i++) if (roundPlayers(sess.rounds[i]).includes(4)) ok = false;
+    console.log(`  ${ok ? '✅' : '❌'} 復帰→再離脱（離脱4節〜・復帰8節〜・再離脱11節〜）`);
+    if (!ok) retErrors++;
+  }
+
+  // 4. 休み履歴の引き継ぎ: 復帰者のinitialRestCountは max(自身の履歴, 現役最少)
+  {
+    const sess = generateSession(4, 20, 15);
+    // 3番の消化済み5節での休み回数を記録
+    let rest3 = 0;
+    for (let i = 0; i < 5; i++) if (sess.rounds[i].resting.includes(3)) rest3++;
+    applyMemberChangeTest(sess, 5, 0, [3], 4);
+    // 9節終了時点の現役の最少休み回数
+    const counts = {};
+    sess.players.forEach(p => counts[p] = 0);
+    for (let i = 0; i < 9; i++) sess.rounds[i].resting.forEach(p => { if (p in counts) counts[p]++; });
+    const minCont = Math.min(...Object.values(counts));
+    const { initialRestCounts } = applyMemberChangeTest(sess, 9, 0, [], 4, [3]);
+    const ok = initialRestCounts[3] === Math.max(rest3, minCont);
+    console.log(`  ${ok ? '✅' : '❌'} 休み履歴引き継ぎ（3番: 自身${rest3}回 vs 現役最少${minCont}回 → ${initialRestCounts[3]}）`);
+    if (!ok) retErrors++;
+  }
+
+  console.log(retErrors === 0 ? '\n✅ 離脱者の同番号復帰 全テスト合格' : `\n❌ 離脱者の同番号復帰 ${retErrors}件のエラー`);
 }

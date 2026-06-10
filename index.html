@@ -235,6 +235,10 @@ h1 {
   border-color: #e74c3c;
   font-weight: bold;
 }
+.chip.chip-return.selected {
+  background: #27ae60;
+  border-color: #27ae60;
+}
 .btn-change {
   background: linear-gradient(135deg, #e67e22, #f39c12);
 }
@@ -871,6 +875,8 @@ function toggleChip(btn) {
 function changeLabel(change, prevCourts) {
   const parts = [];
   if (change.added.length > 0) parts.push('＋' + change.added.map(p => p + '番').join('・'));
+  const returned = change.returned || [];
+  if (returned.length > 0) parts.push('↩ ' + returned.map(p => p + '番').join('・') + ' 復帰');
   if (change.removed.length > 0) parts.push('−' + change.removed.map(p => p + '番').join('・'));
   if (change.courts !== prevCourts) parts.push(change.courts + 'コートへ変更');
   return '↻ メンバー変更' + (parts.length > 0 ? '：' + parts.join(' ／ ') : '（組み直し）');
@@ -884,16 +890,18 @@ function applyMemberChange() {
   const newCourts = parseInt(document.getElementById('changeCourtCount').value);
   const removeNumbers = Array.from(document.querySelectorAll('#removeChips .chip.selected'))
     .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
+  const returnNumbers = Array.from(document.querySelectorAll('#returnChips .chip.selected'))
+    .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
 
   const remaining = session.totalRounds - consumed;
   if (remaining <= 0) return;
 
-  // 新しい参加者リスト（追加は続き番号、離脱は欠番に）
+  // 新しい参加者リスト（追加は続き番号、離脱は欠番に、復帰は同じ番号で）
   const removedSet = new Set(removeNumbers);
   const continuing = session.players.filter(p => !removedSet.has(p));
   const newNumbers = [];
   for (let i = 1; i <= addCount; i++) newNumbers.push(session.maxNumber + i);
-  const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
+  const newPlayers = continuing.concat(returnNumbers).concat(newNumbers).sort((a, b) => a - b);
 
   if (newPlayers.length < newCourts * 4) {
     alert(`人数が足りません。${newCourts}コートには${newCourts * 4}人必要です（変更後: ${newPlayers.length}人）。\nコート数を減らしてください。`);
@@ -922,6 +930,9 @@ function applyMemberChange() {
   const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
   const initialRestCounts = {};
   continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+  // 復帰者は自身の休み履歴を引き継ぐ。不在中に休みが少なくても現役の最少回数までは
+  // 引き上げ、復帰直後に休みが集中しないようにする
+  returnNumbers.forEach(p => initialRestCounts[p] = Math.max(restHistory[p], minCont));
   newNumbers.forEach(p => initialRestCounts[p] = minCont);
 
   const restCount = newPlayers.length - newCourts * 4;
@@ -950,7 +961,7 @@ function applyMemberChange() {
   session.everPlayers = session.everPlayers.concat(newNumbers);
   session.maxNumber += addCount;
   session.courts = newCourts;
-  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, courts: newCourts });
+  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, returned: returnNumbers, courts: newCourts });
 
   lastRounds = session.rounds;
   restoredAt = null;
@@ -974,12 +985,14 @@ function renderResults() {
     updateHistories(round.assignments, pairHistory, opponentHistory);
   }
 
-  // 途中参加・離脱の情報
+  // 途中参加・離脱・復帰の情報（同じ人が複数回出入りしたら最新の状態を採用）
   const joinedAt = {};   // 番号 → 参加開始節
   const departedAt = {}; // 番号 → 離脱節（この節から不参加）
+  const returnedAt = {}; // 番号 → 復帰節
   for (const c of session.changes) {
     c.added.forEach(p => joinedAt[p] = c.atRound);
-    c.removed.forEach(p => departedAt[p] = c.atRound);
+    c.removed.forEach(p => { departedAt[p] = c.atRound; delete returnedAt[p]; });
+    (c.returned || []).forEach(p => returnedAt[p] = c.atRound);
   }
 
   let html = '';
@@ -1063,6 +1076,16 @@ function renderResults() {
     html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
   }
   html += `</div>`;
+  const currentPlayersSet = new Set(session.players);
+  const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p));
+  if (departedNow.length > 0) {
+    html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
+    html += `<div class="chips" id="returnChips">`;
+    for (const p of departedNow) {
+      html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+    }
+    html += `</div>`;
+  }
   html += `<div class="input-row"><label>コート数</label><select id="changeCourtCount">`;
   for (let c = 2; c <= 4; c++) {
     html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
@@ -1087,8 +1110,13 @@ function renderResults() {
       .filter(r => r.resting.includes(p))
       .map(r => r.round);
     let note = '';
-    if (departedAt[p]) note = `<span class="player-note">（第${departedAt[p]}節〜離脱）</span>`;
-    else if (joinedAt[p]) note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
+    if (!currentSet.has(p)) {
+      if (departedAt[p]) note = `<span class="player-note">（第${departedAt[p]}節〜離脱）</span>`;
+    } else if (returnedAt[p]) {
+      note = `<span class="player-note">（第${returnedAt[p]}節〜復帰）</span>`;
+    } else if (joinedAt[p]) {
+      note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
+    }
     html += `<tr${currentSet.has(p) ? '' : ' class="departed-row"'}>`;
     html += `<td>${p}番${note}</td>`;
     html += `<td>${restHistory[p]}</td>`;

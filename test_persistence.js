@@ -125,6 +125,43 @@ function check(name, cond) {
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check('休み順セレクト追加後も375pxはみ出しなし', overflow2 <= 0);
 
+  // --- 7. 離脱者の同番号復帰 ---
+  console.log('[7] 離脱者の同番号復帰');
+  await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
+  await page.reload();
+  await page.selectOption('#courtCount', '2');
+  await page.selectOption('#playerCount', '10');
+  await page.selectOption('#roundCount', '10');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  check('離脱者がいない間は復帰チップ非表示', await page.locator('#returnChips').count() === 0);
+
+  // 2節消化で4番が離脱
+  await page.selectOption('#consumedRound', '2');
+  await page.click('#removeChips .chip[data-num="4"]');
+  await page.click('.btn-change');
+  await page.waitForSelector('.change-divider');
+  check('離脱後に復帰チップが出る', await page.locator('#returnChips .chip[data-num="4"]').count() === 1);
+
+  // 4節消化で4番が復帰
+  await page.selectOption('#consumedRound', '4');
+  await page.click('#returnChips .chip[data-num="4"]');
+  await page.click('.btn-change');
+  await page.waitForSelector('.change-divider:nth-of-type(2)', { timeout: 5000 }).catch(() => {});
+  const returned = await page.evaluate(() => session.players.includes(4) && session.players.length === 10);
+  check('4番が同じ番号で復帰', returned);
+  const bodyText = await page.locator('body').textContent();
+  check('復帰マーカー・注記の表示', bodyText.includes('復帰'));
+  const noDup = await page.evaluate(() => session.everPlayers.filter(p => p === 4).length === 1);
+  check('everPlayersに重複なし', noDup);
+
+  // リロードしても復帰状態が残る
+  await page.reload();
+  await page.waitForSelector('.round-card');
+  const returnedAfterReload = await page.evaluate(() => session.players.includes(4));
+  check('リロード後も復帰状態を復元', returnedAfterReload);
+  check('復帰後は復帰チップ非表示', await page.locator('#returnChips').count() === 0);
+
   await browser.close();
   console.log(`\n結果: ${pass} OK / ${fail} NG`);
   process.exit(fail > 0 ? 1 : 0);
