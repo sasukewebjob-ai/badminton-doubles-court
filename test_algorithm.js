@@ -106,7 +106,7 @@ function generateRestSchedule(totalPlayers, restCount) {
 }
 
 function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
-  const bestResult = { assignments: null, score: Infinity };
+  const candidates = [];
   for (let trial = 0; trial < 150; trial++) {
     const shuffled = activePlayers.slice();
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -117,12 +117,51 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
     if (!pairs) continue;
     const courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
     const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory);
-    if (score < bestResult.score) {
-      bestResult.score = score;
-      bestResult.assignments = courtAssignments;
+    candidates.push({ assignments: courtAssignments, score });
+  }
+  // 上位5候補を局所探索で磨き、最良を採用
+  candidates.sort((a, b) => a.score - b.score);
+  const best = { assignments: null, score: Infinity };
+  for (const cand of candidates.slice(0, 5)) {
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory);
+    if (r.score < best.score) {
+      best.score = r.score;
+      best.assignments = r.assignments;
     }
   }
-  return bestResult.assignments;
+  return best.assignments;
+}
+
+// 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
+function localSearchImprove(assignments, pairHistory, opponentHistory) {
+  let current = JSON.parse(JSON.stringify(assignments));
+  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory);
+  let improved = true;
+  while (improved) {
+    improved = false;
+    const positions = [];
+    current.forEach((c, ci) => {
+      positions.push([ci, 1, 0], [ci, 1, 1], [ci, 2, 0], [ci, 2, 1]);
+    });
+    for (let x = 0; x < positions.length; x++) {
+      for (let y = x + 1; y < positions.length; y++) {
+        const [ci1, pi1, s1] = positions[x];
+        const [ci2, pi2, s2] = positions[y];
+        if (ci1 === ci2 && pi1 === pi2) continue; // 同一ペア内の入替は結果が変わらない
+        const trial = JSON.parse(JSON.stringify(current));
+        const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
+        const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
+        const tmp = arr1[s1]; arr1[s1] = arr2[s2]; arr2[s2] = tmp;
+        const sc = evaluateAssignment(trial, pairHistory, opponentHistory);
+        if (sc < bestScore) {
+          bestScore = sc;
+          current = trial;
+          improved = true;
+        }
+      }
+    }
+  }
+  return { assignments: current, score: bestScore };
 }
 
 function greedyPairing(players, pairHistory) {
@@ -175,16 +214,19 @@ function assignPairsToCourts(pairs, courts, opponentHistory) {
   return courtAssignments;
 }
 
+// ペア回数は最優先（重み1000）、対戦相手は回数が多いほど急増する超線形ペナルティ
+// (c+1)^2 : 0回→1, 1回→4, 2回→9, 3回→16 …「同じ相手と3回目・4回目」を強く回避
 function evaluateAssignment(assignments, pairHistory, opponentHistory) {
   if (!assignments) return Infinity;
   let score = 0;
   for (const court of assignments) {
     const p1 = (pairHistory[court.pair1[0]] && pairHistory[court.pair1[0]][court.pair1[1]]) || 0;
     const p2 = (pairHistory[court.pair2[0]] && pairHistory[court.pair2[0]][court.pair2[1]]) || 0;
-    score += (p1 + p2) * 10;
+    score += ((p1 + 1) * (p1 + 1) + (p2 + 1) * (p2 + 1)) * 1000;
     for (const a of court.pair1) {
       for (const b of court.pair2) {
-        score += (opponentHistory[a] && opponentHistory[a][b]) || 0;
+        const c = (opponentHistory[a] && opponentHistory[a][b]) || 0;
+        score += (c + 1) * (c + 1);
       }
     }
   }
