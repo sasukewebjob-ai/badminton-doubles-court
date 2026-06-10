@@ -43,6 +43,7 @@ h1 {
 }
 .input-row select {
   flex: 1;
+  min-width: 0;
   padding: 10px;
   border: 2px solid #aed6f1;
   border-radius: 8px;
@@ -936,7 +937,9 @@ function renderResults() {
   for (let i = 0; i <= 8; i++) {
     const label = i === 0
       ? 'なし'
-      : `+${i}人（${Array.from({length: i}, (_, j) => (session.maxNumber + 1 + j) + '番').join('・')}）`;
+      : i === 1
+        ? `+1人（${session.maxNumber + 1}番）`
+        : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
     html += `<option value="${i}">${label}</option>`;
   }
   html += `</select></div>`;
