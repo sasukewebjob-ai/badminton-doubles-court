@@ -291,6 +291,46 @@ h1 {
 }
 .btn-save:active { transform: scale(0.97); }
 .btn-save:disabled { background: #bdc3c7; }
+.btn-share {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #8e44ad, #9b59b6);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  transition: transform 0.1s;
+}
+.btn-share:active { transform: scale(0.97); }
+.viewer-banner {
+  background: #e8f4fd;
+  border: 1.5px solid #7fb6e0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.88em;
+  color: #1a5276;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.viewer-banner button {
+  border: 1px solid #7fb6e0;
+  background: #fff;
+  color: #1a5276;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 .save-hint {
   font-size: 0.78em;
   color: #666;
@@ -362,7 +402,8 @@ const STORAGE_KEY = 'badminton-court-session-v1';
 let restoredAt = null; // 復元直後のみ保存日時が入る（バナー表示用）
 
 function saveSession() {
-  if (!session) return;
+  // 閲覧モードでは保存しない（共有を見た人自身のコート割を壊さない）
+  if (!session || viewerMode) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, savedAt: Date.now(), session }));
   } catch (e) {
@@ -420,6 +461,164 @@ function restoreSession() {
 
   renderResults();
   return true;
+}
+
+// --- 対戦表の共有（URLにセッションを埋め込む） ---
+// サーバー不要で「リンクを開くだけで同じ対戦表が見える」ようにする。
+// 番号・節数は小さい整数なので、独自の可変長エンコードでURLを短く保つ
+// （JSON+base64より大幅に短く、15節で400文字前後に収まる）
+const SHARE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const SHARE_INDEX = {};
+for (let i = 0; i < 64; i++) SHARE_INDEX[SHARE_CHARS[i]] = i;
+let viewerMode = false; // 共有リンクの閲覧モード（編集UI・localStorage保存を無効化）
+let sharedAt = null;    // 共有リンクの作成日時（バナー表示用）
+
+// 0〜47は1文字、48〜1071は2文字
+function encInt(v) {
+  if (!Number.isInteger(v) || v < 0 || v > 1071) throw new Error('encInt range: ' + v);
+  if (v < 48) return SHARE_CHARS[v];
+  v -= 48;
+  return SHARE_CHARS[48 + (v >> 6)] + SHARE_CHARS[v & 63];
+}
+
+function encList(arr) {
+  return encInt(arr.length) + arr.map(encInt).join('');
+}
+
+function encodeShareData() {
+  const s = session;
+  // 作成時刻（分単位・固定5文字）。再共有されたとき新旧を見分けられるように
+  const minutes = Math.floor(Date.now() / 60000);
+  let ts = '';
+  for (let i = 4; i >= 0; i--) ts += SHARE_CHARS[(minutes >> (6 * i)) & 63];
+  let out = '1' + ts;
+  out += encInt(s.totalRounds) + encInt(s.initialCourts);
+  out += encInt(s.restOrder === 'desc' ? 1 : 0) + encInt(s.maxNumber);
+  out += encList(s.players) + encList(s.everPlayers);
+  out += encInt(s.changes.length);
+  for (const c of s.changes) {
+    out += encInt(c.atRound) + encInt(c.courts);
+    out += encList(c.added) + encList(c.removed) + encList(c.returned || []);
+  }
+  out += encInt(s.rounds.length);
+  for (const r of s.rounds) {
+    out += encInt(r.round) + encInt(r.assignments.length) + encList(r.resting);
+    for (const a of r.assignments) {
+      out += encInt(a.pair1[0]) + encInt(a.pair1[1]) + encInt(a.pair2[0]) + encInt(a.pair2[1]);
+    }
+  }
+  return out;
+}
+
+// 壊れた・途切れたリンクでも例外を漏らさず null を返す
+function decodeShareData(str) {
+  try {
+    if (typeof str !== 'string' || str[0] !== '1') return null;
+    let pos = 1;
+    const ch = () => {
+      const v = SHARE_INDEX[str[pos++]];
+      if (v === undefined) throw new Error('bad char');
+      return v;
+    };
+    const readInt = () => {
+      const v = ch();
+      return v < 48 ? v : 48 + ((v - 48) << 6) + ch();
+    };
+    const readList = () => {
+      const len = readInt();
+      const arr = [];
+      for (let i = 0; i < len; i++) arr.push(readInt());
+      return arr;
+    };
+    let ts = 0;
+    for (let i = 0; i < 5; i++) ts = ts * 64 + ch();
+    const s = {};
+    s.totalRounds = readInt();
+    s.initialCourts = readInt();
+    s.restOrder = readInt() === 1 ? 'desc' : 'asc';
+    s.maxNumber = readInt();
+    s.players = readList();
+    s.everPlayers = readList();
+    s.changes = [];
+    const nChanges = readInt();
+    for (let i = 0; i < nChanges; i++) {
+      const c = { atRound: readInt(), courts: readInt() };
+      c.added = readList();
+      c.removed = readList();
+      c.returned = readList();
+      s.changes.push(c);
+    }
+    s.rounds = [];
+    const nRounds = readInt();
+    for (let i = 0; i < nRounds; i++) {
+      const round = { round: readInt() };
+      const nCourts = readInt();
+      round.resting = readList();
+      round.assignments = [];
+      for (let j = 0; j < nCourts; j++) {
+        round.assignments.push({ pair1: [readInt(), readInt()], pair2: [readInt(), readInt()] });
+      }
+      s.rounds.push(round);
+    }
+    if (pos !== str.length) return null;
+    if (s.rounds.length === 0 || s.players.length === 0) return null;
+    return { sharedAt: ts * 60000, session: s };
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildShareUrl() {
+  return location.href.split('#')[0] + '#s=' + encodeShareData();
+}
+
+async function shareLink() {
+  if (!session) return;
+  let url;
+  try {
+    url = buildShareUrl();
+  } catch (e) {
+    alert('共有リンクを作成できませんでした。');
+    return;
+  }
+  // スマホはOSの共有シート（LINE等に直接送れる）、使えなければコピー
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: '今日の対戦表', url });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // ユーザーが共有シートを閉じただけ
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('対戦表のリンクをコピーしました。\nLINEなどに貼り付けて送ってください。');
+  } catch (e) {
+    prompt('このリンクをコピーして共有してください', url);
+  }
+}
+
+function loadFromShareLink() {
+  if (!location.hash.startsWith('#s=')) return false;
+  const decoded = decodeShareData(location.hash.slice(3));
+  if (!decoded) {
+    alert('共有リンクを読み込めませんでした。\nリンクが途中で切れていないか、送った人に確認してください。');
+    history.replaceState(null, '', location.pathname + location.search);
+    return false;
+  }
+  viewerMode = true;
+  sharedAt = decoded.sharedAt;
+  session = decoded.session;
+  lastRounds = session.rounds;
+  TOTAL_ROUNDS = session.totalRounds;
+  document.querySelector('.input-section').style.display = 'none';
+  renderResults();
+  return true;
+}
+
+function exitViewerMode() {
+  history.replaceState(null, '', location.pathname + location.search);
+  location.reload();
 }
 
 // --- UI初期化 ---
@@ -1010,6 +1209,16 @@ function renderResults() {
 
   let html = '';
 
+  if (viewerMode) {
+    let ts = '';
+    if (sharedAt) {
+      const d = new Date(sharedAt);
+      ts = `（${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} 作成）`;
+    }
+    html += `<div class="viewer-banner">🔗 共有された対戦表${ts}`;
+    html += `<button onclick="exitViewerMode()">自分のコート割を作る</button></div>`;
+  }
+
   if (restoredAt) {
     const d = new Date(restoredAt);
     const ts = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -1056,56 +1265,62 @@ function renderResults() {
     html += `</div>`;
   }
 
+  // 共有ボタン（URLにセッションを埋め込んだリンクを配る）
+  html += `<button class="btn-share" onclick="shareLink()">🔗 対戦表のリンクを共有</button>`;
+  html += `<div class="save-hint">リンクを開いた人のスマホにも同じ対戦表が表示されます</div>`;
+
   // 画像保存ボタン
   html += `<button class="btn-save" onclick="saveAsImage()">📷 対戦表を画像として保存</button>`;
   html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
   html += `<div id="imagePreview"></div>`;
 
-  // メンバー変更UI
-  const minConsumed = hasChanges
-    ? session.changes[session.changes.length - 1].atRound
-    : 1;
-  html += `<div class="change-section">`;
-  html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
-  html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
-  html += `<div class="input-row"><label>消化済み</label><select id="consumedRound">`;
-  for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
-    html += `<option value="${k}">第${k}節まで終了</option>`;
-  }
-  html += `</select></div>`;
-  html += `<div class="input-row"><label>追加人数</label><select id="addCount">`;
-  for (let i = 0; i <= 8; i++) {
-    const label = i === 0
-      ? 'なし'
-      : i === 1
-        ? `+1人（${session.maxNumber + 1}番）`
-        : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
-    html += `<option value="${i}">${label}</option>`;
-  }
-  html += `</select></div>`;
-  html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
-  html += `<div class="chips" id="removeChips">`;
-  for (const p of session.players) {
-    html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
-  }
-  html += `</div>`;
-  const currentPlayersSet = new Set(session.players);
-  const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p));
-  if (departedNow.length > 0) {
-    html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
-    html += `<div class="chips" id="returnChips">`;
-    for (const p of departedNow) {
-      html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+  // メンバー変更UI（閲覧モードでは出さない）
+  if (!viewerMode) {
+    const minConsumed = hasChanges
+      ? session.changes[session.changes.length - 1].atRound
+      : 1;
+    html += `<div class="change-section">`;
+    html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
+    html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
+    html += `<div class="input-row"><label>消化済み</label><select id="consumedRound">`;
+    for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
+      html += `<option value="${k}">第${k}節まで終了</option>`;
+    }
+    html += `</select></div>`;
+    html += `<div class="input-row"><label>追加人数</label><select id="addCount">`;
+    for (let i = 0; i <= 8; i++) {
+      const label = i === 0
+        ? 'なし'
+        : i === 1
+          ? `+1人（${session.maxNumber + 1}番）`
+          : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
+      html += `<option value="${i}">${label}</option>`;
+    }
+    html += `</select></div>`;
+    html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
+    html += `<div class="chips" id="removeChips">`;
+    for (const p of session.players) {
+      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
     }
     html += `</div>`;
+    const currentPlayersSet = new Set(session.players);
+    const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p));
+    if (departedNow.length > 0) {
+      html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
+      html += `<div class="chips" id="returnChips">`;
+      for (const p of departedNow) {
+        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="input-row"><label>コート数</label><select id="changeCourtCount">`;
+    for (let c = 2; c <= 4; c++) {
+      html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
+    }
+    html += `</select></div>`;
+    html += `<button class="btn btn-change" onclick="applyMemberChange()">残りの節を作り直す</button>`;
+    html += `</div>`;
   }
-  html += `<div class="input-row"><label>コート数</label><select id="changeCourtCount">`;
-  for (let c = 2; c <= 4; c++) {
-    html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
-  }
-  html += `</select></div>`;
-  html += `<button class="btn btn-change" onclick="applyMemberChange()">残りの節を作り直す</button>`;
-  html += `</div>`;
 
   // 休み履歴
   html += `<div class="stats-section">`;
@@ -1422,7 +1637,10 @@ function saveAsImage() {
 
 // 起動
 initUI();
-restoreSession();
+// 共有リンクで開かれたら閲覧モード、そうでなければ自分の保存データを復元
+if (!loadFromShareLink()) restoreSession();
+// 開いたままのタブに別の共有リンクが渡されたとき（ハッシュだけの遷移）も反映する
+window.addEventListener('hashchange', () => location.reload());
 </script>
 
 </body>
