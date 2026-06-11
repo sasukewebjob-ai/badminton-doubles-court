@@ -7,7 +7,8 @@ const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8
 const path = require('path');
 
 const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
-const URL = 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
+// 引数でURLを指定すると本番などローカル以外も検証できる（例: node check_fixed_round1.js https://...）
+const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 let pass = 0, fail = 0;
 function check(name, cond) {
