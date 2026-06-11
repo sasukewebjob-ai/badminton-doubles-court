@@ -313,12 +313,12 @@ function addHistory(hist, a, b) {
   hist[b][a] = (hist[b][a] || 0) + 1;
 }
 
-function generate(courts, totalPlayers, numRounds) {
+function generate(courts, totalPlayers, numRounds, restOrder) {
   TOTAL_ROUNDS = numRounds || 20;
   const playingCount = courts * 4;
   const restCount = totalPlayers - playingCount;
   const allPlayers = playersN(totalPlayers);
-  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS);
+  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null, restOrder === 'desc');
   const pairHistory = {};
   const opponentHistory = {};
   const restHistory = {};
@@ -330,8 +330,20 @@ function generate(courts, totalPlayers, numRounds) {
     const restSet = new Set(resting);
     const active = allPlayers.filter(p => !restSet.has(p));
     resting.forEach(p => restHistory[p]++);
-    let assignments = assignCourts(active, courts, pairHistory, opponentHistory);
-    assignments = balanceCourts(assignments, courtHistory);
+    let assignments;
+    if (r === 0 && restOrder === 'desc') {
+      // index.html と同じ: desc の第1節は番号順の固定配置
+      assignments = [];
+      for (let c = 0; c < courts; c++) {
+        assignments.push({
+          pair1: [active[c * 4], active[c * 4 + 1]],
+          pair2: [active[c * 4 + 2], active[c * 4 + 3]]
+        });
+      }
+    } else {
+      assignments = assignCourts(active, courts, pairHistory, opponentHistory);
+      assignments = balanceCourts(assignments, courtHistory);
+    }
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
     rounds.push({ round: r + 1, resting, assignments });
@@ -971,6 +983,68 @@ console.log('\n=== 休み順逆順化（reverse） 検証 ===');
   }
 
   console.log(revErrors === 0 ? '\n✅ 休み順逆順化 全テスト合格' : `\n❌ 休み順逆順化 ${revErrors}件のエラー`);
+}
+
+// =========================
+// 第1節固定配置（最後の番号から休む時のみ）検証
+// =========================
+console.log('\n=== 第1節固定配置（desc） 検証 ===');
+{
+  let fixErrors = 0;
+
+  // 1. desc時: 第1節が常に番号順固定（A: 1,2 vs 3,4 / B: 5,6 vs 7,8 …）
+  //    4c×16p は休みゼロ（restCount=0）のエッジケース
+  {
+    let ok = true;
+    for (const [c, p] of [[2, 10], [3, 14], [4, 18], [4, 16]]) {
+      for (let t = 0; t < 5; t++) {
+        const r1 = generate(c, p, 10, 'desc').rounds[0];
+        for (let ci = 0; ci < c; ci++) {
+          const m = r1.assignments[ci];
+          if (m.pair1[0] !== ci * 4 + 1 || m.pair1[1] !== ci * 4 + 2 ||
+              m.pair2[0] !== ci * 4 + 3 || m.pair2[1] !== ci * 4 + 4) ok = false;
+        }
+      }
+    }
+    console.log(`  ${ok ? '✅' : '❌'} desc: 第1節は常に A:1,2vs3,4 / B:5,6vs7,8 …（4構成×5回、休みゼロ含む）`);
+    if (!ok) fixErrors++;
+  }
+
+  // 2. desc時: 第2節以降はランダム最適化のまま
+  {
+    const sigs = new Set();
+    for (let i = 0; i < 20; i++) {
+      const r2 = generate(4, 16, 20, 'desc').rounds[1];
+      sigs.add(r2.assignments.map(m => `${m.pair1}_vs_${m.pair2}`).join('|'));
+    }
+    console.log(`  ${sigs.size > 1 ? '✅' : '❌'} desc: 第2節はランダムのまま（20回中${sigs.size}パターン）`);
+    if (sigs.size <= 1) fixErrors++;
+  }
+
+  // 3. asc(1番から休む)時: 第1節は従来どおりランダム
+  {
+    const sigs = new Set();
+    for (let i = 0; i < 20; i++) {
+      const r1 = generate(4, 18, 20).rounds[0];
+      sigs.add(r1.assignments.map(m => `${m.pair1}_vs_${m.pair2}`).join('|'));
+    }
+    console.log(`  ${sigs.size > 1 ? '✅' : '❌'} asc: 第1節はランダムのまま（20回中${sigs.size}パターン）`);
+    if (sigs.size <= 1) fixErrors++;
+  }
+
+  // 4. desc+第1節固定でも休み均等化（差≤1）を維持
+  {
+    let ok = true;
+    for (const [c, p, n] of [[2, 10, 15], [3, 14, 15], [4, 20, 10]]) {
+      const res = generate(c, p, n, 'desc');
+      const vals = Object.values(res.restHistory);
+      if (Math.max(...vals) - Math.min(...vals) > 1) ok = false;
+    }
+    console.log(`  ${ok ? '✅' : '❌'} desc+固定: 休み回数差≤1を維持（3構成）`);
+    if (!ok) fixErrors++;
+  }
+
+  console.log(fixErrors === 0 ? '\n✅ 第1節固定配置 全テスト合格' : `\n❌ 第1節固定配置 ${fixErrors}件のエラー`);
 }
 
 // =========================
