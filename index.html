@@ -103,6 +103,24 @@ h1 {
   border-radius: 20px;
   font-size: 0.8em;
 }
+.round-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-speak {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9em;
+  padding: 4px 10px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.btn-speak.speaking {
+  background: #e67e22;
+}
 .rest-none {
   background: #27ae60;
 }
@@ -439,17 +457,74 @@ h1 {
 
 <script>
 const COURT_LABELS = ['A','B','C','D'];
-// 固定名簿（KALIDIAコート割の members.txt と共有。メンバーが変わったらここを更新する）
+// 固定名簿（KALIDIAコート割の members.txt と共有。メンバーが変わったらここと下のKANAを更新する）
 const ROSTER = [
   // 男性
   '大野','唐澤','北原','越野','小林','善志','高橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
   // 女性
   '濱島','内田','春日','黒河内','纐纈','後藤','柴','下平','田中','宮澤真','宮下','依田',
 ];
+// 読み上げ用フリガナ（対応がない名前は漢字のまま読み上げエンジンに渡す）
+const KANA = {
+  '大野':'おおの','唐澤':'からさわ','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','高橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
+  '濱島':'はましま','内田':'うちだ','春日':'かすが','黒河内':'くろごうち','纐纈':'こうけつ','後藤':'ごとう','柴':'しば','下平':'しもだいら','田中':'たなか','宮澤真':'みやざわまほ','宮下':'みやした','依田':'よだ',
+};
 // 番号の表示名（名簿モードなら「1 田中」、番号のみなら「1番」）
 function pname(p) {
   const nm = session && session.names && session.names[p];
   return nm ? p + ' ' + nm : p + '番';
+}
+// 読み上げ用の呼び名（名簿モードならフリガナ、番号のみなら「5番」）
+function sname(p) {
+  const nm = session && session.names && session.names[p];
+  return nm ? (KANA[nm] || nm) : p + '番';
+}
+// 節の読み上げ文（例:「第3節。Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
+function roundSpeechText(round) {
+  const parts = [`だい${round.round}せつ`];
+  round.assignments.forEach((court, idx) => {
+    const p1 = [...court.pair1].sort((a, b) => a - b);
+    const p2 = [...court.pair2].sort((a, b) => a - b);
+    const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
+    parts.push(`${COURT_LABELS[idx]}コート、${sname(left[0])}、${sname(left[1])}、たい、${sname(right[0])}、${sname(right[1])}`);
+  });
+  if (round.resting.length > 0) {
+    parts.push(`やすみ、${round.resting.map(sname).join('、')}`);
+  }
+  return parts.join('。') + '。';
+}
+// 読み上げの実行（同じ節をもう一度タップで停止）
+let speakingRound = null;
+function speakRound(rn) {
+  if (!('speechSynthesis' in window)) {
+    alert('この端末は音声読み上げに対応していません');
+    return;
+  }
+  if (speakingRound === rn) { stopSpeech(); return; }
+  speechSynthesis.cancel();
+  const round = session.rounds.find(r => r.round === rn);
+  if (!round) return;
+  const u = new SpeechSynthesisUtterance(roundSpeechText(round));
+  u.lang = 'ja-JP';
+  u.rate = 0.9;
+  u.onend = u.onerror = () => {
+    if (speakingRound === rn) { speakingRound = null; updateSpeakButtons(); }
+  };
+  speakingRound = rn;
+  updateSpeakButtons();
+  speechSynthesis.speak(u);
+}
+function stopSpeech() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  speakingRound = null;
+  updateSpeakButtons();
+}
+function updateSpeakButtons() {
+  document.querySelectorAll('.btn-speak').forEach(b => {
+    const active = Number(b.dataset.round) === speakingRound;
+    b.classList.toggle('speaking', active);
+    b.textContent = active ? '⏹ 停止' : '🔊';
+  });
 }
 let TOTAL_ROUNDS = 20;
 let lastRounds = null;
@@ -1371,6 +1446,7 @@ function applyMemberChange() {
 
 // --- 描画 ---
 function renderResults() {
+  stopSpeech(); // 再描画で節構成が変わりうるので読み上げは止める
   const rounds = session.rounds;
   const hasChanges = session.changes.length > 0;
 
@@ -1434,7 +1510,8 @@ function renderResults() {
 
     html += `<div class="round-card">`;
     html += `<div class="round-header">`;
-    html += `<span>第${round.round}節</span>`;
+    html += `<span class="round-title">第${round.round}節`;
+    html += `<button class="btn-speak" data-round="${round.round}" onclick="speakRound(${round.round})" aria-label="この節を読み上げ">🔊</button></span>`;
     if (round.resting.length > 0) {
       const restLabel = session.names
         ? round.resting.map(pname).join('・')
