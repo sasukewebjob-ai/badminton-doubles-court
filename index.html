@@ -506,7 +506,8 @@ function speakRound(rn) {
   if (!round) return;
   const u = new SpeechSynthesisUtterance(roundSpeechText(round));
   u.lang = 'ja-JP';
-  u.rate = 0.9;
+  u.rate = 0.99;   // 1.0が標準速度（0.9から10%アップ、ユーザー要望）
+  u.volume = 1.0;  // APIの上限。端末のメディア音量を超える増幅は仕様上不可
   u.onend = u.onerror = () => {
     if (speakingRound === rn) { speakingRound = null; updateSpeakButtons(); }
   };

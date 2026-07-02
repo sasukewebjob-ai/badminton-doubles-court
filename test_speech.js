@@ -27,7 +27,7 @@ const TTS_STUB = () => {
     constructor(text) { this.text = text; }
   };
   const stub = {
-    speak(u) { window.__tts.spoken.push({ text: u.text, lang: u.lang, rate: u.rate }); },
+    speak(u) { window.__tts.spoken.push({ text: u.text, lang: u.lang, rate: u.rate, volume: u.volume }); },
     cancel() { window.__tts.cancels++; },
   };
   Object.defineProperty(window, 'speechSynthesis', { value: stub, configurable: true });
@@ -67,6 +67,8 @@ const TTS_STUB = () => {
   check('speakが1回呼ばれた', spoken1.length === 1);
   const t1 = spoken1[0] || {};
   check('lang=ja-JP', t1.lang === 'ja-JP');
+  check('速度0.99（標準比-1%）', t1.rate === 0.99);
+  check('音量は最大1.0', t1.volume === 1.0);
   check('「だい1せつ」で始まる', (t1.text || '').startsWith('だい1せつ'));
   check('Aコート・Bコートを含む', t1.text.includes('Aコート') && t1.text.includes('Bコート'));
   check('「たい」（対戦）を含む', t1.text.includes('、たい、'));
