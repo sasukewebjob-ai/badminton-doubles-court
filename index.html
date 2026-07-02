@@ -93,6 +93,8 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .rest-badge {
   background: #e74c3c;
@@ -239,6 +241,50 @@ h1 {
   background: #27ae60;
   border-color: #27ae60;
 }
+.chip.chip-roster.selected,
+.chip.chip-add.selected {
+  background: #3498db;
+  border-color: #3498db;
+}
+.roster-clear {
+  border: none;
+  background: none;
+  color: #2980b9;
+  font-size: 0.85em;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+.roster-count {
+  font-size: 0.82em;
+  color: #555;
+  margin: -4px 0 12px;
+}
+.roster-map {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.roster-map h2 {
+  font-size: 1em;
+  color: #1a5276;
+  margin-bottom: 8px;
+}
+.roster-map-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 8px;
+  font-size: 0.9em;
+}
+.roster-map-grid .departed {
+  color: #aaa;
+  text-decoration: line-through;
+}
+.match-detail.md-names {
+  font-size: 0.9em;
+}
 .btn-change {
   background: linear-gradient(135deg, #e67e22, #f39c12);
 }
@@ -361,7 +407,7 @@ h1 {
       <option value="4" selected>4コート</option>
     </select>
   </div>
-  <div class="input-row">
+  <div class="input-row" id="playerCountRow">
     <label>参加人数</label>
     <select id="playerCount"></select>
   </div>
@@ -382,6 +428,9 @@ h1 {
       <option value="desc">最後の番号から休む</option>
     </select>
   </div>
+  <div class="chips-label">参加メンバー（タップで選択）<button class="roster-clear" onclick="clearRoster()">全解除</button></div>
+  <div class="chips" id="rosterChips"></div>
+  <div class="roster-count" id="rosterCount">未選択（番号のみで作成します）</div>
   <div class="info-box" id="infoBox"></div>
   <button class="btn" id="generateBtn" onclick="generate()">コート割を作成</button>
 </div>
@@ -390,6 +439,18 @@ h1 {
 
 <script>
 const COURT_LABELS = ['A','B','C','D'];
+// 固定名簿（KALIDIAコート割の members.txt と共有。メンバーが変わったらここを更新する）
+const ROSTER = [
+  // 男性
+  '大野','唐澤','北原','越野','小林','善志','高橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
+  // 女性
+  '濱島','内田','春日','黒河内','纐纈','後藤','柴','下平','田中','宮澤真','宮下','依田',
+];
+// 番号の表示名（名簿モードなら「1 田中」、番号のみなら「1番」）
+function pname(p) {
+  const nm = session && session.names && session.names[p];
+  return nm ? p + ' ' + nm : p + '番';
+}
 let TOTAL_ROUNDS = 20;
 let lastRounds = null;
 // セッション状態（途中のメンバー変更に使用）
@@ -436,6 +497,8 @@ function restoreSession() {
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     return false;
   }
+  // 旧データや壊れた names は番号のみモードとして扱う
+  if (s.names && (typeof s.names !== 'object' || Array.isArray(s.names))) s.names = null;
   session = s;
   lastRounds = s.rounds;
   TOTAL_ROUNDS = s.totalRounds;
@@ -458,6 +521,14 @@ function restoreSession() {
   }
   // 旧バージョンの保存データには restOrder が無い → 従来仕様の「1番から」
   document.getElementById('restOrder').value = s.restOrder === 'desc' ? 'desc' : 'asc';
+
+  // 名簿チップも復元セッションに合わせる（次回再生成時に同じメンバーが初期選択に）
+  if (s.names) {
+    const activeNames = new Set(s.players.map(p => s.names[p]).filter(Boolean));
+    document.querySelectorAll('#rosterChips .chip').forEach(b =>
+      b.classList.toggle('selected', activeNames.has(b.dataset.name)));
+  }
+  onRosterChange();
 
   renderResults();
   return true;
@@ -485,13 +556,45 @@ function encList(arr) {
   return encInt(arr.length) + arr.map(encInt).join('');
 }
 
+// 名前マップ {番号: 名前} をURL安全なbase64urlに（日本語対応、共有データ末尾に付加）
+function encodeNamesBlob(names) {
+  const bytes = new TextEncoder().encode(JSON.stringify(names));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeNamesBlob(blob) {
+  try {
+    if (!blob) return null;
+    let b64 = blob.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const obj = JSON.parse(new TextDecoder().decode(bytes));
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    const names = {};
+    for (const k in obj) {
+      const num = parseInt(k, 10);
+      if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
+      if (typeof obj[k] !== 'string' || obj[k].length === 0 || obj[k].length > 20) return null;
+      names[num] = obj[k];
+    }
+    return names;
+  } catch (e) {
+    return null;
+  }
+}
+
 function encodeShareData() {
   const s = session;
   // 作成時刻（分単位・固定5文字）。再共有されたとき新旧を見分けられるように
   const minutes = Math.floor(Date.now() / 60000);
   let ts = '';
   for (let i = 4; i >= 0; i--) ts += SHARE_CHARS[(minutes >> (6 * i)) & 63];
-  let out = '1' + ts;
+  // 名前付きはバージョン'2'（末尾に名前ブロック）。番号のみは従来の'1'のまま
+  let out = (s.names ? '2' : '1') + ts;
   out += encInt(s.totalRounds) + encInt(s.initialCourts);
   out += encInt(s.restOrder === 'desc' ? 1 : 0) + encInt(s.maxNumber);
   out += encList(s.players) + encList(s.everPlayers);
@@ -507,13 +610,15 @@ function encodeShareData() {
       out += encInt(a.pair1[0]) + encInt(a.pair1[1]) + encInt(a.pair2[0]) + encInt(a.pair2[1]);
     }
   }
+  if (s.names) out += encodeNamesBlob(s.names);
   return out;
 }
 
 // 壊れた・途切れたリンクでも例外を漏らさず null を返す
 function decodeShareData(str) {
   try {
-    if (typeof str !== 'string' || str[0] !== '1') return null;
+    if (typeof str !== 'string' || (str[0] !== '1' && str[0] !== '2')) return null;
+    const version = str[0];
     let pos = 1;
     const ch = () => {
       const v = SHARE_INDEX[str[pos++]];
@@ -560,7 +665,14 @@ function decodeShareData(str) {
       }
       s.rounds.push(round);
     }
-    if (pos !== str.length) return null;
+    if (version === '2') {
+      // 残り全部が名前ブロック
+      s.names = decodeNamesBlob(str.slice(pos));
+      if (!s.names) return null;
+    } else {
+      if (pos !== str.length) return null;
+      s.names = null;
+    }
     if (s.rounds.length === 0 || s.players.length === 0) return null;
     return { sharedAt: ts * 60000, session: s };
   } catch (e) {
@@ -646,25 +758,68 @@ function initUI() {
 
   courtSel.addEventListener('change', updatePlayerOptions);
   playerSel.addEventListener('change', updateInfo);
+
+  // 名簿チップ（タップで参加/不参加を切り替え）
+  const rosterDiv = document.getElementById('rosterChips');
+  for (const nm of ROSTER) {
+    const b = document.createElement('button');
+    b.className = 'chip chip-roster';
+    b.dataset.name = nm;
+    b.textContent = nm;
+    b.onclick = () => { b.classList.toggle('selected'); onRosterChange(); };
+    rosterDiv.appendChild(b);
+  }
+
   updatePlayerOptions();
+}
+
+function selectedRosterNames() {
+  return Array.from(document.querySelectorAll('#rosterChips .chip.selected')).map(b => b.dataset.name);
+}
+
+function clearRoster() {
+  document.querySelectorAll('#rosterChips .chip.selected').forEach(b => b.classList.remove('selected'));
+  onRosterChange();
+}
+
+function onRosterChange() {
+  const n = selectedRosterNames().length;
+  // 名簿から選んでいる間は人数セレクトを隠し、選択人数をそのまま使う
+  document.getElementById('playerCountRow').style.display = n > 0 ? 'none' : '';
+  document.getElementById('rosterCount').textContent = n > 0
+    ? `選択中: ${n}人（番号は作成時に自動でランダムに振られます）`
+    : '未選択（番号のみで作成します）';
+  updateInfo();
 }
 
 function updateInfo() {
   const courts = parseInt(document.getElementById('courtCount').value);
-  const players = parseInt(document.getElementById('playerCount').value);
+  const rosterN = selectedRosterNames().length;
+  const players = rosterN > 0 ? rosterN : parseInt(document.getElementById('playerCount').value);
   const playingCount = courts * 4;
   const restCount = players - playingCount;
   const info = document.getElementById('infoBox');
-  let html;
-  if (restCount === 0) {
-    html = `全員プレー（休みなし）。${courts}コート × 4人 = ${playingCount}人`;
+  info.replaceChildren();
+  const addLine = (text, warn) => {
+    if (info.childNodes.length > 0) info.appendChild(document.createElement('br'));
+    const span = document.createElement('span');
+    if (warn) span.style.color = '#c0392b';
+    span.textContent = text;
+    info.appendChild(span);
+  };
+  if (restCount < 0) {
+    addLine(`⚠️ ${courts}コートには最低${playingCount}人必要です（現在${players}人）。コート数を減らすかメンバーを追加してください。`, true);
+  } else if (restCount === 0) {
+    addLine(`全員プレー（休みなし）。${courts}コート × 4人 = ${playingCount}人`);
   } else {
-    html = `毎節 ${restCount}人が休み、${playingCount}人がプレー。`;
+    addLine(`毎節 ${restCount}人が休み、${playingCount}人がプレー。`);
+  }
+  if (players > 24) {
+    addLine('⚠️ 参加人数の上限は24人です。', true);
   }
   if (restCount > playingCount) {
-    html += `<br><span style="color:#c0392b">⚠️ 休みのほうが多い構成です。コート数を増やすか人数を減らすことを推奨。</span>`;
+    addLine('⚠️ 休みのほうが多い構成です。コート数を増やすか人数を減らすことを推奨。', true);
   }
-  info.innerHTML = html;
 }
 
 // --- 休み人決定（ストライド方式 + 境目公平化） ---
@@ -1018,9 +1173,32 @@ function generate() {
 
   TOTAL_ROUNDS = parseInt(document.getElementById('roundCount').value);
   const courts = parseInt(document.getElementById('courtCount').value);
-  const totalPlayers = parseInt(document.getElementById('playerCount').value);
+  const rosterNames = selectedRosterNames();
+  const totalPlayers = rosterNames.length > 0
+    ? rosterNames.length
+    : parseInt(document.getElementById('playerCount').value);
   const playingCount = courts * 4;
   const restCount = totalPlayers - playingCount;
+  if (restCount < 0) {
+    alert(`人数が足りません。${courts}コートには${playingCount}人必要です（選択中: ${totalPlayers}人）。\nコート数を減らすかメンバーを追加してください。`);
+    return;
+  }
+  if (totalPlayers > 24) {
+    alert('参加人数の上限は24人です。');
+    return;
+  }
+
+  // 名簿モード：番号をランダムに割り当てる（じゃんけんの代わり）
+  let names = null;
+  if (rosterNames.length > 0) {
+    const shuffled = rosterNames.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    names = {};
+    shuffled.forEach((nm, i) => { names[i + 1] = nm; });
+  }
 
   const restOrder = document.getElementById('restOrder').value;
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
@@ -1070,6 +1248,7 @@ function generate() {
     players: allPlayers.slice(),
     everPlayers: allPlayers.slice(),
     maxNumber: totalPlayers,
+    names,
     changes: [],
     rounds
   };
@@ -1086,10 +1265,10 @@ function toggleChip(btn) {
 
 function changeLabel(change, prevCourts) {
   const parts = [];
-  if (change.added.length > 0) parts.push('＋' + change.added.map(p => p + '番').join('・'));
+  if (change.added.length > 0) parts.push('＋' + change.added.map(pname).join('・'));
   const returned = change.returned || [];
-  if (returned.length > 0) parts.push('↩ ' + returned.map(p => p + '番').join('・') + ' 復帰');
-  if (change.removed.length > 0) parts.push('−' + change.removed.map(p => p + '番').join('・'));
+  if (returned.length > 0) parts.push('↩ ' + returned.map(pname).join('・') + ' 復帰');
+  if (change.removed.length > 0) parts.push('−' + change.removed.map(pname).join('・'));
   if (change.courts !== prevCourts) parts.push(change.courts + 'コートへ変更');
   return '↻ メンバー変更' + (parts.length > 0 ? '：' + parts.join(' ／ ') : '（組み直し）');
 }
@@ -1098,7 +1277,10 @@ function applyMemberChange() {
   if (!session) return;
 
   const consumed = parseInt(document.getElementById('consumedRound').value);
-  const addCount = parseInt(document.getElementById('addCount').value);
+  const addNames = document.getElementById('addNameChips')
+    ? Array.from(document.querySelectorAll('#addNameChips .chip.selected')).map(b => b.dataset.name)
+    : [];
+  const addCount = addNames.length + parseInt(document.getElementById('addCount').value);
   const newCourts = parseInt(document.getElementById('changeCourtCount').value);
   const removeNumbers = Array.from(document.querySelectorAll('#removeChips .chip.selected'))
     .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
@@ -1171,6 +1353,11 @@ function applyMemberChange() {
   session.rounds = kept.concat(newRounds);
   session.players = newPlayers;
   session.everPlayers = session.everPlayers.concat(newNumbers);
+  // 名簿から追加した人に新しい番号の名前を割当（ゲストは番号のみ）
+  if (addNames.length > 0) {
+    if (!session.names) session.names = {};
+    addNames.forEach((nm, i) => { session.names[newNumbers[i]] = nm; });
+  }
   session.maxNumber += addCount;
   session.courts = newCourts;
   session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, returned: returnNumbers, courts: newCourts });
@@ -1226,6 +1413,17 @@ function renderResults() {
     html += `<button onclick="clearSavedSession()">消去して最初から</button></div>`;
   }
 
+  // 番号表（名簿モードのみ）：誰が何番かを最初に確認できるように
+  if (session.names) {
+    const activeSet = new Set(session.players);
+    html += `<div class="roster-map"><h2>🔢 番号表</h2><div class="roster-map-grid">`;
+    for (const p of session.everPlayers.slice().sort((a, b) => a - b)) {
+      if (!session.names[p]) continue;
+      html += `<span${activeSet.has(p) ? '' : ' class="departed"'}>${pname(p)}</span>`;
+    }
+    html += `</div></div>`;
+  }
+
   let prevCourts = session.initialCourts;
   for (const round of rounds) {
     const change = session.changes.find(c => c.atRound === round.round);
@@ -1238,7 +1436,10 @@ function renderResults() {
     html += `<div class="round-header">`;
     html += `<span>第${round.round}節</span>`;
     if (round.resting.length > 0) {
-      html += `<span class="rest-badge">休み: ${round.resting.map(p => p + '番').join(' ')}</span>`;
+      const restLabel = session.names
+        ? round.resting.map(pname).join('・')
+        : round.resting.map(p => p + '番').join(' ');
+      html += `<span class="rest-badge">休み: ${restLabel}</span>`;
     } else {
       html += `<span class="rest-badge rest-none">休みなし</span>`;
     }
@@ -1250,14 +1451,14 @@ function renderResults() {
       const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
-      html += `<span class="match-detail">`;
-      html += `<span class="pair">${left[0]}番</span>`;
+      html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
+      html += `<span class="pair">${pname(left[0])}</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${left[1]}番</span>`;
+      html += `<span class="pair">${pname(left[1])}</span>`;
       html += `<span class="vs"> VS </span>`;
-      html += `<span class="pair">${right[0]}番</span>`;
+      html += `<span class="pair">${pname(right[0])}</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${right[1]}番</span>`;
+      html += `<span class="pair">${pname(right[1])}</span>`;
       html += `</span>`;
       html += `</div>`;
     });
@@ -1287,20 +1488,37 @@ function renderResults() {
       html += `<option value="${k}">第${k}節まで終了</option>`;
     }
     html += `</select></div>`;
-    html += `<div class="input-row"><label>追加人数</label><select id="addCount">`;
+    if (session.names) {
+      // 名簿からの途中追加（名前付き・新しい番号が振られる）
+      const usedNames = new Set();
+      for (const p of session.everPlayers) if (session.names[p]) usedNames.add(session.names[p]);
+      const avail = ROSTER.filter(nm => !usedNames.has(nm));
+      if (avail.length > 0) {
+        html += `<div class="chips-label">追加する人（名簿から・タップで選択）</div>`;
+        html += `<div class="chips" id="addNameChips">`;
+        for (const nm of avail) {
+          html += `<button class="chip chip-add" data-name="${nm}" onclick="toggleChip(this)">${nm}</button>`;
+        }
+        html += `</div>`;
+      }
+    }
+    const addLabel = session.names ? 'ゲスト追加' : '追加人数';
+    html += `<div class="input-row"><label>${addLabel}</label><select id="addCount">`;
     for (let i = 0; i <= 8; i++) {
       const label = i === 0
         ? 'なし'
-        : i === 1
-          ? `+1人（${session.maxNumber + 1}番）`
-          : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
+        : session.names
+          ? `+${i}人（名簿外）`
+          : i === 1
+            ? `+1人（${session.maxNumber + 1}番）`
+            : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
       html += `<option value="${i}">${label}</option>`;
     }
     html += `</select></div>`;
     html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
     html += `<div class="chips" id="removeChips">`;
     for (const p of session.players) {
-      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${pname(p)}</button>`;
     }
     html += `</div>`;
     const currentPlayersSet = new Set(session.players);
@@ -1309,7 +1527,7 @@ function renderResults() {
       html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
       html += `<div class="chips" id="returnChips">`;
       for (const p of departedNow) {
-        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${p}番</button>`;
+        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${pname(p)}</button>`;
       }
       html += `</div>`;
     }
@@ -1346,7 +1564,7 @@ function renderResults() {
       note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
     }
     html += `<tr${currentSet.has(p) ? '' : ' class="departed-row"'}>`;
-    html += `<td>${p}番${note}</td>`;
+    html += `<td>${pname(p)}${note}</td>`;
     html += `<td>${restHistory[p]}</td>`;
     html += `<td style="font-size:0.8em">${restRounds.length > 0 ? restRounds.join(', ') : '-'}</td>`;
     html += `</tr>`;
@@ -1431,9 +1649,22 @@ function saveAsImage() {
   const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
 
   const changes = (session && session.changes) || [];
+  const names = (session && session.names) || null;
+  const iname = p => names && names[p] ? p + ' ' + names[p] : p + '番';
+
+  // 番号表（名簿モードのみ、タイトル直下に3列で並べる）
+  const mapEntries = names
+    ? session.everPlayers.filter(p => names[p]).sort((a, b) => a - b)
+    : [];
+  const MAP_COLS = 3;
+  const MAP_HEAD = 30 * SCALE;
+  const MAP_ROW_H = 24 * SCALE;
+  const mapRows = Math.ceil(mapEntries.length / MAP_COLS);
+  const mapH = mapEntries.length > 0 ? MAP_HEAD + mapRows * MAP_ROW_H + 10 * SCALE : 0;
 
   // 高さ計算
   let totalH = PAD + TITLE_H + PAD;
+  if (mapH > 0) totalH += mapH + CARD_GAP;
   lastRounds.forEach((round, i) => {
     if (changes.some(c => c.atRound === round.round)) {
       totalH += MARK_H + CARD_GAP;
@@ -1444,9 +1675,10 @@ function saveAsImage() {
   totalH += PAD;
 
   // モバイルCanvasの寸法上限に収まる範囲で最大解像度を確保
-  // iOS Safari16+ / Android Chrome は16384px、念のため少し余裕を持たせる
+  // iOS Safariは「総ピクセル数 16,777,216 (=4096×4096)」が上限で、超えると
+  // 描画バッファが無効化・低解像度化して出力がぼやける。全端末この上限に合わせる
   const MAX_DIM = 16384;
-  const MAX_AREA = 16384 * 4096; // ピクセル総量の保険
+  const MAX_AREA = 16777216;
   const dimScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
   const areaScale = Math.sqrt(MAX_AREA / (W * totalH));
   const dpr = Math.max(1, Math.min(4, window.devicePixelRatio || 1, dimScale, areaScale));
@@ -1470,8 +1702,29 @@ function saveAsImage() {
   ctx.textBaseline = 'middle';
   ctx.fillText('🏸 ダブルス コート割', W / 2, PAD + (TITLE_H - 8 * SCALE) / 2);
 
-  // 各節カード
+  // 番号表カード
   let y = PAD + TITLE_H;
+  if (mapH > 0) {
+    ctx.fillStyle = '#fff';
+    roundRectPath(ctx, PAD, y, W - PAD * 2, mapH, CARD_R);
+    ctx.fill();
+    ctx.fillStyle = '#1a5276';
+    ctx.font = `bold ${14 * SCALE}px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('番号表', PAD + 14 * SCALE, y + MAP_HEAD / 2 + 3 * SCALE);
+    ctx.font = `${13 * SCALE}px ${FONT}`;
+    ctx.fillStyle = '#2c3e50';
+    const colW = (W - PAD * 2 - 28 * SCALE) / MAP_COLS;
+    mapEntries.forEach((p, i) => {
+      const mx = PAD + 14 * SCALE + (i % MAP_COLS) * colW;
+      const my = y + MAP_HEAD + Math.floor(i / MAP_COLS) * MAP_ROW_H + MAP_ROW_H / 2;
+      ctx.fillText(iname(p), mx, my);
+    });
+    y += mapH + CARD_GAP;
+  }
+
+  // 各節カード
   let prevCourts = session ? session.initialCourts : lastRounds[0].assignments.length;
   for (let ri = 0; ri < lastRounds.length; ri++) {
     const round = lastRounds[ri];
@@ -1531,15 +1784,33 @@ function saveAsImage() {
     ctx.textBaseline = 'middle';
     ctx.fillText(`第${round.round}節`, PAD + 14 * SCALE, y + HEADER_H / 2);
 
-    // 休みバッジ
+    // 休みバッジ（名前入りで長いときはフォントを縮小、それでも入らなければ番号のみ）
     const restingSorted = [...round.resting].sort((a, b) => a - b);
     const hasRest = restingSorted.length > 0;
-    const badgeText = hasRest
-      ? `休み: ${restingSorted.map(p => p + '番').join(' ')}`
+    let badgeText = hasRest
+      ? `休み: ${restingSorted.map(iname).join(names ? '・' : ' ')}`
       : '休みなし';
-    ctx.font = `bold ${13 * SCALE}px ${FONT}`;
-    const badgeTextW = ctx.measureText(badgeText).width;
     const badgePadX = 10 * SCALE;
+    const maxBadgeW = cardW - 110 * SCALE; // 左の「第N節」と重ならない範囲
+    let badgeFont = 13 * SCALE;
+    ctx.font = `bold ${badgeFont}px ${FONT}`;
+    let badgeTextW = ctx.measureText(badgeText).width;
+    if (badgeTextW + badgePadX * 2 > maxBadgeW) {
+      const fit = badgeFont * (maxBadgeW - badgePadX * 2) / badgeTextW;
+      if (fit < 9 * SCALE && names && hasRest) {
+        badgeText = `休み: ${restingSorted.map(p => p + '番').join(' ')}`;
+        badgeFont = 13 * SCALE;
+      } else {
+        badgeFont = Math.max(9 * SCALE, fit);
+      }
+      ctx.font = `bold ${badgeFont}px ${FONT}`;
+      badgeTextW = ctx.measureText(badgeText).width;
+      if (badgeTextW + badgePadX * 2 > maxBadgeW) {
+        badgeFont = Math.max(8 * SCALE, badgeFont * (maxBadgeW - badgePadX * 2) / badgeTextW);
+        ctx.font = `bold ${badgeFont}px ${FONT}`;
+        badgeTextW = ctx.measureText(badgeText).width;
+      }
+    }
     const badgeW = badgeTextW + badgePadX * 2;
     const badgeH = 22 * SCALE;
     const badgeX = PAD + cardW - 14 * SCALE - badgeW;
@@ -1580,21 +1851,28 @@ function saveAsImage() {
       const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
 
       const segs = [
-        { t: `${left[0]}番`, c: '#2c3e50' },
-        { t: '・',          c: '#7f8c8d' },
-        { t: `${left[1]}番`, c: '#2c3e50' },
-        { t: '  VS  ',      c: '#e74c3c' },
-        { t: `${right[0]}番`, c: '#2c3e50' },
-        { t: '・',          c: '#7f8c8d' },
-        { t: `${right[1]}番`, c: '#2c3e50' },
+        { t: iname(left[0]),  c: '#2c3e50' },
+        { t: '・',            c: '#7f8c8d' },
+        { t: iname(left[1]),  c: '#2c3e50' },
+        { t: '  VS  ',        c: '#e74c3c' },
+        { t: iname(right[0]), c: '#2c3e50' },
+        { t: '・',            c: '#7f8c8d' },
+        { t: iname(right[1]), c: '#2c3e50' },
       ];
-      ctx.font = `bold ${16 * SCALE}px ${FONT}`;
+      let segFont = 16 * SCALE;
+      ctx.font = `bold ${segFont}px ${FONT}`;
       let segW = 0;
       for (const s of segs) segW += ctx.measureText(s.t).width;
 
-      // コートラベル右端 〜 カード右端 の中央に配置
+      // コートラベル右端 〜 カード右端 の中央に配置（名前入りで長ければ縮小）
       const areaLeft = labelX + labelW + 6 * SCALE;
       const areaRight = PAD + cardW - 14 * SCALE;
+      if (segW > areaRight - areaLeft) {
+        segFont = Math.max(10 * SCALE, segFont * (areaRight - areaLeft) / segW);
+        ctx.font = `bold ${segFont}px ${FONT}`;
+        segW = 0;
+        for (const s of segs) segW += ctx.measureText(s.t).width;
+      }
       let tx = areaLeft + (areaRight - areaLeft - segW) / 2;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
