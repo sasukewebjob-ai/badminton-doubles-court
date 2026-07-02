@@ -11,7 +11,8 @@ const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8
 const path = require('path');
 
 const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
-const URL = 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
+// 引数でURL指定可能（本番検証用）: node test_speech.js https://...
+const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 let pass = 0, fail = 0;
 function check(name, cond) {
