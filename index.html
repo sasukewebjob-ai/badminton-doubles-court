@@ -479,9 +479,9 @@ function sname(p) {
   const nm = session && session.names && session.names[p];
   return nm ? (KANA[nm] || nm) : p + '番';
 }
-// 節の読み上げ文（例:「第3節。Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
+// 節の読み上げ文（例:「第3節の対戦を読み上げます！Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
 function roundSpeechText(round) {
-  const parts = [`だい${round.round}せつ`];
+  const parts = [`だい${round.round}せつのたいせんをよみあげます！`];
   round.assignments.forEach((court, idx) => {
     const p1 = [...court.pair1].sort((a, b) => a - b);
     const p2 = [...court.pair2].sort((a, b) => a - b);

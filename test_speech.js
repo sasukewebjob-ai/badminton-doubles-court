@@ -69,7 +69,7 @@ const TTS_STUB = () => {
   check('lang=ja-JP', t1.lang === 'ja-JP');
   check('速度0.99（標準比-1%）', t1.rate === 0.99);
   check('音量は最大1.0', t1.volume === 1.0);
-  check('「だい1せつ」で始まる', (t1.text || '').startsWith('だい1せつ'));
+  check('「だい1せつのたいせんをよみあげます！」で始まる', (t1.text || '').startsWith('だい1せつのたいせんをよみあげます！'));
   check('Aコート・Bコートを含む', t1.text.includes('Aコート') && t1.text.includes('Bコート'));
   check('「たい」（対戦）を含む', t1.text.includes('、たい、'));
   check('「やすみ」を含む（10人2コートは休み2人）', t1.text.includes('やすみ、'));
@@ -98,7 +98,7 @@ const TTS_STUB = () => {
   await btn1.click(); // 第1節を再開
   await page.locator('.btn-speak').nth(1).click(); // 読み上げ中に第2節
   const spoken4 = await page.evaluate(() => window.__tts.spoken);
-  check('第2節が読まれる', spoken4[spoken4.length - 1].text.startsWith('だい2せつ'));
+  check('第2節が読まれる', spoken4[spoken4.length - 1].text.startsWith('だい2せつのたいせんをよみあげます！'));
   check('第1節のボタンは🔊に戻る', (await btn1.textContent()).includes('🔊'));
   check('第2節のボタンが停止表示', (await page.locator('.btn-speak').nth(1).textContent()).includes('停止'));
   await page.locator('.btn-speak').nth(1).click(); // 停止
@@ -138,7 +138,7 @@ const TTS_STUB = () => {
   check('閲覧モードにも🔊ボタン', await viewer.locator('.btn-speak').count() === 10);
   await viewer.locator('.btn-speak').first().click();
   const tv = await viewer.evaluate(() => window.__tts.spoken[0]);
-  check('閲覧者側でも読み上げできる', tv && tv.text.startsWith('だい1せつ'));
+  check('閲覧者側でも読み上げできる', tv && tv.text.startsWith('だい1せつのたいせんをよみあげます！'));
   check('閲覧者側もフリガナで読む', await viewer.evaluate(text =>
     Object.values(session.names).some(nm => text.includes(KANA[nm])), tv.text));
   await viewer.close();
