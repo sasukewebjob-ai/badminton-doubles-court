@@ -469,6 +469,11 @@ const KANA = {
   '大野':'おおの','唐澤':'からさわ','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','高橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
   '濱島':'はましま','内田':'うちだ','春日':'かすが','黒河内':'くろごうち','纐纈':'こうけつ','後藤':'ごとう','柴':'しば','下平':'しもだいら','田中':'たなか','宮澤真':'みやざわまほ','宮下':'みやした','依田':'よだ',
 };
+// HTMLエスケープ（共有リンク経由の名前など、信頼できない文字列をinnerHTMLに入れる前に必ず通す）
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 // 番号の表示名（名簿モードなら「1 田中」、番号のみなら「1番」）
 function pname(p) {
   const nm = session && session.names && session.names[p];
@@ -1352,7 +1357,14 @@ function changeLabel(change, prevCourts) {
 function applyMemberChange() {
   if (!session) return;
 
-  const consumed = parseInt(document.getElementById('consumedRound').value);
+  // 作り直せる節が残っていない（消化済みセレクトが無い／空＝NaN）ときに押されても
+  // 全節を消してしまわないよう、有効な節番号でなければ何もしない
+  const consumedEl = document.getElementById('consumedRound');
+  const consumed = consumedEl ? parseInt(consumedEl.value) : NaN;
+  if (!Number.isInteger(consumed) || consumed < 1 || consumed >= session.totalRounds) {
+    alert('これ以上作り直せる節がありません。');
+    return;
+  }
   const addNames = document.getElementById('addNameChips')
     ? Array.from(document.querySelectorAll('#addNameChips .chip.selected')).map(b => b.dataset.name)
     : [];
@@ -1496,7 +1508,7 @@ function renderResults() {
     html += `<div class="roster-map"><h2>🔢 番号表</h2><div class="roster-map-grid">`;
     for (const p of session.everPlayers.slice().sort((a, b) => a - b)) {
       if (!session.names[p]) continue;
-      html += `<span${activeSet.has(p) ? '' : ' class="departed"'}>${pname(p)}</span>`;
+      html += `<span${activeSet.has(p) ? '' : ' class="departed"'}>${escHtml(pname(p))}</span>`;
     }
     html += `</div></div>`;
   }
@@ -1505,7 +1517,7 @@ function renderResults() {
   for (const round of rounds) {
     const change = session.changes.find(c => c.atRound === round.round);
     if (change) {
-      html += `<div class="change-divider">${changeLabel(change, prevCourts)}</div>`;
+      html += `<div class="change-divider">${escHtml(changeLabel(change, prevCourts))}</div>`;
       prevCourts = change.courts;
     }
 
@@ -1515,7 +1527,7 @@ function renderResults() {
     html += `<button class="btn-speak" data-round="${round.round}" onclick="speakRound(${round.round})" aria-label="この節を読み上げ">🔊</button></span>`;
     if (round.resting.length > 0) {
       const restLabel = session.names
-        ? round.resting.map(pname).join('・')
+        ? round.resting.map(p => escHtml(pname(p))).join('・')
         : round.resting.map(p => p + '番').join(' ');
       html += `<span class="rest-badge">休み: ${restLabel}</span>`;
     } else {
@@ -1530,13 +1542,13 @@ function renderResults() {
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
       html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
-      html += `<span class="pair">${pname(left[0])}</span>`;
+      html += `<span class="pair">${escHtml(pname(left[0]))}</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${pname(left[1])}</span>`;
+      html += `<span class="pair">${escHtml(pname(left[1]))}</span>`;
       html += `<span class="vs"> VS </span>`;
-      html += `<span class="pair">${pname(right[0])}</span>`;
+      html += `<span class="pair">${escHtml(pname(right[0]))}</span>`;
       html += `<span class="pair-sep">・</span>`;
-      html += `<span class="pair">${pname(right[1])}</span>`;
+      html += `<span class="pair">${escHtml(pname(right[1]))}</span>`;
       html += `</span>`;
       html += `</div>`;
     });
@@ -1560,6 +1572,12 @@ function renderResults() {
       : 1;
     html += `<div class="change-section">`;
     html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
+    // 残り1節以下だと作り直せる節が無い。UIを出さず案内だけにする（空セレクトでの誤操作防止）
+    const canChange = minConsumed <= session.totalRounds - 1;
+    if (!canChange) {
+      html += `<div class="change-info">全${session.totalRounds}節のうち最後の節まで来ているため、これ以上作り直せる節はありません。</div>`;
+      html += `</div>`;
+    } else {
     html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
     html += `<div class="input-row"><label>消化済み</label><select id="consumedRound">`;
     for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
@@ -1596,7 +1614,7 @@ function renderResults() {
     html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
     html += `<div class="chips" id="removeChips">`;
     for (const p of session.players) {
-      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${pname(p)}</button>`;
+      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${escHtml(pname(p))}</button>`;
     }
     html += `</div>`;
     const currentPlayersSet = new Set(session.players);
@@ -1605,7 +1623,7 @@ function renderResults() {
       html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
       html += `<div class="chips" id="returnChips">`;
       for (const p of departedNow) {
-        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${pname(p)}</button>`;
+        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${escHtml(pname(p))}</button>`;
       }
       html += `</div>`;
     }
@@ -1616,6 +1634,7 @@ function renderResults() {
     html += `</select></div>`;
     html += `<button class="btn btn-change" onclick="applyMemberChange()">残りの節を作り直す</button>`;
     html += `</div>`;
+    }
   }
 
   // 休み履歴
@@ -1642,7 +1661,7 @@ function renderResults() {
       note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
     }
     html += `<tr${currentSet.has(p) ? '' : ' class="departed-row"'}>`;
-    html += `<td>${pname(p)}${note}</td>`;
+    html += `<td>${escHtml(pname(p))}${note}</td>`;
     html += `<td>${restHistory[p]}</td>`;
     html += `<td style="font-size:0.8em">${restRounds.length > 0 ? restRounds.join(', ') : '-'}</td>`;
     html += `</tr>`;
