@@ -71,5 +71,5 @@
 - バグ修正2件（2026-07-06）: ①最終節の直前（消化済み=総節数-1）でメンバー変更すると、消化済みセレクトが空になり、そこで再度「作り直す」を押すと`parseInt('')=NaN`→`remaining<=0`ガードを素通り→`slice(0,NaN)=[]`で全節消失していた不具合を修正。`applyMemberChange`に有効節番号ガード（要素null含む）を追加し、作り直せる節が無いときはUIを「これ以上作り直せません」の案内に置換してボタン自体を出さない。②`renderResults`が`pname()`（共有リンク経由で他人が細工可能な名前を含む）を`innerHTML`に無エスケープで埋め込んでいたXSS入口を、`escHtml()`導入で全注入箇所エスケープ。`changeLabel`はCanvas描画と共用のため関数内では変換せず注入側でエスケープ。検証: test_bugfix.js 9項目合格＋既存回帰全緑（algorithm・names 32・share 23・persistence 29・fixed_round1 6・speech 28）
 
 ## 関連メモ
-- KALIDIA関連デプロイ: `sasukewebjob-ai/badminton-cour`（MCP経由）
-- 名簿の同期: `C:\Users\hanim\Documents\Projects\KALIDIAコート割\members.txt` が原本。メンバー変更時は index.html の `ROSTER` も手動で合わせる
+- KALIDIA関連リポジトリ: 名簿 `sasukewebjob-ai/kalidia-meibo`／コート割 `sasukewebjob-ai/kalidia-court`
+- 名簿の同期（2026-07-06変更）: 原本は `バドミントン系/members.txt`（フリガナ付き）。`バドミントン系/update_members.py` を実行すると本アプリの `ROSTER`・`KANA` 定数を含む3アプリへ一括反映される。手動同期は不要になった
