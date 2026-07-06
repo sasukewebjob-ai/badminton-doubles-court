@@ -485,8 +485,11 @@ function sname(p) {
   return nm ? (KANA[nm] || nm) : p + '番';
 }
 // 節の読み上げ文（例:「第3節の対戦を読み上げます！Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
+// 冒頭は漢字かな交じりで渡す：ひらがな＋数字のベタ書き（だい1せつ…）だと形態素解析が効かず
+// 「だい・いち・せつ」と不自然なアクセントになる。漢字なら「だいいっせつ」と正しく読まれる
 function roundSpeechText(round) {
-  const parts = [`だい${round.round}せつのたいせんをよみあげます！`];
+  const intro = `第${round.round}節の対戦を読み上げます！`;
+  const parts = [];
   round.assignments.forEach((court, idx) => {
     const p1 = [...court.pair1].sort((a, b) => a - b);
     const p2 = [...court.pair2].sort((a, b) => a - b);
@@ -496,7 +499,7 @@ function roundSpeechText(round) {
   if (round.resting.length > 0) {
     parts.push(`やすみ、${round.resting.map(sname).join('、')}`);
   }
-  return parts.join('。') + '。';
+  return intro + parts.join('。') + '。';
 }
 // 読み上げの実行（同じ節をもう一度タップで停止）
 let speakingRound = null;
