@@ -954,7 +954,9 @@ function strideLinearOrder(N, cycle, restCount) {
 // initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
 // prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
 // reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse) {
+// deferredNew: 途中追加者の番号。初回の休みを現在の周回の最後尾に回す（降順で末尾番号が
+//   キュー先頭に割り込み、追加直後に休みになるのを防ぐ）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
@@ -963,9 +965,12 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
   const playerAt = pos => allPlayers[pos - 1];
 
   const restCounts = {};
+  const initialOf = {};
   const boundaryHits = {};
+  const deferred = new Set(deferredNew || []);
   allPlayers.forEach(p => {
     restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    initialOf[p] = restCounts[p];
     boundaryHits[p] = 0;
   });
 
@@ -992,7 +997,19 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
     const rankA = new Map();
     linearA.forEach((p, i) => rankA.set(p, i));
 
+    // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+    // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+    const deferWeight = p => {
+      if (!deferred.has(p)) return 0;
+      if (restCounts[p] === initialOf[p]) return 2;
+      if (prevSet.has(p)) return 1;
+      return 0;
+    };
+
     const orderedA = poolA.slice().sort((a, b) => {
+      const wa = deferWeight(a);
+      const wb = deferWeight(b);
+      if (wa !== wb) return wa - wb;
       const ra = rankA.has(a) ? rankA.get(a) : 0;
       const rb = rankA.has(b) ? rankA.get(b) : 0;
       return ra - rb;
@@ -1422,7 +1439,7 @@ function applyMemberChange() {
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc');
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers);
 
   // 残りの節を、引き継いだ履歴をもとに再生成
   const newRounds = [];

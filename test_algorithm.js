@@ -41,7 +41,7 @@ function playersN(n) {
 // players: 参加者番号の配列（欠番可）
 // initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
 // prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse) {
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
@@ -50,9 +50,12 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
   const playerAt = pos => allPlayers[pos - 1];
 
   const restCounts = {};
+  const initialOf = {};
   const boundaryHits = {};
+  const deferred = new Set(deferredNew || []);
   allPlayers.forEach(p => {
     restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    initialOf[p] = restCounts[p];
     boundaryHits[p] = 0;
   });
 
@@ -79,7 +82,19 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
     const rankA = new Map();
     linearA.forEach((p, i) => rankA.set(p, i));
 
+    // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+    // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+    const deferWeight = p => {
+      if (!deferred.has(p)) return 0;
+      if (restCounts[p] === initialOf[p]) return 2;
+      if (prevSet.has(p)) return 1;
+      return 0;
+    };
+
     const orderedA = poolA.slice().sort((a, b) => {
+      const wa = deferWeight(a);
+      const wb = deferWeight(b);
+      if (wa !== wb) return wa - wb;
       const ra = rankA.has(a) ? rankA.get(a) : 0;
       const rb = rankA.has(b) ? rankA.get(b) : 0;
       return ra - rb;
@@ -352,10 +367,11 @@ function generate(courts, totalPlayers, numRounds, restOrder) {
 }
 
 // --- メンバー途中変更（index.html の applyMemberChange と同じロジック） ---
-function generateSession(courts, totalPlayers, numRounds) {
-  const res = generate(courts, totalPlayers, numRounds);
+function generateSession(courts, totalPlayers, numRounds, restOrder) {
+  const res = generate(courts, totalPlayers, numRounds, restOrder);
   return {
     totalRounds: numRounds,
+    restOrder: restOrder,
     initialCourts: courts,
     courts,
     players: playersN(totalPlayers),
@@ -396,7 +412,7 @@ function applyMemberChangeTest(session, consumed, addCount, removeNumbers, newCo
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers);
 
   const newRounds = [];
   for (let r = 0; r < remaining; r++) {
@@ -1149,4 +1165,75 @@ console.log('\n=== 離脱者の同番号復帰 検証 ===');
   }
 
   console.log(retErrors === 0 ? '\n✅ 離脱者の同番号復帰 全テスト合格' : `\n❌ 離脱者の同番号復帰 ${retErrors}件のエラー`);
+}
+
+// =========================
+// 途中追加者の休み順（周回最後尾）検証
+// =========================
+console.log('\n=== 途中追加者の休み順（周回最後尾）検証 ===');
+{
+  let defErrors = 0;
+
+  // 共通チェック: consumed節後にaddCount人追加したとき、
+  // 追加者の初休みが「変更時点で休み最少だった既存メンバー全員の休み」より後（同節は可）になること
+  function checkDeferredAdd(label, courts, totalPlayers, numRounds, restOrder, consumed, addCount) {
+    const sess = generateSession(courts, totalPlayers, numRounds, restOrder);
+    const counts = {};
+    sess.players.forEach(p => counts[p] = 0);
+    for (let i = 0; i < consumed; i++) sess.rounds[i].resting.forEach(p => counts[p]++);
+    const minCont = Math.min(...Object.values(counts));
+    const cycleRemain = sess.players.filter(p => counts[p] === minCont);
+
+    const { newNumbers } = applyMemberChangeTest(sess, consumed, addCount, [], courts);
+    const restCountAfter = totalPlayers + addCount - courts * 4;
+
+    const firstRestOf = p => {
+      for (let i = 0; i < numRounds; i++) if (sess.rounds[i].resting.includes(p)) return i;
+      return -1;
+    };
+
+    let ok = true;
+    const details = [];
+    for (const n of newNumbers) {
+      const fn = firstRestOf(n);
+      if (fn < 0) { ok = false; details.push(`${n}番が一度も休んでいない`); continue; }
+      // 追加直後の節でいきなり休みになっていないこと
+      // （既存の残りキューが1節に収まる場合は同節で最後尾に入るのが正しいため対象外）
+      if (fn === consumed && cycleRemain.length >= restCountAfter) {
+        ok = false; details.push(`${n}番が追加直後の第${fn + 1}節で休み`);
+      }
+      // 既存の最少回数組が全員休み終わる（同節含む）まで初休みが来ないこと
+      for (const q of cycleRemain) {
+        const fq = firstRestOf(q);
+        if (fq < 0 || fq > fn) { ok = false; details.push(`${n}番(第${fn + 1}節)が既存${q}番(第${fq + 1}節)より先に休み`); }
+      }
+      // 初休みの直後の節で連続休みになっていないこと
+      if (fn + 1 < numRounds && sess.rounds[fn + 1].resting.includes(n)) {
+        ok = false; details.push(`${n}番が第${fn + 1}・${fn + 2}節で連続休み`);
+      }
+    }
+
+    // 公平性: 全期間の休み回数の差≤1（追加者は参加後のみ）
+    const finalCounts = {};
+    sess.players.forEach(p => finalCounts[p] = 0);
+    for (const round of sess.rounds) round.resting.forEach(p => { if (p in finalCounts) finalCounts[p]++; });
+    const vals = Object.values(finalCounts);
+    if (Math.max(...vals) - Math.min(...vals) > 1) { ok = false; details.push(`休み差>1 (${Math.min(...vals)}〜${Math.max(...vals)})`); }
+
+    console.log(`  ${ok ? '✅' : '❌'} ${label}${details.length ? ' → ' + details.join(' / ') : ''}`);
+    if (!ok) defErrors++;
+  }
+
+  // 1. 画像の報告シナリオ: 3コート13人10節desc、3節消化後に1人追加（→14番）
+  checkDeferredAdd('desc: 3c×13人10節・3節後+1人（報告シナリオ）', 3, 13, 10, 'desc', 3, 1);
+  // 2. 昇順でも同様
+  checkDeferredAdd('asc:  3c×13人10節・3節後+1人', 3, 13, 10, undefined, 3, 1);
+  // 3. 複数人同時追加（desc）
+  checkDeferredAdd('desc: 2c×10人15節・3節後+2人', 2, 10, 15, 'desc', 3, 2);
+  // 4. 2周目の途中で追加（desc）: 消化済みが1周を超えた時点
+  checkDeferredAdd('desc: 2c×10人15節・7節後+1人（2周目途中）', 2, 10, 15, 'desc', 7, 1);
+  // 5. 4コート大人数（desc）
+  checkDeferredAdd('desc: 4c×20人20節・4節後+1人', 4, 20, 20, 'desc', 4, 1);
+
+  console.log(defErrors === 0 ? '\n✅ 途中追加者の休み順 全テスト合格' : `\n❌ 途中追加者の休み順 ${defErrors}件のエラー`);
 }
