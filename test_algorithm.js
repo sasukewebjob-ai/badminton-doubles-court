@@ -135,7 +135,90 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
   return restSchedule;
 }
 
-function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
+// --- 種目別コート（index.html と同じ実装のコピー） ---
+function courtTemplates(mCount, fCount, courts) {
+  const wants = [{m:4,f:0},{m:0,f:4},{m:2,f:2},{m:2,f:2}].slice(0, courts);
+  let availM = mCount, availF = fCount;
+  return wants.map(w => {
+    let m = Math.min(w.m, availM);
+    let f = Math.min(w.f, availF);
+    while (m + f < 4) {
+      if (availM - m >= availF - f) m++; else f++;
+    }
+    availM -= m; availF -= f;
+    return { m, f };
+  });
+}
+
+function pairTypesFor(t) {
+  if (t.m === 4) return ['MM', 'MM'];
+  if (t.m === 3) return ['MM', 'MF'];
+  if (t.m === 2) return ['MF', 'MF'];
+  if (t.m === 1) return ['MF', 'FF'];
+  return ['FF', 'FF'];
+}
+
+function genderAssign(shuffled, courts, genders, pairHistory, opponentHistory) {
+  const males = shuffled.filter(p => genders[p] === 'M');
+  const females = shuffled.filter(p => genders[p] === 'F');
+  const templates = courtTemplates(males.length, females.length, courts);
+  const courtNeeds = templates.map(pairTypesFor);
+  const quota = { MM: 0, MF: 0, FF: 0 };
+  courtNeeds.forEach(ts => ts.forEach(t => quota[t]++));
+
+  const n = shuffled.length;
+  const candidates = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = shuffled[i], b = shuffled[j];
+      const type = genders[a] === genders[b] ? genders[a] + genders[b] : 'MF';
+      const count = (pairHistory[a] && pairHistory[a][b]) || 0;
+      candidates.push({ i, j, a, b, type, count });
+    }
+  }
+  candidates.sort((x, y) => x.count - y.count);
+  const used = new Set();
+  const byType = { MM: [], MF: [], FF: [] };
+  for (const c of candidates) {
+    if (quota[c.type] === 0 || used.has(c.i) || used.has(c.j)) continue;
+    quota[c.type]--;
+    used.add(c.i);
+    used.add(c.j);
+    byType[c.type].push([c.a, c.b]);
+  }
+
+  const oppScore = (p, q) => {
+    let s = 0;
+    for (const a of p) for (const b of q) s += (opponentHistory[a] && opponentHistory[a][b]) || 0;
+    return s;
+  };
+  const assignments = [];
+  for (const [t1, t2] of courtNeeds) {
+    let best = null;
+    if (t1 === t2) {
+      const list = byType[t1];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const s = oppScore(list[i], list[j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    } else {
+      for (let i = 0; i < byType[t1].length; i++) {
+        for (let j = 0; j < byType[t2].length; j++) {
+          const s = oppScore(byType[t1][i], byType[t2][j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    }
+    const pair2 = byType[t2].splice(best.j, 1)[0];
+    const pair1 = byType[t1].splice(best.i, 1)[0];
+    assignments.push({ pair1, pair2 });
+  }
+  return assignments;
+}
+
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders) {
   const candidates = [];
   for (let trial = 0; trial < 150; trial++) {
     const shuffled = activePlayers.slice();
@@ -143,9 +226,14 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    const pairs = greedyPairing(shuffled, pairHistory);
-    if (!pairs) continue;
-    const courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
+    let courtAssignments;
+    if (genders) {
+      courtAssignments = genderAssign(shuffled, courts, genders, pairHistory, opponentHistory);
+    } else {
+      const pairs = greedyPairing(shuffled, pairHistory);
+      if (!pairs) continue;
+      courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
+    }
     const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory);
     candidates.push({ assignments: courtAssignments, score });
   }
@@ -153,7 +241,7 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
   candidates.sort((a, b) => a.score - b.score);
   const best = { assignments: null, score: Infinity };
   for (const cand of candidates.slice(0, 5)) {
-    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory);
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders);
     if (r.score < best.score) {
       best.score = r.score;
       best.assignments = r.assignments;
@@ -163,7 +251,7 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
 }
 
 // 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
-function localSearchImprove(assignments, pairHistory, opponentHistory) {
+function localSearchImprove(assignments, pairHistory, opponentHistory, genders) {
   let current = JSON.parse(JSON.stringify(assignments));
   let bestScore = evaluateAssignment(current, pairHistory, opponentHistory);
   let improved = true;
@@ -178,6 +266,11 @@ function localSearchImprove(assignments, pairHistory, opponentHistory) {
         const [ci1, pi1, s1] = positions[x];
         const [ci2, pi2, s2] = positions[y];
         if (ci1 === ci2 && pi1 === pi2) continue; // 同一ペア内の入替は結果が変わらない
+        if (genders) {
+          const g1 = (pi1 === 1 ? current[ci1].pair1 : current[ci1].pair2)[s1];
+          const g2 = (pi2 === 1 ? current[ci2].pair1 : current[ci2].pair2)[s2];
+          if (genders[g1] !== genders[g2]) continue;
+        }
         const trial = JSON.parse(JSON.stringify(current));
         const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
         const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
@@ -1236,4 +1329,195 @@ console.log('\n=== 途中追加者の休み順（周回最後尾）検証 ===');
   checkDeferredAdd('desc: 4c×20人20節・4節後+1人', 4, 20, 20, 'desc', 4, 1);
 
   console.log(defErrors === 0 ? '\n✅ 途中追加者の休み順 全テスト合格' : `\n❌ 途中追加者の休み順 ${defErrors}件のエラー`);
+}
+
+// =========================
+// 種目別コート（A男子/B女子/C・Dミックス）検証（2026-07-20追加）
+// =========================
+console.log('\n=== 種目別コート検証 ===');
+{
+  let genderErrors = 0;
+
+  // 番号1..m を男性、m+1..m+f を女性とする性別マップ
+  function gendersFor(mCount, fCount) {
+    const g = {};
+    for (let p = 1; p <= mCount; p++) g[p] = 'M';
+    for (let p = mCount + 1; p <= mCount + fCount; p++) g[p] = 'F';
+    return g;
+  }
+
+  // index.html の generate()（種目別モード）相当。4コート固定・balanceCourtsなし・第1節も最適化
+  function generateGender(mCount, fCount, numRounds, restOrder) {
+    const totalPlayers = mCount + fCount;
+    const genders = gendersFor(mCount, fCount);
+    TOTAL_ROUNDS = numRounds;
+    const restCount = totalPlayers - 16;
+    const allPlayers = playersN(totalPlayers);
+    const restSchedule = generateRestSchedule(allPlayers, restCount, numRounds, null, null, restOrder === 'desc');
+    const pairHistory = {}, opponentHistory = {}, restHistory = {}, courtHistory = {};
+    allPlayers.forEach(p => restHistory[p] = 0);
+    const rounds = [];
+    for (let r = 0; r < numRounds; r++) {
+      const resting = restSchedule[r];
+      const restSet = new Set(resting);
+      const active = allPlayers.filter(p => !restSet.has(p));
+      resting.forEach(p => restHistory[p]++);
+      const assignments = assignCourts(active, 4, pairHistory, opponentHistory, genders);
+      updateHistories(assignments, pairHistory, opponentHistory);
+      updateCourtHistory(assignments, courtHistory);
+      rounds.push({ round: r + 1, resting, assignments });
+    }
+    return { rounds, genders, totalPlayers, restHistory, pairHistory, opponentHistory };
+  }
+
+  // 各節がテンプレートどおりの男女構成・ペア構成になっているか
+  function checkGenderRounds(rounds, genders, label) {
+    const details = [];
+    for (const round of rounds) {
+      const active = round.assignments.flatMap(c => c.pair1.concat(c.pair2));
+      const m = active.filter(p => genders[p] === 'M').length;
+      const f = active.length - m;
+      const templates = courtTemplates(m, f, 4);
+      round.assignments.forEach((court, idx) => {
+        const t = templates[idx];
+        const players = court.pair1.concat(court.pair2);
+        const cm = players.filter(p => genders[p] === 'M').length;
+        if (cm !== t.m) {
+          details.push(`第${round.round}節 ${COURT_LABELS[idx]}: 男${cm}人 (期待${t.m}人)`);
+          return;
+        }
+        const need = pairTypesFor(t).slice().sort().join('+');
+        const actual = [court.pair1, court.pair2].map(pr => {
+          const pm = pr.filter(p => genders[p] === 'M').length;
+          return pm === 2 ? 'MM' : pm === 1 ? 'MF' : 'FF';
+        }).sort().join('+');
+        if (actual !== need) {
+          details.push(`第${round.round}節 ${COURT_LABELS[idx]}: ペア構成 ${actual} (期待 ${need})`);
+        }
+      });
+    }
+    const ok = details.length === 0;
+    console.log(`  ${ok ? '✅' : '❌'} ${label}${ok ? '' : ' → ' + details.slice(0, 3).join(' / ')}`);
+    if (!ok) genderErrors++;
+    return ok;
+  }
+
+  function checkRestDiff(restCounts, players, label) {
+    const vals = players.map(p => restCounts[p]);
+    const diff = Math.max(...vals) - Math.min(...vals);
+    const ok = diff <= 1;
+    console.log(`  ${ok ? '✅' : '❌'} ${label}（差=${diff}）`);
+    if (!ok) genderErrors++;
+    return ok;
+  }
+
+  // index.html の applyMemberChange（種目別モード）相当
+  function applyGenderChangeTest(res, consumed, addGenderList, removeNumbers, numRounds, restOrder) {
+    const genders = Object.assign({}, res.genders);
+    const players = playersN(res.totalPlayers);
+    const removedSet = new Set(removeNumbers);
+    const continuing = players.filter(p => !removedSet.has(p));
+    const newNumbers = [];
+    addGenderList.forEach((g, i) => {
+      const n = res.totalPlayers + 1 + i;
+      newNumbers.push(n);
+      genders[n] = g;
+    });
+    const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
+    const kept = res.rounds.slice(0, consumed);
+    const pairHistory = {}, opponentHistory = {}, courtHistory = {}, restHistory = {};
+    players.concat(newNumbers).forEach(p => restHistory[p] = 0);
+    for (const round of kept) {
+      round.resting.forEach(p => restHistory[p]++);
+      updateHistories(round.assignments, pairHistory, opponentHistory);
+      updateCourtHistory(round.assignments, courtHistory);
+    }
+    const contCounts = continuing.map(p => restHistory[p]);
+    const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
+    const initialRestCounts = {};
+    continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+    newNumbers.forEach(p => initialRestCounts[p] = minCont);
+    const restCount = newPlayers.length - 16;
+    const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
+    const restSchedule = generateRestSchedule(newPlayers, restCount, numRounds - consumed, initialRestCounts, prevResting, restOrder === 'desc', newNumbers);
+    const newRounds = [];
+    for (let r = 0; r < numRounds - consumed; r++) {
+      const resting = restSchedule[r];
+      const restSet = new Set(resting);
+      const active = newPlayers.filter(p => !restSet.has(p));
+      resting.forEach(p => restHistory[p]++);
+      const assignments = assignCourts(active, 4, pairHistory, opponentHistory, genders);
+      updateHistories(assignments, pairHistory, opponentHistory);
+      updateCourtHistory(assignments, courtHistory);
+      newRounds.push({ round: consumed + r + 1, resting, assignments });
+    }
+    return { rounds: kept.concat(newRounds), genders, newPlayers, restHistory, kept };
+  }
+
+  // 1. 理想構成 8M8F（休みなし）: 全節 A=男4 / B=女4 / C・D=男女ペア×2
+  {
+    const res = generateGender(8, 8, 10, 'desc');
+    checkGenderRounds(res.rounds, res.genders, '8男8女×10節: 全節テンプレート準拠');
+    // ペア偏りの参考統計（男8人でMMペアは節2組×10節=20組・組合せ28通り）
+    const counts = [];
+    for (const a in res.pairHistory) {
+      for (const b in res.pairHistory[a]) {
+        if (parseInt(a) < parseInt(b)) counts.push(res.pairHistory[a][b]);
+      }
+    }
+    console.log(`     （参考）ペア回数 max=${Math.max(...counts)}`);
+  }
+
+  // 2. 休みあり 10M10F×15節: テンプレート準拠＋休み公平
+  {
+    const res = generateGender(10, 10, 15, 'desc');
+    checkGenderRounds(res.rounds, res.genders, '10男10女×15節（毎節4人休み）: テンプレート準拠');
+    checkRestDiff(res.restHistory, playersN(20), '10男10女×15節: 休み差≤1');
+  }
+
+  // 3. 男性過多 10M6F: Dコートが男子ダブルスになる
+  {
+    const res = generateGender(10, 6, 10, 'desc');
+    checkGenderRounds(res.rounds, res.genders, '10男6女×10節: A男子/B女子/Cミックス/D男子');
+  }
+
+  // 4. 女性過多 4M12F: C・Dが女子ダブルスになる
+  {
+    const res = generateGender(4, 12, 10, 'asc');
+    checkGenderRounds(res.rounds, res.genders, '4男12女×10節: A男子/B女子/C・D女子');
+  }
+
+  // 5. 奇数混合＋休み 9M9F×12節
+  {
+    const res = generateGender(9, 9, 12, 'desc');
+    checkGenderRounds(res.rounds, res.genders, '9男9女×12節（毎節2人休み）: テンプレート準拠');
+    checkRestDiff(res.restHistory, playersN(18), '9男9女×12節: 休み差≤1');
+  }
+
+  // 6. 途中追加（男1女1ゲスト）: 消化済み不変＋残り節準拠＋休み公平
+  {
+    const res = generateGender(8, 8, 10, 'desc');
+    const keptOrig = JSON.stringify(res.rounds.slice(0, 5));
+    const after = applyGenderChangeTest(res, 5, ['M', 'F'], [], 10, 'desc');
+    const keptOk = JSON.stringify(after.rounds.slice(0, 5)) === keptOrig;
+    console.log(`  ${keptOk ? '✅' : '❌'} 途中追加: 消化済み5節が不変`);
+    if (!keptOk) genderErrors++;
+    checkGenderRounds(after.rounds.slice(5), after.genders, '途中追加（+男1+女1）: 残り節テンプレート準拠');
+    checkRestDiff(after.restHistory, after.newPlayers, '途中追加後: 休み差≤1');
+  }
+
+  // 7. 途中離脱（男2）: 18人→16人で残り節準拠
+  {
+    const res = generateGender(10, 8, 12, 'desc');
+    const after = applyGenderChangeTest(res, 4, [], [1, 2], 12, 'desc');
+    checkGenderRounds(after.rounds.slice(4), after.genders, '途中離脱（男2人）: 残り節テンプレート準拠');
+    const active = after.newPlayers;
+    const noDeparted = after.rounds.slice(4).every(r =>
+      r.assignments.every(c => c.pair1.concat(c.pair2).every(p => active.includes(p))));
+    console.log(`  ${noDeparted ? '✅' : '❌'} 途中離脱: 離脱者が以降の節に登場しない`);
+    if (!noDeparted) genderErrors++;
+  }
+
+  console.log(genderErrors === 0 ? '\n✅ 種目別コート 全テスト合格' : `\n❌ 種目別コート ${genderErrors}件のエラー`);
+  if (genderErrors > 0) process.exitCode = 1;
 }

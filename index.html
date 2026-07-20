@@ -143,6 +143,17 @@ h1 {
   min-width: 28px;
   text-align: center;
 }
+.court-type {
+  color: #fff;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 0.72em;
+  white-space: nowrap;
+}
+.ct-m { background: #2980b9; }
+.ct-f { background: #e0619b; }
+.ct-x { background: #8e44ad; }
 .match-detail {
   flex: 1;
   text-align: center;
@@ -446,6 +457,13 @@ h1 {
       <option value="desc" selected>最後の番号から休む</option>
     </select>
   </div>
+  <div class="input-row" id="genderModeRow" style="display:none">
+    <label>種目別コート</label>
+    <select id="genderMode">
+      <option value="off" selected>使わない</option>
+      <option value="on">A男子・B女子・C/Dミックス</option>
+    </select>
+  </div>
   <div class="chips-label">参加メンバー（タップで選択）<button class="roster-clear" onclick="clearRoster()">全解除</button></div>
   <div class="chips" id="rosterChips"></div>
   <div class="roster-count" id="rosterCount">未選択（番号のみで作成します）</div>
@@ -469,6 +487,11 @@ const KANA = {
   '大野':'おおの','唐澤':'からさわ','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','高橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
   '濱島':'はましま','内田':'うちだ','春日':'かすが','黒河内':'くろごうち','纐纈':'こうけつ','後藤':'ごとう','柴':'しば','下平':'しもだいら','田中':'たなか','宮澤真':'みやざわまほ','宮下':'みやした','依田':'よだ',
 };
+// 性別（原本の[男性]/[女性]セクションから自動生成。種目別コートで使用）
+const GENDER = {
+  '大野':'M','唐澤':'M','北原':'M','越野':'M','小林':'M','善志':'M','高橋':'M','原':'M','バレ':'M','根津':'M','細井':'M','松武':'M','宮澤輝':'M','渡辺':'M',
+  '濱島':'F','内田':'F','春日':'F','黒河内':'F','纐纈':'F','後藤':'F','柴':'F','下平':'F','田中':'F','宮澤真':'F','宮下':'F','依田':'F',
+};
 // HTMLエスケープ（共有リンク経由の名前など、信頼できない文字列をinnerHTMLに入れる前に必ず通す）
 function escHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
@@ -478,6 +501,22 @@ function escHtml(s) {
 function pname(p) {
   const nm = session && session.names && session.names[p];
   return nm ? p + ' ' + nm : p + '番';
+}
+// 番号の性別（'M'/'F'/null）。名簿の人はGENDER、ゲストは追加時に選んだ性別
+function genderOfNum(p) {
+  if (!session) return null;
+  const nm = session.names && session.names[p];
+  if (nm && GENDER[nm]) return GENDER[nm];
+  return (session.guestGenders && session.guestGenders[p]) || null;
+}
+// コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す
+function courtTypeLabel(court) {
+  const gs = court.pair1.concat(court.pair2).map(genderOfNum);
+  if (gs.some(g => g !== 'M' && g !== 'F')) return null;
+  const m = gs.filter(g => g === 'M').length;
+  if (m === 4) return { label: '男子', cls: 'ct-m' };
+  if (m === 0) return { label: '女子', cls: 'ct-f' };
+  return { label: 'ミックス', cls: 'ct-x' };
 }
 // 読み上げ用の呼び名（名簿モードならフリガナ、番号のみなら「5番」）
 function sname(p) {
@@ -583,6 +622,11 @@ function restoreSession() {
   }
   // 旧データや壊れた names は番号のみモードとして扱う
   if (s.names && (typeof s.names !== 'object' || Array.isArray(s.names))) s.names = null;
+  // 旧データには genderMode / guestGenders が無い → 通常モード扱い
+  if (s.genderMode !== true || !s.names) s.genderMode = false;
+  if (!s.guestGenders || typeof s.guestGenders !== 'object' || Array.isArray(s.guestGenders)) {
+    s.guestGenders = s.genderMode ? {} : null;
+  }
   session = s;
   lastRounds = s.rounds;
   TOTAL_ROUNDS = s.totalRounds;
@@ -605,6 +649,7 @@ function restoreSession() {
   }
   // 旧バージョンの保存データには restOrder が無い → 従来仕様の「1番から」
   document.getElementById('restOrder').value = s.restOrder === 'desc' ? 'desc' : 'asc';
+  document.getElementById('genderMode').value = s.genderMode ? 'on' : 'off';
 
   // 名簿チップも復元セッションに合わせる（次回再生成時に同じメンバーが初期選択に）
   if (s.names) {
@@ -648,7 +693,7 @@ function encodeNamesBlob(names) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function decodeNamesBlob(blob) {
+function decodeBlobJson(blob) {
   try {
     if (!blob) return null;
     let b64 = blob.replace(/-/g, '+').replace(/_/g, '/');
@@ -658,17 +703,26 @@ function decodeNamesBlob(blob) {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const obj = JSON.parse(new TextDecoder().decode(bytes));
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-    const names = {};
-    for (const k in obj) {
-      const num = parseInt(k, 10);
-      if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
-      if (typeof obj[k] !== 'string' || obj[k].length === 0 || obj[k].length > 20) return null;
-      names[num] = obj[k];
-    }
-    return names;
+    return obj;
   } catch (e) {
     return null;
   }
+}
+
+function validateNames(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const names = {};
+  for (const k in obj) {
+    const num = parseInt(k, 10);
+    if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
+    if (typeof obj[k] !== 'string' || obj[k].length === 0 || obj[k].length > 20) return null;
+    names[num] = obj[k];
+  }
+  return names;
+}
+
+function decodeNamesBlob(blob) {
+  return validateNames(decodeBlobJson(blob));
 }
 
 function encodeShareData() {
@@ -677,8 +731,8 @@ function encodeShareData() {
   const minutes = Math.floor(Date.now() / 60000);
   let ts = '';
   for (let i = 4; i >= 0; i--) ts += SHARE_CHARS[(minutes >> (6 * i)) & 63];
-  // 名前付きはバージョン'2'（末尾に名前ブロック）。番号のみは従来の'1'のまま
-  let out = (s.names ? '2' : '1') + ts;
+  // 番号のみ='1'、名前付き='2'（末尾に名前ブロック）、種目別コート='3'（名前＋性別ブロック）
+  let out = (s.genderMode ? '3' : s.names ? '2' : '1') + ts;
   out += encInt(s.totalRounds) + encInt(s.initialCourts);
   out += encInt(s.restOrder === 'desc' ? 1 : 0) + encInt(s.maxNumber);
   out += encList(s.players) + encList(s.everPlayers);
@@ -694,14 +748,15 @@ function encodeShareData() {
       out += encInt(a.pair1[0]) + encInt(a.pair1[1]) + encInt(a.pair2[0]) + encInt(a.pair2[1]);
     }
   }
-  if (s.names) out += encodeNamesBlob(s.names);
+  if (s.genderMode) out += encodeNamesBlob({ n: s.names, g: s.guestGenders || {} });
+  else if (s.names) out += encodeNamesBlob(s.names);
   return out;
 }
 
 // 壊れた・途切れたリンクでも例外を漏らさず null を返す
 function decodeShareData(str) {
   try {
-    if (typeof str !== 'string' || (str[0] !== '1' && str[0] !== '2')) return null;
+    if (typeof str !== 'string' || (str[0] !== '1' && str[0] !== '2' && str[0] !== '3')) return null;
     const version = str[0];
     let pos = 1;
     const ch = () => {
@@ -749,13 +804,33 @@ function decodeShareData(str) {
       }
       s.rounds.push(round);
     }
-    if (version === '2') {
+    if (version === '3') {
+      // 残り全部が {n: 名前, g: ゲスト性別} ブロック
+      const obj = decodeBlobJson(str.slice(pos));
+      if (!obj) return null;
+      s.names = validateNames(obj.n);
+      if (!s.names) return null;
+      s.guestGenders = {};
+      if (obj.g && typeof obj.g === 'object' && !Array.isArray(obj.g)) {
+        for (const k in obj.g) {
+          const num = parseInt(k, 10);
+          if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
+          if (obj.g[k] !== 'M' && obj.g[k] !== 'F') return null;
+          s.guestGenders[num] = obj.g[k];
+        }
+      }
+      s.genderMode = true;
+    } else if (version === '2') {
       // 残り全部が名前ブロック
       s.names = decodeNamesBlob(str.slice(pos));
       if (!s.names) return null;
+      s.genderMode = false;
+      s.guestGenders = null;
     } else {
       if (pos !== str.length) return null;
       s.names = null;
+      s.genderMode = false;
+      s.guestGenders = null;
     }
     if (s.rounds.length === 0 || s.players.length === 0) return null;
     return { sharedAt: ts * 60000, session: s };
@@ -837,11 +912,13 @@ function initUI() {
     if (playerSel.querySelector(`option[value="${defaultVal}"]`)) {
       playerSel.value = defaultVal;
     }
+    updateGenderModeRow();
     updateInfo();
   }
 
   courtSel.addEventListener('change', updatePlayerOptions);
   playerSel.addEventListener('change', updateInfo);
+  document.getElementById('genderMode').addEventListener('change', updateInfo);
 
   // 名簿チップ（タップで参加/不参加を切り替え）
   const rosterDiv = document.getElementById('rosterChips');
@@ -873,7 +950,14 @@ function onRosterChange() {
   document.getElementById('rosterCount').textContent = n > 0
     ? `選択中: ${n}人（番号は作成時に自動でランダムに振られます）`
     : '未選択（番号のみで作成します）';
+  updateGenderModeRow();
   updateInfo();
+}
+
+// 種目別コートは「4コート×名簿から選択」のときだけ提示する
+function updateGenderModeRow() {
+  const show = document.getElementById('courtCount').value === '4' && selectedRosterNames().length > 0;
+  document.getElementById('genderModeRow').style.display = show ? '' : 'none';
 }
 
 function updateInfo() {
@@ -903,6 +987,23 @@ function updateInfo() {
   }
   if (restCount > playingCount) {
     addLine('⚠️ 休みのほうが多い構成です。コート数を増やすか人数を減らすことを推奨。', true);
+  }
+  // 種目別コート選択時は男女の人数と成立見込みを表示
+  if (document.getElementById('genderModeRow').style.display !== 'none' &&
+      document.getElementById('genderMode').value === 'on') {
+    const sel = selectedRosterNames();
+    const m = sel.filter(nm => GENDER[nm] === 'M').length;
+    const f = sel.filter(nm => GENDER[nm] === 'F').length;
+    addLine(`種目別コート: 男${m}人・女${f}人（毎節 男8人・女8人の出場が理想）`);
+    if (m < 6) {
+      addLine('⚠️ 男性が6人未満のため、男子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
+    }
+    if (f < 6) {
+      addLine('⚠️ 女性が6人未満のため、女子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
+    }
+    if (m >= 6 && f >= 6 && (m - Math.max(0, restCount) < 8 || f - Math.max(0, restCount) < 8)) {
+      addLine('※ 男女8人ずつに足りない節は、Dコートなどの構成で調整されます');
+    }
   }
 }
 
@@ -1051,8 +1152,103 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
   return restSchedule;
 }
 
+// --- 種目別コート（4コート時のオプション）---
+// 各節の出場者の男女数から各コートの男女構成を決める。
+// 理想は A=男4 / B=女4 / C=男2女2 / D=男2女2。人数が偏る節は A→B→C の優先で
+// 希望構成を維持し、足りない分は余っている性別で埋める（余りは実質Dに集まる）。
+// 休みの公平（差≤1）が最優先なので、男女比によっては構成が崩れる節も許容する。
+function courtTemplates(mCount, fCount, courts) {
+  const wants = [{m:4,f:0},{m:0,f:4},{m:2,f:2},{m:2,f:2}].slice(0, courts);
+  let availM = mCount, availF = fCount;
+  return wants.map(w => {
+    let m = Math.min(w.m, availM);
+    let f = Math.min(w.f, availF);
+    while (m + f < 4) {
+      if (availM - m >= availF - f) m++; else f++;
+    }
+    availM -= m; availF -= f;
+    return { m, f };
+  });
+}
+
+// コートの男女構成 {m,f} → 2ペアの性別タイプ。男女混在コートは戦力が偏らないよう
+// なるべく男女ペア（MF）を作る（例: 男3女1 → 男男ペア vs 男女ペア）
+function pairTypesFor(t) {
+  if (t.m === 4) return ['MM', 'MM'];
+  if (t.m === 3) return ['MM', 'MF'];
+  if (t.m === 2) return ['MF', 'MF'];
+  if (t.m === 1) return ['MF', 'FF'];
+  return ['FF', 'FF'];
+}
+
+// 性別テンプレートに従った1試行分のコート構成。
+// ペアはタイプ別クォータつき貪欲法（ペア回数が少ない組み合わせから。クォータ合計は
+// 男女数と必ず一致するので詰みは起きない）、コートへは A→D の順に対戦回数が
+// 最少のペアの組を割り当てる
+function genderAssign(shuffled, courts, genders, pairHistory, opponentHistory) {
+  const males = shuffled.filter(p => genders[p] === 'M');
+  const females = shuffled.filter(p => genders[p] === 'F');
+  const templates = courtTemplates(males.length, females.length, courts);
+  const courtNeeds = templates.map(pairTypesFor);
+  const quota = { MM: 0, MF: 0, FF: 0 };
+  courtNeeds.forEach(ts => ts.forEach(t => quota[t]++));
+
+  const n = shuffled.length;
+  const candidates = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = shuffled[i], b = shuffled[j];
+      const type = genders[a] === genders[b] ? genders[a] + genders[b] : 'MF';
+      const count = (pairHistory[a] && pairHistory[a][b]) || 0;
+      candidates.push({ i, j, a, b, type, count });
+    }
+  }
+  candidates.sort((x, y) => x.count - y.count);
+  const used = new Set();
+  const byType = { MM: [], MF: [], FF: [] };
+  for (const c of candidates) {
+    if (quota[c.type] === 0 || used.has(c.i) || used.has(c.j)) continue;
+    quota[c.type]--;
+    used.add(c.i);
+    used.add(c.j);
+    byType[c.type].push([c.a, c.b]);
+  }
+
+  const oppScore = (p, q) => {
+    let s = 0;
+    for (const a of p) for (const b of q) s += (opponentHistory[a] && opponentHistory[a][b]) || 0;
+    return s;
+  };
+  const assignments = [];
+  for (const [t1, t2] of courtNeeds) {
+    let best = null;
+    if (t1 === t2) {
+      const list = byType[t1];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const s = oppScore(list[i], list[j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    } else {
+      for (let i = 0; i < byType[t1].length; i++) {
+        for (let j = 0; j < byType[t2].length; j++) {
+          const s = oppScore(byType[t1][i], byType[t2][j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    }
+    // t1===t2 のときは j>i なので、先に j を抜けば i の位置はずれない
+    const pair2 = byType[t2].splice(best.j, 1)[0];
+    const pair1 = byType[t1].splice(best.i, 1)[0];
+    assignments.push({ pair1, pair2 });
+  }
+  return assignments;
+}
+
 // --- ペア・対戦割り当て ---
-function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
+// genders: 種目別モード時のみ {番号: 'M'|'F'}。省略時は従来どおり性別を考慮しない
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders) {
   const candidates = [];
 
   // 複数回試行して候補を集める
@@ -1063,10 +1259,14 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
-    const pairs = greedyPairing(shuffled, pairHistory);
-    if (!pairs) continue;
-
-    const courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
+    let courtAssignments;
+    if (genders) {
+      courtAssignments = genderAssign(shuffled, courts, genders, pairHistory, opponentHistory);
+    } else {
+      const pairs = greedyPairing(shuffled, pairHistory);
+      if (!pairs) continue;
+      courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
+    }
     const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory);
     candidates.push({ assignments: courtAssignments, score });
   }
@@ -1075,7 +1275,7 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
   candidates.sort((a, b) => a.score - b.score);
   const best = { assignments: null, score: Infinity };
   for (const cand of candidates.slice(0, 5)) {
-    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory);
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders);
     if (r.score < best.score) {
       best.score = r.score;
       best.assignments = r.assignments;
@@ -1086,7 +1286,8 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory) {
 }
 
 // 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
-function localSearchImprove(assignments, pairHistory, opponentHistory) {
+// genders指定時は同性同士の入れ替えのみ許可（コートの男女構成を崩さない）
+function localSearchImprove(assignments, pairHistory, opponentHistory, genders) {
   let current = JSON.parse(JSON.stringify(assignments));
   let bestScore = evaluateAssignment(current, pairHistory, opponentHistory);
   let improved = true;
@@ -1101,6 +1302,11 @@ function localSearchImprove(assignments, pairHistory, opponentHistory) {
         const [ci1, pi1, s1] = positions[x];
         const [ci2, pi2, s2] = positions[y];
         if (ci1 === ci2 && pi1 === pi2) continue; // 同一ペア内の入替は結果が変わらない
+        if (genders) {
+          const g1 = (pi1 === 1 ? current[ci1].pair1 : current[ci1].pair2)[s1];
+          const g2 = (pi2 === 1 ? current[ci2].pair1 : current[ci2].pair2)[s2];
+          if (genders[g1] !== genders[g2]) continue;
+        }
         const trial = JSON.parse(JSON.stringify(current));
         const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
         const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
@@ -1301,6 +1507,20 @@ function generate() {
     shuffled.forEach((nm, i) => { names[i + 1] = nm; });
   }
 
+  // 種目別コート（4コート×名簿モードのみ）: A男子 / B女子 / C・Dミックス
+  const genderMode = courts === 4 && !!names &&
+    document.getElementById('genderMode').value === 'on';
+  let genders = null;
+  if (genderMode) {
+    const missing = rosterNames.filter(nm => GENDER[nm] !== 'M' && GENDER[nm] !== 'F');
+    if (missing.length > 0) {
+      alert('性別が登録されていないメンバーがいます: ' + missing.join('、') + '\n名簿の更新（update_members.py）が必要です。');
+      return;
+    }
+    genders = {};
+    for (const num in names) genders[num] = GENDER[names[num]];
+  }
+
   const restOrder = document.getElementById('restOrder').value;
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
   const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null, restOrder === 'desc');
@@ -1321,9 +1541,10 @@ function generate() {
     resting.forEach(p => restHistory[p]++);
 
     let assignments;
-    if (r === 0 && restOrder === 'desc') {
+    if (r === 0 && restOrder === 'desc' && !genderMode) {
       // 「最後の番号から休む」の第1節は若い番号がそのまま出場するので、
       // 受付順に並べられるよう番号順の固定配置にする（A: 1,2 vs 3,4 / B: 5,6 vs 7,8 …）
+      // 種目別モードは番号順だと男女構成が崩れるため第1節から最適化する
       assignments = [];
       for (let c = 0; c < courts; c++) {
         assignments.push({
@@ -1332,8 +1553,9 @@ function generate() {
         });
       }
     } else {
-      assignments = assignCourts(active, courts, pairHistory, opponentHistory);
-      assignments = balanceCourts(assignments, courtHistory);
+      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
+      // 種目別モードはコートの種目が固定（A=男子…）なので入れ替えない
+      if (!genderMode) assignments = balanceCourts(assignments, courtHistory);
     }
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
@@ -1350,6 +1572,8 @@ function generate() {
     everPlayers: allPlayers.slice(),
     maxNumber: totalPlayers,
     names,
+    genderMode,
+    guestGenders: genderMode ? {} : null,
     changes: [],
     rounds
   };
@@ -1388,7 +1612,19 @@ function applyMemberChange() {
   const addNames = document.getElementById('addNameChips')
     ? Array.from(document.querySelectorAll('#addNameChips .chip.selected')).map(b => b.dataset.name)
     : [];
-  const addCount = addNames.length + parseInt(document.getElementById('addCount').value);
+  // 種目別モードのゲストは性別が必要なので男女別セレクトから読む
+  let guestCount;
+  const guestGenderSeq = [];
+  if (session.genderMode) {
+    const gm = parseInt(document.getElementById('addCountM').value);
+    const gf = parseInt(document.getElementById('addCountF').value);
+    guestCount = gm + gf;
+    for (let i = 0; i < gm; i++) guestGenderSeq.push('M');
+    for (let i = 0; i < gf; i++) guestGenderSeq.push('F');
+  } else {
+    guestCount = parseInt(document.getElementById('addCount').value);
+  }
+  const addCount = addNames.length + guestCount;
   const newCourts = parseInt(document.getElementById('changeCourtCount').value);
   const removeNumbers = Array.from(document.querySelectorAll('#removeChips .chip.selected'))
     .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
@@ -1441,6 +1677,17 @@ function applyMemberChange() {
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
   const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers);
 
+  // 種目別モードの性別マップ（4コート以外へ変更したときは通常生成に戻る）
+  let genders = null;
+  if (session.genderMode && newCourts === 4) {
+    genders = {};
+    for (const p of newPlayers) genders[p] = genderOfNum(p);
+    addNames.forEach((nm, i) => { genders[newNumbers[i]] = GENDER[nm]; });
+    guestGenderSeq.forEach((g, i) => { genders[newNumbers[addNames.length + i]] = g; });
+    // 性別不明が混ざっていたら安全側で通常生成に（GENDER未同期の名簿追加など）
+    if (newPlayers.some(p => genders[p] !== 'M' && genders[p] !== 'F')) genders = null;
+  }
+
   // 残りの節を、引き継いだ履歴をもとに再生成
   const newRounds = [];
   for (let r = 0; r < remaining; r++) {
@@ -1450,8 +1697,8 @@ function applyMemberChange() {
 
     resting.forEach(p => restHistory[p]++);
 
-    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory);
-    assignments = balanceCourts(assignments, courtHistory);
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders);
+    if (!genders) assignments = balanceCourts(assignments, courtHistory);
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
 
@@ -1465,6 +1712,11 @@ function applyMemberChange() {
   if (addNames.length > 0) {
     if (!session.names) session.names = {};
     addNames.forEach((nm, i) => { session.names[newNumbers[i]] = nm; });
+  }
+  // 種目別モードのゲストは選んだ性別を記録（表示ラベル・以降の再生成に使用）
+  if (session.genderMode && guestGenderSeq.length > 0) {
+    if (!session.guestGenders) session.guestGenders = {};
+    guestGenderSeq.forEach((g, i) => { session.guestGenders[newNumbers[addNames.length + i]] = g; });
   }
   session.maxNumber += addCount;
   session.courts = newCourts;
@@ -1555,12 +1807,17 @@ function renderResults() {
     }
     html += `</div>`;
 
+    const showTypes = session.genderMode && round.assignments.length === 4;
     round.assignments.forEach((court, idx) => {
       const p1 = [...court.pair1].sort((a, b) => a - b);
       const p2 = [...court.pair2].sort((a, b) => a - b);
       const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
+      if (showTypes) {
+        const t = courtTypeLabel(court);
+        if (t) html += `<span class="court-type ${t.cls}">${t.label}</span>`;
+      }
       html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
       html += `<span class="pair">${escHtml(pname(left[0]))}</span>`;
       html += `<span class="pair-sep">・</span>`;
@@ -1618,6 +1875,16 @@ function renderResults() {
         html += `</div>`;
       }
     }
+    if (session.genderMode) {
+      // 種目別モードはゲストにも性別が必要なので、男女別に人数を選ぶ
+      for (const [id, glabel] of [['addCountM', '男性ゲスト'], ['addCountF', '女性ゲスト']]) {
+        html += `<div class="input-row"><label>${glabel}</label><select id="${id}">`;
+        for (let i = 0; i <= 8; i++) {
+          html += `<option value="${i}">${i === 0 ? 'なし' : `+${i}人（名簿外）`}</option>`;
+        }
+        html += `</select></div>`;
+      }
+    } else {
     const addLabel = session.names ? 'ゲスト追加' : '追加人数';
     html += `<div class="input-row"><label>${addLabel}</label><select id="addCount">`;
     for (let i = 0; i <= 8; i++) {
@@ -1631,6 +1898,7 @@ function renderResults() {
       html += `<option value="${i}">${label}</option>`;
     }
     html += `</select></div>`;
+    }
     html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
     html += `<div class="chips" id="removeChips">`;
     for (const p of session.players) {
@@ -1962,6 +2230,24 @@ function saveAsImage() {
       ctx.textBaseline = 'middle';
       ctx.fillText(COURT_LABELS[idx], labelX + labelW / 2, cy + COURT_H / 2);
 
+      // 種目タグ（種目別モード時のみ。色はCSSの .ct-m / .ct-f / .ct-x と揃える）
+      let typeW = 0;
+      const typeInfo = session && session.genderMode && round.assignments.length === 4
+        ? courtTypeLabel(court) : null;
+      if (typeInfo) {
+        ctx.font = `bold ${10 * SCALE}px ${FONT}`;
+        const tw = ctx.measureText(typeInfo.label).width;
+        const th = 16 * SCALE;
+        const tx = labelX + labelW + 5 * SCALE;
+        ctx.fillStyle = typeInfo.cls === 'ct-m' ? '#2980b9' : typeInfo.cls === 'ct-f' ? '#e0619b' : '#8e44ad';
+        roundRectPath(ctx, tx, cy + COURT_H / 2 - th / 2, tw + 8 * SCALE, th, 4 * SCALE);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.fillText(typeInfo.label, tx + (tw + 8 * SCALE) / 2, cy + COURT_H / 2);
+        typeW = tw + 8 * SCALE + 5 * SCALE;
+      }
+
       // 対戦表示（小さい番号を左に）
       const p1 = [...court.pair1].sort((a, b) => a - b);
       const p2 = [...court.pair2].sort((a, b) => a - b);
@@ -1982,7 +2268,7 @@ function saveAsImage() {
       for (const s of segs) segW += ctx.measureText(s.t).width;
 
       // コートラベル右端 〜 カード右端 の中央に配置（名前入りで長ければ縮小）
-      const areaLeft = labelX + labelW + 6 * SCALE;
+      const areaLeft = labelX + labelW + typeW + 6 * SCALE;
       const areaRight = PAD + cardW - 14 * SCALE;
       if (segW > areaRight - areaLeft) {
         segFont = Math.max(10 * SCALE, segFont * (areaRight - areaLeft) / segW);
