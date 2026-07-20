@@ -84,6 +84,11 @@ const CHECK_ROUNDS_JS = `(() => {
   check('第1節に種目タグ4つ（男子/女子/ミックス×2）',
     tags.length === 4 && tags[0] === '男子' && tags[1] === '女子' &&
     tags[2] === 'ミックス' && tags[3] === 'ミックス');
+  const tagCls = await page.locator('.round-card').first().locator('.court-type')
+    .evaluateAll(els => els.map(e => e.className));
+  check('タグ色: A青(ct-m)/B桃(ct-f)/C・D紫(ct-x)',
+    tagCls[0].includes('ct-m') && tagCls[1].includes('ct-f') &&
+    tagCls[2].includes('ct-x') && tagCls[3].includes('ct-x'));
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check('375pxで横はみ出しなし', overflow <= 0);
@@ -160,6 +165,31 @@ const CHECK_ROUNDS_JS = `(() => {
   check('番号のみ: genderMode false', await page.evaluate(() => session.genderMode === false));
   check('番号のみ: 種目タグなし', await page.locator('.court-type').count() === 0);
   check('番号のみ: 共有はバージョン1', await page.evaluate(() => encodeShareData()[0] === '1'));
+
+  // --- 8. Dコートがミックスにならない節は緑タグ ---
+  console.log('[8] Dコートの緑タグ（男10女6でDは男子ダブルス）');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(URL);
+  await page.waitForSelector('#rosterChips .chip');
+  for (let i = 0; i < 10; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  for (let i = 14; i < 20; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await page.selectOption('#genderMode', 'on');
+  await page.selectOption('#roundCount', '10');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  const tags8 = await page.locator('.round-card').first().locator('.court-type').allTextContents();
+  check('タグが 男子/女子/ミックス/男子', tags8.join(',') === '男子,女子,ミックス,男子');
+  const cls8 = await page.locator('.round-card').first().locator('.court-type')
+    .evaluateAll(els => els.map(e => e.className));
+  check('Dの男子タグは緑(ct-o)・Aの男子タグは青(ct-m)',
+    cls8[3].includes('ct-o') && cls8[0].includes('ct-m'));
+  // 全節でDが緑タグ（男10女6は毎節D=男子）
+  const allGreen = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.round-card')).every(card => {
+      const t = card.querySelectorAll('.court-type');
+      return t.length === 4 && t[3].classList.contains('ct-o');
+    }));
+  check('全節でDコートのタグが緑', allGreen);
 
   await browser.close();
   console.log(`\n合計: ${pass + fail} 項目 / OK ${pass} / NG ${fail}`);

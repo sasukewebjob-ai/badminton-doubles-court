@@ -154,6 +154,7 @@ h1 {
 .ct-m { background: #2980b9; }
 .ct-f { background: #e0619b; }
 .ct-x { background: #8e44ad; }
+.ct-o { background: #27ae60; }
 .match-detail {
   flex: 1;
   text-align: center;
@@ -509,14 +510,22 @@ function genderOfNum(p) {
   if (nm && GENDER[nm]) return GENDER[nm];
   return (session.guestGenders && session.guestGenders[p]) || null;
 }
-// コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す
-function courtTypeLabel(court) {
+// コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す。
+// ミックスは「男女ペア vs 男女ペア」のみ。男3女1などは「混成」。
+// Dコートは人数調整役なので、ミックスにならなかった節は緑（ct-o）で示す
+function courtTypeLabel(court, idx) {
   const gs = court.pair1.concat(court.pair2).map(genderOfNum);
   if (gs.some(g => g !== 'M' && g !== 'F')) return null;
   const m = gs.filter(g => g === 'M').length;
-  if (m === 4) return { label: '男子', cls: 'ct-m' };
-  if (m === 0) return { label: '女子', cls: 'ct-f' };
-  return { label: 'ミックス', cls: 'ct-x' };
+  const pairMixed = pr => pr.filter(p => genderOfNum(p) === 'M').length === 1;
+  let label;
+  if (m === 4) label = '男子';
+  else if (m === 0) label = '女子';
+  else if (m === 2 && pairMixed(court.pair1) && pairMixed(court.pair2)) label = 'ミックス';
+  else label = '混成';
+  let cls = label === '男子' ? 'ct-m' : label === '女子' ? 'ct-f' : label === 'ミックス' ? 'ct-x' : 'ct-o';
+  if (idx === 3 && label !== 'ミックス') cls = 'ct-o';
+  return { label, cls };
 }
 // 読み上げ用の呼び名（名簿モードならフリガナ、番号のみなら「5番」）
 function sname(p) {
@@ -1246,6 +1255,50 @@ function genderAssign(shuffled, courts, genders, pairHistory, opponentHistory) {
   return assignments;
 }
 
+// 種目別モード用のコート均等化: 同じ男女構成のコート同士だけを入れ替え、
+// 過去のコート登場回数（二乗ペナルティ）で並びを均す。
+// 例: 10男6女ではAとDが両方男子ダブルス → どちらに入るかを節ごとにローテーション。
+// 理想構成ではC・D（両方ミックス）が対象。構成が異なるコートは入れ替えない
+function balanceCourtsSameType(assignments, courtHistory, genders) {
+  if (!assignments || assignments.length <= 1) return assignments;
+  const maleCount = c => c.pair1.concat(c.pair2).filter(p => genders[p] === 'M').length;
+  const groups = {};
+  assignments.forEach((c, i) => {
+    const k = maleCount(c);
+    (groups[k] = groups[k] || []).push(i);
+  });
+  const result = assignments.slice();
+  for (const k in groups) {
+    const idxs = groups[k];
+    if (idxs.length <= 1) continue;
+    const perms = [];
+    (function permute(arr, cur) {
+      if (arr.length === 0) { perms.push(cur); return; }
+      for (let i = 0; i < arr.length; i++) {
+        permute(arr.slice(0, i).concat(arr.slice(i + 1)), cur.concat(arr[i]));
+      }
+    })(idxs, []);
+    let bestScore = Infinity;
+    let bestPerm = perms[0];
+    for (const perm of perms) {
+      let score = 0;
+      perm.forEach((srcIdx, j) => {
+        const courtIdx = idxs[j];
+        for (const p of assignments[srcIdx].pair1.concat(assignments[srcIdx].pair2)) {
+          const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+          score += (cur + 1) * (cur + 1);
+        }
+      });
+      if (score < bestScore) {
+        bestScore = score;
+        bestPerm = perm;
+      }
+    }
+    bestPerm.forEach((srcIdx, j) => { result[idxs[j]] = assignments[srcIdx]; });
+  }
+  return result;
+}
+
 // --- ペア・対戦割り当て ---
 // genders: 種目別モード時のみ {番号: 'M'|'F'}。省略時は従来どおり性別を考慮しない
 function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders) {
@@ -1554,8 +1607,10 @@ function generate() {
       }
     } else {
       assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
-      // 種目別モードはコートの種目が固定（A=男子…）なので入れ替えない
-      if (!genderMode) assignments = balanceCourts(assignments, courtHistory);
+      // 種目別モードはコートの種目が固定（A=男子…）なので、同じ構成のコート同士だけ均す
+      assignments = genderMode
+        ? balanceCourtsSameType(assignments, courtHistory, genders)
+        : balanceCourts(assignments, courtHistory);
     }
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
@@ -1698,7 +1753,9 @@ function applyMemberChange() {
     resting.forEach(p => restHistory[p]++);
 
     let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders);
-    if (!genders) assignments = balanceCourts(assignments, courtHistory);
+    assignments = genders
+      ? balanceCourtsSameType(assignments, courtHistory, genders)
+      : balanceCourts(assignments, courtHistory);
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
 
@@ -1815,7 +1872,7 @@ function renderResults() {
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
       if (showTypes) {
-        const t = courtTypeLabel(court);
+        const t = courtTypeLabel(court, idx);
         if (t) html += `<span class="court-type ${t.cls}">${t.label}</span>`;
       }
       html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
@@ -2233,13 +2290,14 @@ function saveAsImage() {
       // 種目タグ（種目別モード時のみ。色はCSSの .ct-m / .ct-f / .ct-x と揃える）
       let typeW = 0;
       const typeInfo = session && session.genderMode && round.assignments.length === 4
-        ? courtTypeLabel(court) : null;
+        ? courtTypeLabel(court, idx) : null;
       if (typeInfo) {
         ctx.font = `bold ${10 * SCALE}px ${FONT}`;
         const tw = ctx.measureText(typeInfo.label).width;
         const th = 16 * SCALE;
         const tx = labelX + labelW + 5 * SCALE;
-        ctx.fillStyle = typeInfo.cls === 'ct-m' ? '#2980b9' : typeInfo.cls === 'ct-f' ? '#e0619b' : '#8e44ad';
+        ctx.fillStyle = typeInfo.cls === 'ct-m' ? '#2980b9' : typeInfo.cls === 'ct-f' ? '#e0619b'
+          : typeInfo.cls === 'ct-x' ? '#8e44ad' : '#27ae60';
         roundRectPath(ctx, tx, cy + COURT_H / 2 - th / 2, tw + 8 * SCALE, th, 4 * SCALE);
         ctx.fill();
         ctx.fillStyle = '#fff';
