@@ -512,8 +512,9 @@ function genderOfNum(p) {
 }
 // コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す。
 // ミックスは「男女ペア vs 男女ペア」のみ。男3女1などは「混成」。
-// Dコートは人数調整役なので、ミックスにならなかった節は緑（ct-o）で示す
-function courtTypeLabel(court, idx) {
+// 最後のコート（4コートのD／3コートのC）は人数調整役なので、
+// ミックスにならなかった節は緑（ct-o）で示す
+function courtTypeLabel(court, idx, courtCount) {
   const gs = court.pair1.concat(court.pair2).map(genderOfNum);
   if (gs.some(g => g !== 'M' && g !== 'F')) return null;
   const m = gs.filter(g => g === 'M').length;
@@ -524,7 +525,7 @@ function courtTypeLabel(court, idx) {
   else if (m === 2 && pairMixed(court.pair1) && pairMixed(court.pair2)) label = 'ミックス';
   else label = '混成';
   let cls = label === '男子' ? 'ct-m' : label === '女子' ? 'ct-f' : label === 'ミックス' ? 'ct-x' : 'ct-o';
-  if (idx === 3 && label !== 'ミックス') cls = 'ct-o';
+  if (idx === (courtCount || 4) - 1 && label !== 'ミックス') cls = 'ct-o';
   return { label, cls };
 }
 // 読み上げ用の呼び名（名簿モードならフリガナ、番号のみなら「5番」）
@@ -963,10 +964,14 @@ function onRosterChange() {
   updateInfo();
 }
 
-// 種目別コートは「4コート×名簿から選択」のときだけ提示する
+// 種目別コートは「3・4コート×名簿から選択」のときだけ提示する
 function updateGenderModeRow() {
-  const show = document.getElementById('courtCount').value === '4' && selectedRosterNames().length > 0;
+  const courts = document.getElementById('courtCount').value;
+  const show = (courts === '3' || courts === '4') && selectedRosterNames().length > 0;
   document.getElementById('genderModeRow').style.display = show ? '' : 'none';
+  // コート数に応じて選択肢の文言を変える
+  document.querySelector('#genderMode option[value="on"]').textContent =
+    courts === '3' ? 'A男子・B女子・Cミックス' : 'A男子・B女子・C/Dミックス';
 }
 
 function updateInfo() {
@@ -1003,15 +1008,18 @@ function updateInfo() {
     const sel = selectedRosterNames();
     const m = sel.filter(nm => GENDER[nm] === 'M').length;
     const f = sel.filter(nm => GENDER[nm] === 'F').length;
-    addLine(`種目別コート: 男${m}人・女${f}人（毎節 男8人・女8人の出場が理想）`);
+    // 理想の出場数: 4コート=男8女8（A4+C2+D2）、3コート=男6女6（A4+C2）
+    const ideal = courts === 3 ? 6 : 8;
+    const adjCourt = courts === 3 ? 'C' : 'D';
+    addLine(`種目別コート: 男${m}人・女${f}人（毎節 男${ideal}人・女${ideal}人の出場が理想）`);
     if (m < 6) {
       addLine('⚠️ 男性が6人未満のため、男子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
     }
     if (f < 6) {
       addLine('⚠️ 女性が6人未満のため、女子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
     }
-    if (m >= 6 && f >= 6 && (m - Math.max(0, restCount) < 8 || f - Math.max(0, restCount) < 8)) {
-      addLine('※ 男女8人ずつに足りない節は、Dコートなどの構成で調整されます');
+    if (m >= 6 && f >= 6 && (m - Math.max(0, restCount) < ideal || f - Math.max(0, restCount) < ideal)) {
+      addLine(`※ 男女${ideal}人ずつに足りない節は、${adjCourt}コートなどの構成で調整されます`);
     }
   }
 }
@@ -1560,8 +1568,9 @@ function generate() {
     shuffled.forEach((nm, i) => { names[i + 1] = nm; });
   }
 
-  // 種目別コート（4コート×名簿モードのみ）: A男子 / B女子 / C・Dミックス
-  const genderMode = courts === 4 && !!names &&
+  // 種目別コート（3・4コート×名簿モードのみ）
+  // 4コート: A男子 / B女子 / C・Dミックス ／ 3コート: A男子 / B女子 / Cミックス
+  const genderMode = (courts === 3 || courts === 4) && !!names &&
     document.getElementById('genderMode').value === 'on';
   let genders = null;
   if (genderMode) {
@@ -1732,9 +1741,9 @@ function applyMemberChange() {
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
   const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers);
 
-  // 種目別モードの性別マップ（4コート以外へ変更したときは通常生成に戻る）
+  // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
   let genders = null;
-  if (session.genderMode && newCourts === 4) {
+  if (session.genderMode && (newCourts === 3 || newCourts === 4)) {
     genders = {};
     for (const p of newPlayers) genders[p] = genderOfNum(p);
     addNames.forEach((nm, i) => { genders[newNumbers[i]] = GENDER[nm]; });
@@ -1864,7 +1873,7 @@ function renderResults() {
     }
     html += `</div>`;
 
-    const showTypes = session.genderMode && round.assignments.length === 4;
+    const showTypes = session.genderMode && round.assignments.length >= 3;
     round.assignments.forEach((court, idx) => {
       const p1 = [...court.pair1].sort((a, b) => a - b);
       const p2 = [...court.pair2].sort((a, b) => a - b);
@@ -1872,7 +1881,7 @@ function renderResults() {
       html += `<div class="court-match">`;
       html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
       if (showTypes) {
-        const t = courtTypeLabel(court, idx);
+        const t = courtTypeLabel(court, idx, round.assignments.length);
         if (t) html += `<span class="court-type ${t.cls}">${t.label}</span>`;
       }
       html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
@@ -2289,8 +2298,8 @@ function saveAsImage() {
 
       // 種目タグ（種目別モード時のみ。色はCSSの .ct-m / .ct-f / .ct-x と揃える）
       let typeW = 0;
-      const typeInfo = session && session.genderMode && round.assignments.length === 4
-        ? courtTypeLabel(court, idx) : null;
+      const typeInfo = session && session.genderMode && round.assignments.length >= 3
+        ? courtTypeLabel(court, idx, round.assignments.length) : null;
       if (typeInfo) {
         ctx.font = `bold ${10 * SCALE}px ${FONT}`;
         const tw = ctx.measureText(typeInfo.label).width;

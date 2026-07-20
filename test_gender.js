@@ -18,19 +18,19 @@ function check(name, cond) {
   else { fail++; console.log('  NG  ' + name); }
 }
 
-// ページ内で全節のテンプレート準拠を検証する共通関数
-const CHECK_ROUNDS_JS = `(() => {
+// ページ内で全節のテンプレート準拠を検証する共通関数（n=コート数）
+const checkRoundsJs = n => `(() => {
   const g = p => {
     const nm = session.names && session.names[p];
     if (nm && GENDER[nm]) return GENDER[nm];
     return (session.guestGenders && session.guestGenders[p]) || null;
   };
   return session.rounds.every(r => {
-    if (r.assignments.length !== 4) return false;
+    if (r.assignments.length !== ${n}) return false;
     const active = r.assignments.flatMap(c => c.pair1.concat(c.pair2));
     const m = active.filter(p => g(p) === 'M').length;
     const f = active.length - m;
-    const templates = courtTemplates(m, f, 4);
+    const templates = courtTemplates(m, f, ${n});
     return r.assignments.every((c, i) => {
       const players = c.pair1.concat(c.pair2);
       const cm = players.filter(p => g(p) === 'M').length;
@@ -62,9 +62,13 @@ const CHECK_ROUNDS_JS = `(() => {
   check('4コート×名簿選択で表示', await page.locator('#genderModeRow').isVisible());
 
   await page.selectOption('#courtCount', '3');
-  check('3コートでは非表示', !(await page.locator('#genderModeRow').isVisible()));
+  check('3コートでも表示・文言がCミックス', await page.locator('#genderModeRow').isVisible() &&
+    (await page.locator('#genderMode option[value="on"]').textContent()) === 'A男子・B女子・Cミックス');
+  await page.selectOption('#courtCount', '2');
+  check('2コートでは非表示', !(await page.locator('#genderModeRow').isVisible()));
   await page.selectOption('#courtCount', '4');
-  check('4コートに戻すと再表示', await page.locator('#genderModeRow').isVisible());
+  check('4コートに戻すと再表示・文言がC/Dミックス', await page.locator('#genderModeRow').isVisible() &&
+    (await page.locator('#genderMode option[value="on"]').textContent()) === 'A男子・B女子・C/Dミックス');
 
   // --- 2. infoBoxの男女人数表示 ---
   console.log('[2] infoBox');
@@ -78,7 +82,7 @@ const CHECK_ROUNDS_JS = `(() => {
   await page.click('#generateBtn');
   await page.waitForSelector('.round-card');
   check('session.genderMode が true', await page.evaluate(() => session.genderMode === true));
-  check('全節テンプレート準拠（A男4/B女4/C・D男女ペア）', await page.evaluate(CHECK_ROUNDS_JS));
+  check('全節テンプレート準拠（A男4/B女4/C・D男女ペア）', await page.evaluate(checkRoundsJs(4)));
 
   const tags = await page.locator('.round-card').first().locator('.court-type').allTextContents();
   check('第1節に種目タグ4つ（男子/女子/ミックス×2）',
@@ -132,7 +136,7 @@ const CHECK_ROUNDS_JS = `(() => {
   await page.waitForFunction(() => session.players.length === 17);
   const guestGenders = await page.evaluate(() => session.guestGenders);
   check('ゲスト（17番）の性別Mを記録', guestGenders && guestGenders[17] === 'M');
-  check('変更後も全節テンプレート準拠', await page.evaluate(CHECK_ROUNDS_JS));
+  check('変更後も全節テンプレート準拠', await page.evaluate(checkRoundsJs(4)));
   const shareData2 = (await page.evaluate(() => buildShareUrl())).split('#s=')[1];
   const viewerCtx2 = await browser.newContext({ viewport: { width: 375, height: 700 } });
   const viewer2 = await viewerCtx2.newPage();
@@ -190,6 +194,48 @@ const CHECK_ROUNDS_JS = `(() => {
       return t.length === 4 && t[3].classList.contains('ct-o');
     }));
   check('全節でDコートのタグが緑', allGreen);
+
+  // --- 9. 3コート版（A男子・B女子・Cミックス、12〜15人） ---
+  console.log('[9] 3コート版');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(URL);
+  await page.waitForSelector('#rosterChips .chip');
+  for (let i = 0; i < 6; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  for (let i = 14; i < 20; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await page.selectOption('#courtCount', '3');
+  check('3コート×名簿選択で設定行表示', await page.locator('#genderModeRow').isVisible());
+  await page.selectOption('#genderMode', 'on');
+  const info9 = await page.locator('#infoBox').textContent();
+  check('infoBoxに男6人・女6人（理想も6人ずつ）', info9.includes('男6人') && info9.includes('女6人') &&
+    info9.includes('男6人・女6人の出場が理想'));
+  await page.selectOption('#roundCount', '10');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  check('3c: genderMode true', await page.evaluate(() => session.genderMode === true));
+  check('3c: 全節テンプレート準拠', await page.evaluate(checkRoundsJs(3)));
+  const tags9 = await page.locator('.round-card').first().locator('.court-type').allTextContents();
+  check('3c: タグが 男子/女子/ミックス', tags9.join(',') === '男子,女子,ミックス');
+  const cls9 = await page.locator('.round-card').first().locator('.court-type')
+    .evaluateAll(els => els.map(e => e.className));
+  check('3c: タグ色 A青/B桃/C紫', cls9[0].includes('ct-m') && cls9[1].includes('ct-f') && cls9[2].includes('ct-x'));
+
+  // 男性過多（8男4女）: Cコートが男子ダブルス＝緑タグ
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(URL);
+  await page.waitForSelector('#rosterChips .chip');
+  for (let i = 0; i < 8; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  for (let i = 14; i < 18; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await page.selectOption('#courtCount', '3');
+  await page.selectOption('#genderMode', 'on');
+  await page.selectOption('#roundCount', '10');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  const tags9b = await page.locator('.round-card').first().locator('.court-type').allTextContents();
+  check('3c 8男4女: タグが 男子/女子/男子', tags9b.join(',') === '男子,女子,男子');
+  const cls9b = await page.locator('.round-card').first().locator('.court-type')
+    .evaluateAll(els => els.map(e => e.className));
+  check('3c 8男4女: Cの男子タグは緑(ct-o)・Aは青(ct-m)',
+    cls9b[2].includes('ct-o') && cls9b[0].includes('ct-m'));
 
   await browser.close();
   console.log(`\n合計: ${pass + fail} 項目 / OK ${pass} / NG ${fail}`);
