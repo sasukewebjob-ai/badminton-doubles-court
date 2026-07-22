@@ -1309,7 +1309,7 @@ function balanceCourtsSameType(assignments, courtHistory, genders) {
 
 // --- ペア・対戦割り当て ---
 // genders: 種目別モード時のみ {番号: 'M'|'F'}。省略時は従来どおり性別を考慮しない
-function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders) {
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders, mixDiff) {
   const candidates = [];
 
   // 複数回試行して候補を集める
@@ -1328,7 +1328,7 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
       if (!pairs) continue;
       courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
     }
-    const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory);
+    const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory, genders, mixDiff);
     candidates.push({ assignments: courtAssignments, score });
   }
 
@@ -1336,7 +1336,7 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
   candidates.sort((a, b) => a.score - b.score);
   const best = { assignments: null, score: Infinity };
   for (const cand of candidates.slice(0, 5)) {
-    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders);
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders, mixDiff);
     if (r.score < best.score) {
       best.score = r.score;
       best.assignments = r.assignments;
@@ -1348,9 +1348,9 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
 
 // 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
 // genders指定時は同性同士の入れ替えのみ許可（コートの男女構成を崩さない）
-function localSearchImprove(assignments, pairHistory, opponentHistory, genders) {
+function localSearchImprove(assignments, pairHistory, opponentHistory, genders, mixDiff) {
   let current = JSON.parse(JSON.stringify(assignments));
-  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory);
+  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory, genders, mixDiff);
   let improved = true;
   while (improved) {
     improved = false;
@@ -1372,7 +1372,7 @@ function localSearchImprove(assignments, pairHistory, opponentHistory, genders) 
         const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
         const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
         const tmp = arr1[s1]; arr1[s1] = arr2[s2]; arr2[s2] = tmp;
-        const sc = evaluateAssignment(trial, pairHistory, opponentHistory);
+        const sc = evaluateAssignment(trial, pairHistory, opponentHistory, genders, mixDiff);
         if (sc < bestScore) {
           bestScore = sc;
           current = trial;
@@ -1445,7 +1445,10 @@ function assignPairsToCourts(pairs, courts, opponentHistory) {
 
 // ペア回数は最優先（重み1000）、対戦相手は回数が多いほど急増する超線形ペナルティ
 // (c+1)^2 : 0回→1, 1回→4, 2回→9, 3回→16 …「同じ相手と3回目・4回目」を強く回避
-function evaluateAssignment(assignments, pairHistory, opponentHistory) {
+// 種目別モード（genders＋mixDiff指定時）はさらに「ミックス系コートと自分の種目コートの
+// 出場差」を均すペナルティ（配置後の差の二乗×重み）。理想＝全員が半々に近づく
+const MIX_BALANCE_WEIGHT = 12;
+function evaluateAssignment(assignments, pairHistory, opponentHistory, genders, mixDiff) {
   if (!assignments) return Infinity;
   let score = 0;
   for (const court of assignments) {
@@ -1458,8 +1461,28 @@ function evaluateAssignment(assignments, pairHistory, opponentHistory) {
         score += (c + 1) * (c + 1);
       }
     }
+    if (genders && mixDiff) {
+      const ps = court.pair1.concat(court.pair2);
+      const m = ps.filter(p => genders[p] === 'M').length;
+      const step = (m > 0 && m < 4) ? 1 : -1; // 男女混在コート=+1 / 自種目コート=-1
+      for (const p of ps) {
+        const d = (mixDiff[p] || 0) + step;
+        score += MIX_BALANCE_WEIGHT * d * d;
+      }
+    }
   }
   return score;
+}
+
+// 種目別モード: 各自の「ミックス系（男女混在）コート出場 − 自種目コート出場」を更新
+function updateMixDiff(assignments, genders, mixDiff) {
+  if (!genders || !mixDiff) return;
+  for (const court of assignments) {
+    const ps = court.pair1.concat(court.pair2);
+    const m = ps.filter(p => genders[p] === 'M').length;
+    const step = (m > 0 && m < 4) ? 1 : -1;
+    for (const p of ps) mixDiff[p] = (mixDiff[p] || 0) + step;
+  }
 }
 
 function updateHistories(assignments, pairHistory, opponentHistory) {
@@ -1591,6 +1614,7 @@ function generate() {
   const opponentHistory = {};
   const restHistory = {};
   const courtHistory = {};
+  const mixDiff = {}; // 種目別モード: ミックス系と自種目コートの出場差（半々に均す用）
   allPlayers.forEach(p => restHistory[p] = 0);
 
   const rounds = [];
@@ -1615,7 +1639,7 @@ function generate() {
         });
       }
     } else {
-      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
+      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff);
       // 種目別モードはコートの種目が固定（A=男子…）なので、同じ構成のコート同士だけ均す
       assignments = genderMode
         ? balanceCourtsSameType(assignments, courtHistory, genders)
@@ -1623,6 +1647,7 @@ function generate() {
     }
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
+    if (genderMode) updateMixDiff(assignments, genders, mixDiff);
 
     rounds.push({ round: r + 1, resting, assignments });
   }
@@ -1720,11 +1745,19 @@ function applyMemberChange() {
   const opponentHistory = {};
   const courtHistory = {};
   const restHistory = {};
+  const mixDiff = {};
+  // 種目別モード: ミックス/自種目の出場差も過去節から再構築（離脱済みの人も性別を引けるようにする）
+  let histGenders = null;
+  if (session.genderMode) {
+    histGenders = {};
+    for (const p of session.everPlayers) histGenders[p] = genderOfNum(p);
+  }
   session.everPlayers.concat(newNumbers).forEach(p => restHistory[p] = 0);
   for (const round of kept) {
     round.resting.forEach(p => restHistory[p]++);
     updateHistories(round.assignments, pairHistory, opponentHistory);
     updateCourtHistory(round.assignments, courtHistory);
+    if (histGenders) updateMixDiff(round.assignments, histGenders, mixDiff);
   }
 
   // 休み回数の引き継ぎ。途中参加者は「現時点の最少回数」扱いで以降を公平に
@@ -1761,12 +1794,13 @@ function applyMemberChange() {
 
     resting.forEach(p => restHistory[p]++);
 
-    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders);
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders, mixDiff);
     assignments = genders
       ? balanceCourtsSameType(assignments, courtHistory, genders)
       : balanceCourts(assignments, courtHistory);
     updateHistories(assignments, pairHistory, opponentHistory);
     updateCourtHistory(assignments, courtHistory);
+    if (genders) updateMixDiff(assignments, genders, mixDiff);
 
     newRounds.push({ round: consumed + r + 1, resting, assignments });
   }

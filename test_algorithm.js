@@ -258,7 +258,7 @@ function balanceCourtsSameType(assignments, courtHistory, genders) {
   return result;
 }
 
-function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders) {
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders, mixDiff) {
   const candidates = [];
   for (let trial = 0; trial < 150; trial++) {
     const shuffled = activePlayers.slice();
@@ -274,14 +274,14 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
       if (!pairs) continue;
       courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
     }
-    const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory);
+    const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory, genders, mixDiff);
     candidates.push({ assignments: courtAssignments, score });
   }
   // 上位5候補を局所探索で磨き、最良を採用
   candidates.sort((a, b) => a.score - b.score);
   const best = { assignments: null, score: Infinity };
   for (const cand of candidates.slice(0, 5)) {
-    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders);
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders, mixDiff);
     if (r.score < best.score) {
       best.score = r.score;
       best.assignments = r.assignments;
@@ -291,9 +291,9 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
 }
 
 // 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
-function localSearchImprove(assignments, pairHistory, opponentHistory, genders) {
+function localSearchImprove(assignments, pairHistory, opponentHistory, genders, mixDiff) {
   let current = JSON.parse(JSON.stringify(assignments));
-  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory);
+  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory, genders, mixDiff);
   let improved = true;
   while (improved) {
     improved = false;
@@ -315,7 +315,7 @@ function localSearchImprove(assignments, pairHistory, opponentHistory, genders) 
         const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
         const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
         const tmp = arr1[s1]; arr1[s1] = arr2[s2]; arr2[s2] = tmp;
-        const sc = evaluateAssignment(trial, pairHistory, opponentHistory);
+        const sc = evaluateAssignment(trial, pairHistory, opponentHistory, genders, mixDiff);
         if (sc < bestScore) {
           bestScore = sc;
           current = trial;
@@ -379,7 +379,10 @@ function assignPairsToCourts(pairs, courts, opponentHistory) {
 
 // ペア回数は最優先（重み1000）、対戦相手は回数が多いほど急増する超線形ペナルティ
 // (c+1)^2 : 0回→1, 1回→4, 2回→9, 3回→16 …「同じ相手と3回目・4回目」を強く回避
-function evaluateAssignment(assignments, pairHistory, opponentHistory) {
+// 種目別モード（genders＋mixDiff指定時）はさらに「ミックス系コートと自分の種目コートの
+// 出場差」を均すペナルティ（配置後の差の二乗×重み）。理想＝全員が半々に近づく
+const MIX_BALANCE_WEIGHT = 12;
+function evaluateAssignment(assignments, pairHistory, opponentHistory, genders, mixDiff) {
   if (!assignments) return Infinity;
   let score = 0;
   for (const court of assignments) {
@@ -392,8 +395,28 @@ function evaluateAssignment(assignments, pairHistory, opponentHistory) {
         score += (c + 1) * (c + 1);
       }
     }
+    if (genders && mixDiff) {
+      const ps = court.pair1.concat(court.pair2);
+      const m = ps.filter(p => genders[p] === 'M').length;
+      const step = (m > 0 && m < 4) ? 1 : -1; // 男女混在コート=+1 / 自種目コート=-1
+      for (const p of ps) {
+        const d = (mixDiff[p] || 0) + step;
+        score += MIX_BALANCE_WEIGHT * d * d;
+      }
+    }
   }
   return score;
+}
+
+// 種目別モード: 各自の「ミックス系（男女混在）コート出場 − 自種目コート出場」を更新
+function updateMixDiff(assignments, genders, mixDiff) {
+  if (!genders || !mixDiff) return;
+  for (const court of assignments) {
+    const ps = court.pair1.concat(court.pair2);
+    const m = ps.filter(p => genders[p] === 'M').length;
+    const step = (m > 0 && m < 4) ? 1 : -1;
+    for (const p of ps) mixDiff[p] = (mixDiff[p] || 0) + step;
+  }
 }
 
 function updateHistories(assignments, pairHistory, opponentHistory) {
@@ -1396,7 +1419,7 @@ console.log('\n=== 種目別コート検証 ===');
     const restCount = totalPlayers - courts * 4;
     const allPlayers = playersN(totalPlayers);
     const restSchedule = generateRestSchedule(allPlayers, restCount, numRounds, null, null, restOrder === 'desc');
-    const pairHistory = {}, opponentHistory = {}, restHistory = {}, courtHistory = {};
+    const pairHistory = {}, opponentHistory = {}, restHistory = {}, courtHistory = {}, mixDiff = {};
     allPlayers.forEach(p => restHistory[p] = 0);
     const rounds = [];
     for (let r = 0; r < numRounds; r++) {
@@ -1404,10 +1427,11 @@ console.log('\n=== 種目別コート検証 ===');
       const restSet = new Set(resting);
       const active = allPlayers.filter(p => !restSet.has(p));
       resting.forEach(p => restHistory[p]++);
-      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
+      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff);
       assignments = balanceCourtsSameType(assignments, courtHistory, genders);
       updateHistories(assignments, pairHistory, opponentHistory);
       updateCourtHistory(assignments, courtHistory);
+      updateMixDiff(assignments, genders, mixDiff);
       rounds.push({ round: r + 1, resting, assignments });
     }
     return { rounds, genders, totalPlayers, restHistory, pairHistory, opponentHistory };
@@ -1469,12 +1493,13 @@ console.log('\n=== 種目別コート検証 ===');
     });
     const newPlayers = continuing.concat(newNumbers).sort((a, b) => a - b);
     const kept = res.rounds.slice(0, consumed);
-    const pairHistory = {}, opponentHistory = {}, courtHistory = {}, restHistory = {};
+    const pairHistory = {}, opponentHistory = {}, courtHistory = {}, restHistory = {}, mixDiff = {};
     players.concat(newNumbers).forEach(p => restHistory[p] = 0);
     for (const round of kept) {
       round.resting.forEach(p => restHistory[p]++);
       updateHistories(round.assignments, pairHistory, opponentHistory);
       updateCourtHistory(round.assignments, courtHistory);
+      updateMixDiff(round.assignments, genders, mixDiff);
     }
     const contCounts = continuing.map(p => restHistory[p]);
     const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
@@ -1490,13 +1515,14 @@ console.log('\n=== 種目別コート検証 ===');
       const restSet = new Set(resting);
       const active = newPlayers.filter(p => !restSet.has(p));
       resting.forEach(p => restHistory[p]++);
-      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
+      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff);
       assignments = balanceCourtsSameType(assignments, courtHistory, genders);
       updateHistories(assignments, pairHistory, opponentHistory);
       updateCourtHistory(assignments, courtHistory);
+      updateMixDiff(assignments, genders, mixDiff);
       newRounds.push({ round: consumed + r + 1, resting, assignments });
     }
-    return { rounds: kept.concat(newRounds), genders, newPlayers, restHistory, kept };
+    return { rounds: kept.concat(newRounds), genders, newPlayers, restHistory, kept, totalPlayers: res.totalPlayers + newNumbers.length };
   }
 
   // 1. 理想構成 8M8F（休みなし）: 全節 A=男4 / B=女4 / C・D=男女ペア×2
@@ -1616,6 +1642,30 @@ console.log('\n=== 種目別コート検証 ===');
     checkGenderRounds(after.rounds.slice(5), after.genders, '4c→3c変更: 残り節もテンプレート準拠');
   }
 
+  // 14. 実運用再現（2026-07-22の練習日: 15人3コート → 第2節から+男1・4コートへ → 第3節から+女1）
+  //     全節テンプレート準拠＋休み公平＋ミックス/自種目の偏り抑制（改善前は女子D7回/ミックス2回の人が出た）
+  {
+    const res = generateGender(8, 7, 10, 'desc', 3);
+    const after1 = applyGenderChangeTest(res, 1, ['M'], [], 10, 'desc', 4);
+    const after2 = applyGenderChangeTest(after1, 2, ['F'], [], 10, 'desc', 4);
+    checkGenderRounds(after2.rounds, after2.genders, '実運用再現(15人3c→+男1/4c→+女1): 全節テンプレート準拠');
+    checkRestDiff(after2.restHistory, after2.newPlayers, '実運用再現: 休み差≤1');
+    const mix = {}, own = {};
+    after2.newPlayers.forEach(p => { mix[p] = 0; own[p] = 0; });
+    for (const r of after2.rounds) for (const c of r.assignments) {
+      const ps = c.pair1.concat(c.pair2);
+      const m = ps.filter(p => after2.genders[p] === 'M').length;
+      const mixed = m > 0 && m < 4;
+      for (const p of ps) (mixed ? mix : own)[p]++;
+    }
+    const dOf = g => after2.newPlayers.filter(p => after2.genders[p] === g).map(p => mix[p] - own[p]);
+    const spread = arr => Math.max(...arr) - Math.min(...arr);
+    const spM = spread(dOf('M')), spF = spread(dOf('F'));
+    const okSp = spM <= 5 && spF <= 5;
+    console.log(`  ${okSp ? '✅' : '❌'} 実運用再現: ミックス/自種目出場差のスプレッド 男${spM}・女${spF}（≤5）`);
+    if (!okSp) genderErrors++;
+  }
+
   console.log(genderErrors === 0 ? '\n✅ 種目別コート 全テスト合格' : `\n❌ 種目別コート ${genderErrors}件のエラー`);
   if (genderErrors > 0) process.exitCode = 1;
 }
@@ -1644,7 +1694,7 @@ console.log('\n=== 種目別コート分散検証 ===');
     const restCount = totalPlayers - courts * 4;
     const allPlayers = playersN(totalPlayers);
     const restSchedule = generateRestSchedule(allPlayers, restCount, numRounds, null, null, restOrder === 'desc');
-    const pairHistory = {}, opponentHistory = {}, restHistory = {}, courtHistory = {};
+    const pairHistory = {}, opponentHistory = {}, restHistory = {}, courtHistory = {}, mixDiff = {};
     allPlayers.forEach(p => restHistory[p] = 0);
     const rounds = [];
     for (let r = 0; r < numRounds; r++) {
@@ -1652,10 +1702,11 @@ console.log('\n=== 種目別コート分散検証 ===');
       const restSet = new Set(resting);
       const active = allPlayers.filter(p => !restSet.has(p));
       resting.forEach(p => restHistory[p]++);
-      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders);
+      let assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff);
       assignments = balanceCourtsSameType(assignments, courtHistory, genders);
       updateHistories(assignments, pairHistory, opponentHistory);
       updateCourtHistory(assignments, courtHistory);
+      updateMixDiff(assignments, genders, mixDiff);
       rounds.push({ round: r + 1, resting, assignments });
     }
     return { rounds, genders, totalPlayers };
@@ -1701,7 +1752,7 @@ console.log('\n=== 種目別コート分散検証 ===');
       mixCounts.push(app[p][2] + app[p][3]);
     }
     const mixDiff = Math.max(...mixCounts) - Math.min(...mixCounts);
-    checks.push({ ok: mixDiff <= 6, msg: `ミックス出場回数の差=${mixDiff}(>6)` });
+    checks.push({ ok: mixDiff <= 3, msg: `ミックス出場回数の差=${mixDiff}(>3)` });
     reportDist('8男8女×15節: 全員がA/B・C・Dすべてに登場（同種目コートもローテーション）', checks);
     console.log(`     （参考）ミックス出場回数: 平均${(mixCounts.reduce((s, x) => s + x, 0) / 16).toFixed(1)}回・最小${Math.min(...mixCounts)}・最大${Math.max(...mixCounts)}`);
   }
@@ -1786,7 +1837,7 @@ console.log('\n=== 種目別コート分散検証 ===');
       mixCounts.push(app[p][2]);
     }
     const mixDiff = Math.max(...mixCounts) - Math.min(...mixCounts);
-    checks.push({ ok: mixDiff <= 6, msg: `ミックス出場回数の差=${mixDiff}(>6)` });
+    checks.push({ ok: mixDiff <= 3, msg: `ミックス出場回数の差=${mixDiff}(>3)` });
     reportDist('3c: 6男6女×15節: 全員がA/B＋Cミックスに登場', checks);
     console.log(`     （参考）ミックス出場回数: 平均${(mixCounts.reduce((s, x) => s + x, 0) / 12).toFixed(1)}回・最小${Math.min(...mixCounts)}・最大${Math.max(...mixCounts)}`);
   }
@@ -1806,6 +1857,29 @@ console.log('\n=== 種目別コート分散検証 ===');
     checks.push({ ok: maxAcDiff <= 6, msg: `男子コートA/C登場差の最大=${maxAcDiff}(>6)` });
     reportDist('3c: 8男4女×15節: 男子がA/C両方にローテーション', checks);
     console.log(`     （参考）男性のA/C登場差: 最大${maxAcDiff}回`);
+  }
+
+  // 8. ミックス/自種目の半々バランス（2026-07-22追加。実運用で女子D7回/ミックス2回の偏り報告を受けて）
+  //    9男8女×10節（毎節1休み）: 均等化前は差スプレッドが男最大10・女6まで開いた構成
+  {
+    const res = generateGenderDist(9, 8, 10, 'desc');
+    const mix = {}, own = {};
+    for (let p = 1; p <= 17; p++) { mix[p] = 0; own[p] = 0; }
+    for (const r of res.rounds) for (const c of r.assignments) {
+      const ps = c.pair1.concat(c.pair2);
+      const m = ps.filter(p => res.genders[p] === 'M').length;
+      const mixed = m > 0 && m < 4;
+      for (const p of ps) (mixed ? mix : own)[p]++;
+    }
+    const dOf = g => Object.keys(mix).map(Number).filter(p => res.genders[p] === g).map(p => mix[p] - own[p]);
+    const spread = arr => Math.max(...arr) - Math.min(...arr);
+    const spM = spread(dOf('M')), spF = spread(dOf('F'));
+    const checks = [
+      { ok: spM <= 5, msg: `男の差スプレッド=${spM}(>5)` },
+      { ok: spF <= 4, msg: `女の差スプレッド=${spF}(>4)` },
+    ];
+    reportDist('9男8女×10節: ミックス/自種目出場が全員半々に近い（偏り抑制）', checks);
+    console.log(`     （参考）差(ミックス−自種目): 男[${dOf('M').join(',')}] 女[${dOf('F').join(',')}]`);
   }
 
   console.log(distErrors === 0 ? '\n✅ 種目別コート分散 全テスト合格' : `\n❌ 種目別コート分散 ${distErrors}件のエラー`);
