@@ -12,9 +12,11 @@ const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win
   let deployed = false;
   while (Date.now() < deadline) {
     await page.goto('https://sasukewebjob-ai.github.io/badminton-doubles-court/?v=' + Date.now());
+    // 2026-07-22: 画像保存フォールバック導入で本体はsaveAsImageImplに分離。
+    // 「上限の1割余裕（* 0.9）」の存在を新版の目印にする
     deployed = await page.evaluate(() =>
       typeof ROSTER !== 'undefined' && Array.isArray(ROSTER) && ROSTER.length === 26 &&
-      typeof saveAsImage === 'function' && saveAsImage.toString().includes('16777216'));
+      typeof saveAsImageImpl === 'function' && saveAsImageImpl.toString().includes('16777216 * 0.9'));
     if (deployed) break;
     await page.waitForTimeout(15000);
   }
