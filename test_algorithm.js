@@ -715,7 +715,7 @@ function validate(result) {
 const roundOptions = [10, 15, 20, 25, 30];
 const configs = [];
 for (const courts of [2, 3, 4]) {
-  for (let players = courts * 4; players <= 24; players++) {
+  for (let players = courts * 4; players <= 26; players++) {
     for (const rounds of roundOptions) {
       configs.push([courts, players, rounds]);
     }
@@ -855,7 +855,7 @@ console.log('\n=== 休み均等化（差≤1）全構成テスト ===');
   let fails = 0;
   let total = 0;
   for (const courts of [2, 3, 4]) {
-    for (let players = courts * 4; players <= 24; players++) {
+    for (let players = courts * 4; players <= 26; players++) {
       for (const rounds of [10, 15, 20, 25, 30]) {
         const restCount = players - courts * 4;
         if (restCount === 0) continue;
@@ -915,7 +915,7 @@ console.log('\n=== コート均等化検証 ===');
 
   console.log('構成（c×p×r） |  最大差 |  平均差 | 最頻コート登場');
   for (const courts of [2, 3, 4]) {
-    for (const players of [courts * 4, courts * 4 + 2, Math.min(24, courts * 4 + 4)]) {
+    for (const players of [courts * 4, courts * 4 + 2, Math.min(26, courts * 4 + 4)]) {
       for (const rounds of [10, 15, 20]) {
         let totalMax = 0, totalAvg = 0, runs = 5;
         for (let t = 0; t < runs; t++) {
@@ -934,7 +934,7 @@ console.log('\n=== コート均等化検証 ===');
   const buckets = { '0-1': 0, '2': 0, '3': 0, '4+': 0 };
   let total = 0;
   for (const courts of [2, 3, 4]) {
-    for (let players = courts * 4; players <= 24; players++) {
+    for (let players = courts * 4; players <= 26; players++) {
       for (const rounds of [10, 15, 20]) {
         for (let t = 0; t < 3; t++) {
           const result = generate(courts, players, rounds);
@@ -1104,7 +1104,7 @@ console.log('\n=== 休み順逆順化（reverse） 検証 ===');
   {
     let fails = 0, total = 0;
     for (const courts of [2, 3, 4]) {
-      for (let players = courts * 4 + 1; players <= 24; players++) {
+      for (let players = courts * 4 + 1; players <= 26; players++) {
         for (const rounds of [10, 15, 30]) {
           const restCount = players - courts * 4;
           const asc = generateRestSchedule(playersN(players), restCount, rounds);
@@ -1123,7 +1123,7 @@ console.log('\n=== 休み順逆順化（reverse） 検証 ===');
   {
     let fails = 0, total = 0;
     for (const courts of [2, 3, 4]) {
-      for (let players = courts * 4 + 1; players <= 24; players++) {
+      for (let players = courts * 4 + 1; players <= 26; players++) {
         for (const rounds of [10, 15, 20, 25, 30]) {
           const restCount = players - courts * 4;
           const sched = generateRestSchedule(playersN(players), restCount, rounds, null, null, true);
@@ -1884,4 +1884,61 @@ console.log('\n=== 種目別コート分散検証 ===');
 
   console.log(distErrors === 0 ? '\n✅ 種目別コート分散 全テスト合格' : `\n❌ 種目別コート分散 ${distErrors}件のエラー`);
   if (distErrors > 0) process.exitCode = 1;
+}
+
+// =========================
+// 26人対応（2026-07-24追加）: 上限24→26拡張後の品質確認
+// =========================
+{
+  console.log('\n=== 26人対応テスト（25・26人構成） ===');
+  let errors26 = 0;
+  const report26 = (ok, label, detail) => {
+    console.log(`  ${ok ? '✅' : '❌'} ${label}${detail ? `（${detail}）` : ''}`);
+    if (!ok) errors26++;
+  };
+
+  function statsOf26(result, courts, players) {
+    const pairHistory = {}, oppHistory = {};
+    result.rounds.forEach(r => updateHistories(r.assignments, pairHistory, oppHistory));
+    let maxPair = 0, maxOpp = 0;
+    for (const a in pairHistory) for (const b in pairHistory[a]) maxPair = Math.max(maxPair, pairHistory[a][b]);
+    for (const a in oppHistory) for (const b in oppHistory[a]) maxOpp = Math.max(maxOpp, oppHistory[a][b]);
+    let maxCourtDiff = 0;
+    for (let p = 1; p <= players; p++) {
+      const counts = [...Array(courts).keys()].map(c => (result.courtHistory[p] && result.courtHistory[p][c]) || 0);
+      maxCourtDiff = Math.max(maxCourtDiff, Math.max(...counts) - Math.min(...counts));
+    }
+    return { maxPair, maxOpp, maxCourtDiff };
+  }
+
+  for (const [courts, players, rounds] of [[4, 26, 10], [4, 26, 15], [4, 25, 10], [3, 26, 15], [2, 26, 10]]) {
+    let vErr = 0, worstPair = 0, worstOpp = 0, worstCourt = 0, worstRest = 0;
+    for (let t = 0; t < 3; t++) {
+      const result = generate(courts, players, rounds);
+      const v = validate(result);
+      vErr += v.errors.length;
+      worstRest = Math.max(worstRest, v.stats.restDiff);
+      const s = statsOf26(result, courts, players);
+      worstPair = Math.max(worstPair, s.maxPair);
+      worstOpp = Math.max(worstOpp, s.maxOpp);
+      worstCourt = Math.max(worstCourt, s.maxCourtDiff);
+    }
+    // コート差の閾値4: 差4は24人以下でも同頻度（約1%の人）で出る既存挙動（30試行の実測で26人は24人と同等以上）
+    const ok = vErr === 0 && worstRest <= 1 && worstPair <= 1 && worstOpp <= 3 && worstCourt <= 4;
+    report26(ok, `${courts}c×${players}p×${rounds}節`,
+      `休み差${worstRest}・maxペア${worstPair}・max対戦${worstOpp}・コート差${worstCourt}`);
+  }
+
+  // 長丁場（30節）はペア消費が多いので参考閾値 maxペア≤2
+  {
+    const result = generate(4, 26, 30);
+    const v = validate(result);
+    const s = statsOf26(result, 4, 26);
+    report26(v.errors.length === 0 && v.stats.restDiff <= 1 && s.maxPair <= 2 && s.maxCourtDiff <= 4,
+      '4c×26p×30節（長丁場）',
+      `休み差${v.stats.restDiff}・maxペア${s.maxPair}・max対戦${s.maxOpp}・コート差${s.maxCourtDiff}`);
+  }
+
+  console.log(errors26 === 0 ? '\n✅ 26人対応 全テスト合格' : `\n❌ 26人対応 ${errors26}件のエラー`);
+  if (errors26 > 0) process.exitCode = 1;
 }

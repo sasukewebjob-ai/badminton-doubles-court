@@ -910,7 +910,7 @@ function initUI() {
   function updatePlayerOptions() {
     const courts = parseInt(courtSel.value);
     const minPlayers = courts * 4;
-    const maxPlayers = 24;
+    const maxPlayers = 26;
     playerSel.innerHTML = '';
     for (let i = minPlayers; i <= maxPlayers; i++) {
       const opt = document.createElement('option');
@@ -996,8 +996,8 @@ function updateInfo() {
   } else {
     addLine(`毎節 ${restCount}人が休み、${playingCount}人がプレー。`);
   }
-  if (players > 24) {
-    addLine('⚠️ 参加人数の上限は24人です。', true);
+  if (players > 26) {
+    addLine('⚠️ 参加人数の上限は26人です。', true);
   }
   if (restCount > playingCount) {
     addLine('⚠️ 休みのほうが多い構成です。コート数を増やすか人数を減らすことを推奨。', true);
@@ -1574,8 +1574,8 @@ function generate() {
     alert(`人数が足りません。${courts}コートには${playingCount}人必要です（選択中: ${totalPlayers}人）。\nコート数を減らすかメンバーを追加してください。`);
     return;
   }
-  if (totalPlayers > 24) {
-    alert('参加人数の上限は24人です。');
+  if (totalPlayers > 26) {
+    alert('参加人数の上限は26人です。');
     return;
   }
 
@@ -1734,8 +1734,8 @@ function applyMemberChange() {
     alert(`人数が足りません。${newCourts}コートには${newCourts * 4}人必要です（変更後: ${newPlayers.length}人）。\nコート数を減らしてください。`);
     return;
   }
-  if (newPlayers.length > 24) {
-    alert('参加人数の上限は24人です。');
+  if (newPlayers.length > 26) {
+    alert('参加人数の上限は26人です。');
     return;
   }
 
