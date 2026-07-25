@@ -188,6 +188,36 @@ async function setup(page, cfg) {
       await page.evaluate(() => document.querySelector('#imagePreview img').naturalWidth > 0));
   }
 
+  // --- toBlobが応答しない端末（無反応の防止・2026-07-25追加）---
+  console.log('\n[toBlobがコールバックを返さない場合]');
+  {
+    await setup(page, { courts: 2, players: 8, rounds: 10 });
+    const before = dialogs.length;
+    await page.evaluate(() => {
+      window.__origToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function () { /* 永遠に返さない端末を再現 */ };
+      const pv = document.getElementById('imagePreview');
+      if (pv) pv.textContent = '';
+    });
+    const t0 = Date.now();
+    await page.click('.btn-save');
+    let shown = true;
+    try {
+      await page.waitForSelector('#imagePreview img', { timeout: 20000 });
+      await page.waitForFunction(() => {
+        const i = document.querySelector('#imagePreview img');
+        return i && i.naturalWidth > 0;
+      }, null, { timeout: 5000 });
+    } catch (e) {
+      shown = false;
+    }
+    const elapsed = Date.now() - t0;
+    await page.evaluate(() => { HTMLCanvasElement.prototype.toBlob = window.__origToBlob; });
+    check('15秒の監視タイマーでプレビューが出る（無反応にならない）', shown, `${(elapsed / 1000).toFixed(1)}秒`);
+    check('dataURLでの表示なのでアラートは出ない', dialogs.length === before, dialogs.slice(before).join(' / '));
+    check('タイマー発火まで15秒前後', elapsed >= 14000 && elapsed <= 19000, `${(elapsed / 1000).toFixed(1)}秒`);
+  }
+
   // --- 閲覧モード（共有リンク）からの保存 ---
   console.log('\n[共有リンクの閲覧モードで保存]');
   {

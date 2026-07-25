@@ -2550,7 +2550,24 @@ function saveAsImageImpl() {
     lastImageUrl = isBlobUrl ? url : null;
   };
 
+  // toBlobがコールバックを返さない端末でも「無反応」にならないよう15秒で見切る。
+  // 15秒は重い端末の正常なPNGエンコードが終わる想定時間より長め（誤作動しにくい値）
+  let settled = false;
+  const fallback = () => {
+    if (settled) return;
+    settled = true;
+    try {
+      finalize(canvas.toDataURL('image/png'), false);
+    } catch (e) {
+      alert('画像の作成に時間がかかっています。\nもう一度お試しいただくか、節数を減らしてお試しください。');
+    }
+  };
+  const watchdog = setTimeout(fallback, 15000);
+
   canvas.toBlob(blob => {
+    if (settled) return; // 監視タイマー側で既に表示済み
+    settled = true;
+    clearTimeout(watchdog);
     try {
       if (blob) {
         finalize(URL.createObjectURL(blob), true);
