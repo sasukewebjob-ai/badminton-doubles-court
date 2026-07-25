@@ -14,6 +14,7 @@
     "test:gender": "node test_gender.js",
     "test:bugfix": "node test_bugfix.js",
     "test:26players": "node test_26players.js",
+    "test:image": "node test_image.js",
     "test:fixed-round1": "node check_fixed_round1.js",
     "check:deploy": "node check_deploy.js"
   },
