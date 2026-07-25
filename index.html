@@ -102,6 +102,10 @@ h1 {
   padding: 3px 10px;
   border-radius: 20px;
   font-size: 0.8em;
+  /* 「第N節」の右側の空きスペースの中央に置く（2026-07-25。従来は右寄せ）。
+     休みが多くて長いときは自動的に左右いっぱいまで広がる */
+  margin: 0 auto;
+  text-align: center;
 }
 .round-title {
   display: flex;
@@ -2503,7 +2507,11 @@ function saveAsImageImpl(chunkIndex) {
       }
       const badgeW = badgeTextW + badgePadX * 2;
       const badgeH = 22 * SCALE;
-      const badgeX = PAD + cardW - 14 * SCALE - badgeW;
+      // 「第N節」と重ならない範囲（areaL〜areaR）の中央に置く（2026-07-25。従来は右寄せ）。
+      // 入り切らない長さのときは従来どおり右端に寄せる
+      const areaR = PAD + cardW - 14 * SCALE;
+      const areaL = areaR - maxBadgeW;
+      const badgeX = badgeW >= maxBadgeW ? areaR - badgeW : areaL + (areaR - areaL - badgeW) / 2;
       const badgeY = y + HEADER_H / 2 - badgeH / 2;
       ctx.fillStyle = hasRest ? '#e74c3c' : '#27ae60';
       roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
