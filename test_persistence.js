@@ -3,10 +3,9 @@
 // 2. メンバー変更→リロード→変更が反映済み
 // 3. 「消去して最初から」→リロード→復元されない
 // 4. 既存セッションありで再生成→確認ダイアログが出る
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 const URL = 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 let pass = 0, fail = 0;
@@ -16,7 +15,7 @@ function check(name, cond) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 } });
   const page = await context.newPage();
 

@@ -7,10 +7,9 @@
 // 5. 番号のみモード：「5番」形式で読む
 // 6. 共有リンクの閲覧モードでも🔊ボタンが使える
 // 7. 375pxで横はみ出しなし
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 // 引数でURL指定可能（本番検証用）: node test_speech.js https://...
 const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
@@ -34,7 +33,7 @@ const TTS_STUB = () => {
 };
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 } });
   await context.addInitScript(TTS_STUB);
   const page = await context.newPage();

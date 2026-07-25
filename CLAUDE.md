@@ -36,6 +36,9 @@
 
 ## ファイル構成
 - `index.html` … 本体（GitHub Pages のエントリポイント）
+- `package.json` … テスト実行用（`npm test`＝アルゴリズム、`npm run test:browser`＝ブラウザ一括、`npm run test:all`＝両方。Playwrightはdev依存）
+- `pw.js` … Playwrightの参照を集約するヘルパー。①プロジェクトのnode_modules ②`PLAYWRIGHT_MODULE` ③開発機のグローバル の順で解決し、実行ファイルは`PLAYWRIGHT_CHROMIUM`で上書き可
+- `run_browser_tests.js` … ブラウザ検証8ファイルを一括実行して総合結果と終了コードを返す
 - `test_algorithm.js` … アルゴリズム検証用テスト（Node.jsで実行）
 - `test_persistence.js` … localStorage永続化のブラウザ検証（Playwright、375px幅）
 - `test_share.js` … 共有リンクのブラウザ検証（Playwright、ホスト/閲覧者を別コンテキストで）
@@ -78,6 +81,8 @@
 - バグ修正2件（2026-07-06）: ①最終節の直前（消化済み=総節数-1）でメンバー変更すると、消化済みセレクトが空になり、そこで再度「作り直す」を押すと`parseInt('')=NaN`→`remaining<=0`ガードを素通り→`slice(0,NaN)=[]`で全節消失していた不具合を修正。`applyMemberChange`に有効節番号ガード（要素null含む）を追加し、作り直せる節が無いときはUIを「これ以上作り直せません」の案内に置換してボタン自体を出さない。②`renderResults`が`pname()`（共有リンク経由で他人が細工可能な名前を含む）を`innerHTML`に無エスケープで埋め込んでいたXSS入口を、`escHtml()`導入で全注入箇所エスケープ。`changeLabel`はCanvas描画と共用のため関数内では変換せず注入側でエスケープ。検証: test_bugfix.js 9項目合格＋既存回帰全緑（algorithm・names 32・share 23・persistence 29・fixed_round1 6・speech 28）
 
 - 26人対応（2026-07-24追加）: 参加人数の上限を24→26人に拡張（番号のみモード含む全モード。ユーザー要望）。変更はindex.htmlの上限4箇所のみ（人数セレクト上限・infoBox警告・生成時alert・メンバー変更時alert）で、公平性ロジック（ペア重複重み1000・対戦(c+1)²・balanceCourtsのコート分散）は既存のまま26人でもそのまま機能。事前調査（30試行×7構成の実測）でコート登場差4が出る頻度（約1%の人）は24人以下と同等＝26人化による品質劣化なしを確認。検証: test_algorithm.jsの全スイープ上限を26に拡大（195→225構成、975→1125テスト全合格）＋26人専用6シナリオ（4c×26p×10/15/30節・4c×25p・3c×26p・2c×26p: 休み差≤1・maxペア1・max対戦≤3・コート差≤4）＋test_26players.js 14項目（セレクト16〜26・毎節休み10人・ペア重複なし・375px横はみ出しなし・dpr3画像保存15.1Mpx≤上限9割・リロード復元・27人目は「上限は26人です」で拒否・25人生成）。既存回帰全緑（names 32・persistence 29・share 23・fixed_round1 6・speech 29・bugfix 9・gender 42）
+
+- システムレビュー指摘の修正4件（2026-07-25）: `REVIEW_FINDINGS.md`（2026-07-24のレビュー）の課題を全件修正。①**共有リンクの内容検証**＝`decodeShareData()`のあとに`validateSharedSession()`を追加。細工リンクで「5コート・31節・各節0コート」等の仕様外データが受理され、描画負荷やCanvas生成失敗につながる余地があった。コート数2〜4・節数10〜30・同時26人・番号1〜200（`SHARE_LIMITS`）に加え、番号の重複なし／`maxNumber`＝のべ参加者の最大値／変更履歴の節番号が非減少かつ最終節未満／各節のコート数が変更履歴どおり／同じ節に二重登場なし／最後の変更より後の節は現役全員がちょうど登場／名前・ゲスト性別のキーがのべ参加者の範囲内、まで検証。不正なら従来どおり`null`→警告して通常モード。②**テストの絶対パス依存を解消**＝`package.json`＋`pw.js`＋`run_browser_tests.js`を追加し、Playwrightを使う9ファイルを`require('./pw')`／`chromium.launch(launchOptions())`に統一（別PC・CIでも`npm install`で動く）。③**test_algorithm.jsの終了コード**＝`recordSuite()`で9スイートのエラーを集約し、1件でもあれば`process.exitCode=1`＋末尾に総合結果を表示（従来はtotalErrors等6スイートが表示だけで、失敗してもexit 0だった）。④**check_deploy.jsの26人判定**＝4コートの人数選択肢が16〜26人（11件）であることと、26人×4コート×10節で毎節4コート・休み10人になることを追加確認（24人上限の旧版を掴んだら落ちる）。検証: test_share.js 23→44項目（レビュー指摘payloadを含む15の細工パターン拒否＋正常3種は通過＋細工リンクを開いても閲覧モードにならない）、test_algorithm.js は通常exit 0／人為エラー注入でexit 1を実測、ブラウザ回帰8ファイル205項目全合格（persistence 29・share 44・names 32・speech 29・gender 42・bugfix 9・26players 14・fixed_round1 6）、check_deploy.js を本番で実行し5項目OK
 
 ## 関連メモ
 - KALIDIA関連リポジトリ: 名簿 `sasukewebjob-ai/kalidia-meibo`／コート割 `sasukewebjob-ai/kalidia-court`

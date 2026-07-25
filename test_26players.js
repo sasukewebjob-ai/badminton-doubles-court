@@ -7,10 +7,9 @@
 // 6. リロード復元
 // 7. 26人からの追加は「上限は26人です」で拒否
 // 8. 25人でも生成OK
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 let pass = 0, fail = 0;
@@ -20,7 +19,7 @@ function check(name, cond) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 }, deviceScaleFactor: 3 });
   const page = await context.newPage();
   const dialogs = [];

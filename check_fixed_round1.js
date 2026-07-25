@@ -3,10 +3,9 @@
 // 2. 第1節の休みは最後の番号（17,18）
 // 3. リロード後も固定配置のまま復元される
 // 4. asc（1番から休む）では従来どおりランダム配置
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 // 引数でURLを指定すると本番などローカル以外も検証できる（例: node check_fixed_round1.js https://...）
 const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
@@ -26,7 +25,7 @@ function isFixed(assignments, courts) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 } });
   const page = await context.newPage();
   page.on('dialog', async d => await d.accept());

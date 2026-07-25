@@ -2,13 +2,12 @@
 // バグ1: 最終節直前でメンバー変更→残り節なし→再度「作り直す」でも全節が消えないこと
 //   （applyMemberChangeのNaN/null節番号ガード＋UIボタン非表示）
 // バグ2: 共有リンクの名前に含まれるHTMLタグがエスケープされ、live要素として挿入されないこと（XSS対策）
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 
 (async () => {
   const url = 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   let pass = 0, fail = 0;
   const check = (name, ok) => { if (ok) { pass++; console.log('  OK  ' + name); } else { fail++; console.log('  NG  ' + name); } };
 

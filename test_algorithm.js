@@ -4,6 +4,14 @@
 const COURT_LABELS = ['A','B','C','D'];
 let TOTAL_ROUNDS = 20;
 
+// 各スイートのエラー数を集約し、1件でもあれば終了コードを1にする
+// （個別のconsole.logだけだとCIが合格と誤判定するため。2026-07-25追加）
+const SUITE_RESULTS = [];
+function recordSuite(name, errors) {
+  SUITE_RESULTS.push({ name, errors });
+  if (errors > 0) process.exitCode = 1;
+}
+
 function makeStrideGroups(N, cycle, restCount) {
   const stride = cycle;
   const used = new Set();
@@ -766,6 +774,7 @@ if (errorDetails.length > 0) {
   errorDetails.forEach(e => console.log(`  - ${e}`));
 }
 console.log(totalErrors === 0 ? '\n✅ すべてのテスト合格' : '\n❌ エラー検出');
+recordSuite('全構成スイープ', totalErrors);
 
 // 第1節がランダム化されたか検証（コート割は依然ランダム）
 console.log('\n=== 第1節のコート割ランダム化テスト ===');
@@ -1080,6 +1089,7 @@ changeErrors += validateChangeScenario('2c10p15節 7節終了時 +1人/−1人(4
 }
 
 console.log(changeErrors === 0 ? '\n✅ メンバー途中変更 全テスト合格' : `\n❌ メンバー途中変更 ${changeErrors}件のエラー`);
+recordSuite('メンバー途中変更', changeErrors);
 
 // =========================
 // 休み順の逆順化（最後の番号から休む）検証
@@ -1155,6 +1165,7 @@ console.log('\n=== 休み順逆順化（reverse） 検証 ===');
   }
 
   console.log(revErrors === 0 ? '\n✅ 休み順逆順化 全テスト合格' : `\n❌ 休み順逆順化 ${revErrors}件のエラー`);
+  recordSuite('休み順逆順化', revErrors);
 }
 
 // =========================
@@ -1217,6 +1228,7 @@ console.log('\n=== 第1節固定配置（desc） 検証 ===');
   }
 
   console.log(fixErrors === 0 ? '\n✅ 第1節固定配置 全テスト合格' : `\n❌ 第1節固定配置 ${fixErrors}件のエラー`);
+  recordSuite('第1節固定配置', fixErrors);
 }
 
 // =========================
@@ -1321,6 +1333,7 @@ console.log('\n=== 離脱者の同番号復帰 検証 ===');
   }
 
   console.log(retErrors === 0 ? '\n✅ 離脱者の同番号復帰 全テスト合格' : `\n❌ 離脱者の同番号復帰 ${retErrors}件のエラー`);
+  recordSuite('離脱者の同番号復帰', retErrors);
 }
 
 // =========================
@@ -1392,6 +1405,7 @@ console.log('\n=== 途中追加者の休み順（周回最後尾）検証 ===');
   checkDeferredAdd('desc: 4c×20人20節・4節後+1人', 4, 20, 20, 'desc', 4, 1);
 
   console.log(defErrors === 0 ? '\n✅ 途中追加者の休み順 全テスト合格' : `\n❌ 途中追加者の休み順 ${defErrors}件のエラー`);
+  recordSuite('途中追加者の休み順', defErrors);
 }
 
 // =========================
@@ -1667,7 +1681,7 @@ console.log('\n=== 種目別コート検証 ===');
   }
 
   console.log(genderErrors === 0 ? '\n✅ 種目別コート 全テスト合格' : `\n❌ 種目別コート ${genderErrors}件のエラー`);
-  if (genderErrors > 0) process.exitCode = 1;
+  recordSuite('種目別コート', genderErrors);
 }
 
 // =========================
@@ -1883,7 +1897,7 @@ console.log('\n=== 種目別コート分散検証 ===');
   }
 
   console.log(distErrors === 0 ? '\n✅ 種目別コート分散 全テスト合格' : `\n❌ 種目別コート分散 ${distErrors}件のエラー`);
-  if (distErrors > 0) process.exitCode = 1;
+  recordSuite('種目別コート分散', distErrors);
 }
 
 // =========================
@@ -1940,5 +1954,23 @@ console.log('\n=== 種目別コート分散検証 ===');
   }
 
   console.log(errors26 === 0 ? '\n✅ 26人対応 全テスト合格' : `\n❌ 26人対応 ${errors26}件のエラー`);
-  if (errors26 > 0) process.exitCode = 1;
+  recordSuite('26人対応', errors26);
+}
+
+// =========================
+// 総合結果（終了コードに全スイートを反映）
+// =========================
+{
+  console.log('\n=========================');
+  console.log('=== 総合結果 ===');
+  console.log('=========================');
+  let grandTotal = 0;
+  for (const s of SUITE_RESULTS) {
+    grandTotal += s.errors;
+    console.log(`  ${s.errors === 0 ? '✅' : '❌'} ${s.name}: ${s.errors}件のエラー`);
+  }
+  console.log(grandTotal === 0
+    ? `\n✅ 全${SUITE_RESULTS.length}スイート合格（exit 0）`
+    : `\n❌ 合計${grandTotal}件のエラー（exit 1）`);
+  if (grandTotal > 0) process.exitCode = 1;
 }

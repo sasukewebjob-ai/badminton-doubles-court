@@ -735,6 +735,104 @@ function decodeNamesBlob(blob) {
   return validateNames(decodeBlobJson(blob));
 }
 
+// --- 共有データの内容検証（2026-07-25追加） ---
+// 共有リンクは誰でも中身を書き換えられる。仕様外の値（5コート・31節・巨大な節数など）を
+// そのまま描画すると画面停止やCanvas生成失敗につながるので、範囲と整合性を検証する
+const SHARE_LIMITS = {
+  minCourts: 2, maxCourts: 4,   // コート数 2〜4
+  minRounds: 10, maxRounds: 30, // 節数 10〜30
+  maxPlayers: 26,               // 同時参加は最大26人
+  maxNumber: 200,               // 出入りを繰り返しても現実的にこの範囲
+  maxChanges: 100
+};
+
+// 1〜max の整数が重複なく maxLen 件以内で並んでいるか
+function isNumList(arr, max, maxLen) {
+  if (!Array.isArray(arr) || arr.length > maxLen) return false;
+  const seen = new Set();
+  for (const v of arr) {
+    if (!Number.isInteger(v) || v < 1 || v > max) return false;
+    if (seen.has(v)) return false;
+    seen.add(v);
+  }
+  return true;
+}
+
+// 番号キーのオブジェクトが everPlayers の範囲に収まっているか
+function keysWithin(obj, allowed) {
+  if (!obj) return true;
+  for (const k in obj) {
+    if (!allowed.has(parseInt(k, 10))) return false;
+  }
+  return true;
+}
+
+function validateSharedSession(s) {
+  const L = SHARE_LIMITS;
+
+  // 節数・コート数・番号の上限
+  if (!Number.isInteger(s.totalRounds) || s.totalRounds < L.minRounds || s.totalRounds > L.maxRounds) return false;
+  if (!Number.isInteger(s.initialCourts) || s.initialCourts < L.minCourts || s.initialCourts > L.maxCourts) return false;
+  if (!Number.isInteger(s.maxNumber) || s.maxNumber < 1 || s.maxNumber > L.maxNumber) return false;
+
+  // 参加者番号（のべ・現役）
+  if (!isNumList(s.everPlayers, s.maxNumber, L.maxNumber) || s.everPlayers.length === 0) return false;
+  if (!isNumList(s.players, s.maxNumber, L.maxPlayers) || s.players.length === 0) return false;
+  if (Math.max.apply(null, s.everPlayers) !== s.maxNumber) return false;
+  const ever = new Set(s.everPlayers);
+  if (!s.players.every(p => ever.has(p))) return false;
+
+  // 変更履歴：節番号は非減少で最終節未満、コート数は2〜4、番号はのべ参加者の範囲内
+  if (!Array.isArray(s.changes) || s.changes.length > L.maxChanges) return false;
+  let prevAt = 1;
+  let courtsAfter = s.initialCourts;
+  for (const c of s.changes) {
+    if (!Number.isInteger(c.atRound) || c.atRound < prevAt || c.atRound >= s.totalRounds) return false;
+    prevAt = c.atRound;
+    if (!Number.isInteger(c.courts) || c.courts < L.minCourts || c.courts > L.maxCourts) return false;
+    for (const list of [c.added, c.removed, c.returned]) {
+      if (!isNumList(list, s.maxNumber, L.maxPlayers)) return false;
+      if (!list.every(p => ever.has(p))) return false;
+    }
+    courtsAfter = c.courts;
+  }
+  // 最終区間のコート数と現役人数の整合
+  if (s.players.length < courtsAfter * 4) return false;
+
+  // 節の構造：節数一致・番号連番・コート数は変更履歴どおり・出場と休みに重複なし
+  if (!Array.isArray(s.rounds) || s.rounds.length !== s.totalRounds) return false;
+  const lastAt = s.changes.length > 0 ? s.changes[s.changes.length - 1].atRound : 0;
+  for (let i = 0; i < s.rounds.length; i++) {
+    const r = s.rounds[i];
+    if (!r || r.round !== i + 1) return false;
+    const rn = i + 1;
+    // この節に適用されるコート数（atRound < 節番号 の最後の変更が有効）
+    let courts = s.initialCourts;
+    for (const c of s.changes) if (c.atRound < rn) courts = c.courts;
+    if (!Array.isArray(r.assignments) || r.assignments.length !== courts) return false;
+    if (!isNumList(r.resting, s.maxNumber, L.maxPlayers)) return false;
+
+    const inRound = new Set(r.resting);
+    for (const a of r.assignments) {
+      if (!a || !Array.isArray(a.pair1) || !Array.isArray(a.pair2)) return false;
+      if (a.pair1.length !== 2 || a.pair2.length !== 2) return false;
+      for (const p of a.pair1.concat(a.pair2)) {
+        if (!Number.isInteger(p) || !ever.has(p)) return false;
+        if (inRound.has(p)) return false; // 同じ節に二重登場
+        inRound.add(p);
+      }
+    }
+    if (inRound.size > L.maxPlayers) return false;
+    // 最後の変更より後の節は、現役参加者がちょうど全員登場するはず
+    if (rn > lastAt && (inRound.size !== s.players.length || !s.players.every(p => inRound.has(p)))) return false;
+  }
+
+  // 名前・ゲスト性別のキーはのべ参加者の範囲内
+  if (!keysWithin(s.names, ever) || !keysWithin(s.guestGenders, ever)) return false;
+
+  return true;
+}
+
 function encodeShareData() {
   const s = session;
   // 作成時刻（分単位・固定5文字）。再共有されたとき新旧を見分けられるように
@@ -842,7 +940,7 @@ function decodeShareData(str) {
       s.genderMode = false;
       s.guestGenders = null;
     }
-    if (s.rounds.length === 0 || s.players.length === 0) return null;
+    if (!validateSharedSession(s)) return null;
     return { sharedAt: ts * 60000, session: s };
   } catch (e) {
     return null;

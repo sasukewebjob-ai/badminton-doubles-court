@@ -6,10 +6,9 @@
 // 5. 共有リンク（v3）→閲覧者にも種目タグが見える
 // 6. メンバー変更→男女別ゲストセレクト・ゲスト性別の記録・残り節も準拠
 // 7. 種目別オフ／番号のみモードは従来どおり（タグなし・リンクv1）
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 const URL = 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 let pass = 0, fail = 0;
@@ -46,7 +45,7 @@ const checkRoundsJs = n => `(() => {
 })()`;
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 } });
   const page = await context.newPage();
   page.on('dialog', async d => await d.accept());

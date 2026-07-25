@@ -5,10 +5,9 @@
 // 4. メンバー変更後の再共有が反映される（ハッシュだけの遷移でも更新される）
 // 5. 自分のコート割を持つ人が共有を見ても、自分のデータに戻れる
 // 6. 壊れたリンクは警告して通常モードにフォールバック
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
+const { chromium, launchOptions } = require('./pw');
 const path = require('path');
 
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
 // 引数でURLを指定すると本番検証に使える（省略時はローカルのindex.html）
 const URL = process.argv[2] || 'file:///' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
@@ -19,7 +18,7 @@ function check(name, cond) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
 
   // --- ホスト（共有する側） ---
   const hostCtx = await browser.newContext({ viewport: { width: 375, height: 700 } });
@@ -134,6 +133,134 @@ function check(name, cond) {
   check('警告が出る', brokenDialogs.some(m => m.includes('読み込めません')));
   check('通常モードで起動（入力セクション表示）', await broken.locator('.input-section').isVisible());
   check('対戦表は表示されない', await broken.locator('.round-card').count() === 0);
+
+  // --- 細工された共有データ（2026-07-25追加） ---
+  console.log('[7] 仕様外の共有データを拒否する（内容検証）');
+  const tamper = await host.evaluate(() => {
+    const real = session;                               // 実物は最後に戻す
+    const orig = JSON.parse(JSON.stringify(session));
+    const clone = () => JSON.parse(JSON.stringify(orig));
+    const encodeWith = (s) => { session = s; const out = encodeShareData(); session = real; return out; };
+    const accepts = (s) => decodeShareData(encodeWith(s)) !== null;
+    const rejects = (s) => decodeShareData(encodeWith(s)) === null;
+
+    // 指定のコート数・人数・節数で内部的に矛盾のないセッションを作る
+    // （拒否理由を1つに絞るため、検証したい項目以外はすべて正しい値にしておく）
+    const synth = (courts, players, rounds) => {
+      const all = Array.from({ length: players }, (_, i) => i + 1);
+      const rs = [];
+      for (let r = 0; r < rounds; r++) {
+        const assignments = [];
+        for (let c = 0; c < courts; c++) {
+          const b = c * 4;
+          assignments.push({ pair1: [all[b], all[b + 1]], pair2: [all[b + 2], all[b + 3]] });
+        }
+        const playing = new Set();
+        assignments.forEach(a => a.pair1.concat(a.pair2).forEach(p => playing.add(p)));
+        rs.push({ round: r + 1, resting: all.filter(p => !playing.has(p)), assignments });
+      }
+      return {
+        totalRounds: rounds, initialCourts: courts, courts, restOrder: 'asc',
+        players: all, everPlayers: all, maxNumber: players,
+        names: null, genderMode: false, guestGenders: null, changes: [], rounds: rs
+      };
+    };
+
+    const stretch = (s, rounds) => {
+      s.totalRounds = rounds;
+      while (s.rounds.length < rounds) {
+        const c = JSON.parse(JSON.stringify(s.rounds[0]));
+        c.round = s.rounds.length + 1;
+        s.rounds.push(c);
+      }
+      return s;
+    };
+
+    const r = {};
+    // 正常データは今までどおり通る（過剰な検証で正規リンクを壊していないか）
+    r.validReal = accepts(clone());
+    r.validSynth = accepts(synth(4, 16, 10));
+    r.validNames = (() => { const s = clone(); s.names = { 1: 'テスト' }; return accepts(s); })();
+
+    // レビュー指摘の「5コート・31節・各節0コート」
+    r.courts5 = rejects(synth(5, 20, 10));
+    r.courts0 = rejects(synth(0, 20, 10));
+    r.rounds31 = rejects(stretch(synth(4, 16, 10), 31));
+    r.rounds9 = rejects((() => { const s = synth(4, 16, 10); s.totalRounds = 9; s.rounds.pop(); return s; })());
+    r.reviewPayload = rejects(stretch(synth(0, 20, 10), 31));
+
+    // 人数・番号の範囲
+    r.players27 = rejects(synth(4, 27, 10));
+    r.numberOutOfRange = rejects((() => { const s = clone(); s.rounds[0].resting[0] = 999; return s; })());
+
+    // 節の整合性
+    r.roundCountMismatch = rejects((() => { const s = clone(); s.rounds.pop(); return s; })());
+    r.roundNumberSkip = rejects((() => { const s = clone(); s.rounds[4].round = 99; return s; })());
+    r.courtCountMismatch = rejects((() => { const s = clone(); s.rounds[5].assignments.pop(); return s; })());
+    r.duplicatePlayer = rejects((() => {
+      const s = clone();
+      s.rounds[0].assignments[1].pair1[0] = s.rounds[0].assignments[0].pair1[0];
+      return s;
+    })());
+    r.restingConflict = rejects((() => {
+      const s = clone();
+      s.rounds[0].resting.push(s.rounds[0].assignments[0].pair1[0]);
+      return s;
+    })());
+
+    // 変更履歴の整合性
+    r.changeCourts9 = rejects((() => { const s = clone(); s.changes[0].courts = 9; return s; })());
+    r.changeAtRound0 = rejects((() => { const s = clone(); s.changes[0].atRound = 0; return s; })());
+
+    // 名前ブロックのキーが参加者の範囲外
+    r.nameOutOfRange = rejects((() => { const s = clone(); s.names = { 999: 'テスト' }; return s; })());
+
+    session = real;
+    return r;
+  });
+  check('正常な共有データ（メンバー変更あり）は通る', tamper.validReal);
+  check('正常な合成データ（4c16p10節）も通る', tamper.validSynth);
+  check('名前付きの正常データも通る', tamper.validNames);
+  check('5コートは拒否', tamper.courts5);
+  check('0コートは拒否', tamper.courts0);
+  check('31節は拒否', tamper.rounds31);
+  check('9節（下限未満）は拒否', tamper.rounds9);
+  check('レビュー指摘の payload（31節×0コート）は拒否', tamper.reviewPayload);
+  check('27人は拒否', tamper.players27);
+  check('範囲外の番号は拒否', tamper.numberOutOfRange);
+  check('節数と totalRounds の不一致は拒否', tamper.roundCountMismatch);
+  check('節番号の飛びは拒否', tamper.roundNumberSkip);
+  check('変更履歴と合わないコート数の節は拒否', tamper.courtCountMismatch);
+  check('同じ節に同じ人が二重登場は拒否', tamper.duplicatePlayer);
+  check('出場者が休みにも入っていたら拒否', tamper.restingConflict);
+  check('変更履歴のコート数9は拒否', tamper.changeCourts9);
+  check('変更履歴の節番号0は拒否', tamper.changeAtRound0);
+  check('参加者にない番号の名前は拒否', tamper.nameOutOfRange);
+
+  // 細工リンクを実際に開いても閲覧モードにならず警告が出る
+  const badSession = await host.evaluate(() => {
+    const real = session;
+    const s = JSON.parse(JSON.stringify(session));
+    s.totalRounds = 31;
+    while (s.rounds.length < 31) {
+      const c = JSON.parse(JSON.stringify(s.rounds[0]));
+      c.round = s.rounds.length + 1;
+      s.rounds.push(c);
+    }
+    session = s;
+    const out = encodeShareData();
+    session = real;
+    return out;
+  });
+  const badCtx = await browser.newContext({ viewport: { width: 375, height: 700 } });
+  const bad = await badCtx.newPage();
+  const badDialogs = [];
+  bad.on('dialog', async d => { badDialogs.push(d.message()); await d.accept(); });
+  await bad.goto(URL + '#s=' + badSession);
+  await bad.waitForTimeout(500);
+  check('細工リンクは警告が出る', badDialogs.some(m => m.includes('読み込めません')));
+  check('細工リンクでは対戦表が出ない', await bad.locator('.round-card').count() === 0);
+  check('細工リンクでは通常モードで起動', await bad.locator('.input-section').isVisible());
 
   await browser.close();
   console.log(`\n結果: ${pass} OK / ${fail} NG`);

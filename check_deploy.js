@@ -1,9 +1,8 @@
-// 本番URLに新版（名前付き参加者機能＋画像Canvas上限修正）が反映されたか確認
-const { chromium } = require('C:/Users/hanim/AppData/Roaming/npm/node_modules/n8n/node_modules/playwright');
-const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win64/chrome.exe';
+// 本番URLに新版（名前付き参加者機能＋画像Canvas上限修正＋26人対応）が反映されたか確認
+const { chromium, launchOptions } = require('./pw');
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch(launchOptions());
   const context = await browser.newContext({ viewport: { width: 375, height: 700 }, deviceScaleFactor: 3 });
   const page = await context.newPage();
   page.on('dialog', async d => await d.accept());
@@ -27,6 +26,27 @@ const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win
     process.exit(1);
   }
   console.log('OK: 本番に名前機能＋画像Canvas上限修正のコードが反映');
+
+  // 26人対応（2026-07-24）: 上限が24人のままの旧版を掴んでいないか実際に確かめる
+  await page.selectOption('#courtCount', '4');
+  const selOk = await page.evaluate(() => {
+    const opts = Array.from(document.getElementById('playerCount').options).map(o => parseInt(o.value));
+    return opts.length === 11 && opts[0] === 16 && opts[opts.length - 1] === 26;
+  });
+  console.log(`${selOk ? 'OK' : 'NG'}: 4コートの人数選択肢が16〜26人（11件）`);
+
+  await page.selectOption('#playerCount', '26');
+  await page.selectOption('#roundCount', '10');
+  await page.click('#generateBtn');
+  await page.waitForSelector('.round-card');
+  const gen26 = await page.evaluate(() =>
+    session.players.length === 26 && session.rounds.length === 10 &&
+    session.rounds.every(r => r.assignments.length === 4 && r.resting.length === 10));
+  console.log(`${gen26 ? 'OK' : 'NG'}: 26人×4コート×10節が生成（毎節4コート・休み10人）`);
+
+  // 名簿モードの確認は素の状態から始めたいので保存データを消して読み直す
+  await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
+  await page.goto('https://sasukewebjob-ai.github.io/badminton-doubles-court/?v=' + Date.now());
 
   // 実際に動かして確認: 名簿10人選択→生成→番号表＆名前表示→画像がiOS上限内
   for (let i = 0; i < 10; i++) await page.locator('#rosterChips .chip').nth(i).click();
@@ -55,5 +75,5 @@ const EXE = 'C:/Users/hanim/AppData/Local/ms-playwright/chromium-1223/chrome-win
   // 後始末（本番確認で作ったlocalStorageを消す）
   await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
   await browser.close();
-  process.exit(namesOk && imgOk ? 0 : 1);
+  process.exit(selOk && gen26 && namesOk && imgOk ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(1); });

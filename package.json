@@ -1,0 +1,23 @@
+{
+  "name": "badminton-doubles-court",
+  "version": "1.0.0",
+  "private": true,
+  "description": "バドミントンのダブルス試合のコート割を自動生成するWebアプリ（index.html 単体で動作。本ファイルはテスト実行用）",
+  "scripts": {
+    "test": "node test_algorithm.js",
+    "test:browser": "node run_browser_tests.js",
+    "test:all": "node test_algorithm.js && node run_browser_tests.js",
+    "test:persistence": "node test_persistence.js",
+    "test:share": "node test_share.js",
+    "test:names": "node test_names.js",
+    "test:speech": "node test_speech.js",
+    "test:gender": "node test_gender.js",
+    "test:bugfix": "node test_bugfix.js",
+    "test:26players": "node test_26players.js",
+    "test:fixed-round1": "node check_fixed_round1.js",
+    "check:deploy": "node check_deploy.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
