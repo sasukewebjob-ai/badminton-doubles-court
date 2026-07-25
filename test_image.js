@@ -88,9 +88,9 @@ const ANALYZE = () => {
   return { w, h, area: w * h, bottomDark, badgeMinX, badgeMinRatio: badgeMinX / w, rightBleed };
 };
 
-async function saveAndAnalyze(page) {
+async function saveAndAnalyze(page, buttonIndex) {
   await page.evaluate(HOOK);
-  await page.click('.btn-save');
+  await page.locator('.btn-save').nth(buttonIndex || 0).click();
   await page.waitForSelector('#imagePreview img');
   await page.waitForFunction(() => {
     const img = document.querySelector('#imagePreview img');
@@ -129,6 +129,8 @@ async function setup(page, cfg) {
   const CONFIGS = [
     { label: '番号のみ 2c×8人×10節（最小）', courts: 2, players: 8, rounds: 10 },
     { label: '番号のみ 4c×16人×15節（SCALE2.0）', courts: 4, players: 16, rounds: 15 },
+    { label: '番号のみ 4c×20人×20節（実機で保存できなかった構成）', courts: 4, players: 20, rounds: 20 },
+    { label: '名簿 20人×4c×20節（実機構成の名簿モード）', courts: 4, roster: 20, rounds: 20 },
     { label: '番号のみ 4c×26人×25節（SCALE1.2）', courts: 4, players: 26, rounds: 25 },
     { label: '番号のみ 4c×26人×30節（最長）', courts: 4, players: 26, rounds: 30 },
     { label: '番号のみ 2c×26人×15節（休み18人）', courts: 2, players: 26, rounds: 15 },
@@ -141,19 +143,29 @@ async function setup(page, cfg) {
   for (const cfg of CONFIGS) {
     console.log(`\n[${cfg.label}]`);
     await setup(page, cfg);
-    const before = dialogs.length; // 保存の前後だけを見る（生成時の案内は数えない）
-    const info = await saveAndAnalyze(page);
-    if (info.error) { check('Canvasを取得', false, info.error); continue; }
-    check('アラートなしで保存できる', dialogs.length === before, dialogs.slice(before).join(' / '));
-    check('プレビューがCanvasと同じ寸法', info.preview && info.preview.w === info.w && info.preview.h === info.h,
-      `${info.w}x${info.h}`);
-    check('Canvas面積が上限の9割以内', info.area <= MAX_AREA,
-      `${info.area.toLocaleString()} ≦ ${MAX_AREA.toLocaleString()}`);
-    check('横幅が十分（1000px以上）', info.w >= 1000, `${info.w}px`);
-    check('下端で内容が見切れていない', info.bottomDark > 50, `濃い画素${info.bottomDark}`);
-    check('休みバッジが第N節側にはみ出さない', info.badgeMinRatio >= 0.186 - 0.005,
-      `左端 ${(info.badgeMinRatio * 100).toFixed(1)}% ≧ 18.6%`);
-    check('カード右端より外に文字が出ない', info.rightBleed === 0, `はみ出し画素${info.rightBleed}`);
+    // 10節ごとに分割されるので、枚数分のボタンが出る
+    const expected = Math.ceil(cfg.rounds / 10);
+    const buttons = await page.locator('.btn-save').count();
+    check(`保存ボタンが${expected}個`, buttons === expected, `${buttons}個`);
+
+    for (let bi = 0; bi < buttons; bi++) {
+      const label = buttons > 1 ? `${bi + 1}枚目: ` : '';
+      const before = dialogs.length; // 保存の前後だけを見る（生成時の案内は数えない）
+      const info = await saveAndAnalyze(page, bi);
+      if (info.error) { check(label + 'Canvasを取得', false, info.error); continue; }
+      check(label + 'アラートなしで保存できる', dialogs.length === before, dialogs.slice(before).join(' / '));
+      check(label + 'プレビューがCanvasと同じ寸法',
+        info.preview && info.preview.w === info.w && info.preview.h === info.h, `${info.w}x${info.h}`);
+      check(label + 'Canvas面積が上限の9割以内', info.area <= MAX_AREA,
+        `${info.area.toLocaleString()} ≦ ${MAX_AREA.toLocaleString()}`);
+      check(label + '横幅が十分（1000px以上）', info.w >= 1000, `${info.w}px`);
+      // 縦横比が7倍を超えると、スマホで画面に収めたとき文字が読めなくなる
+      check(label + '縦長すぎない（高さ÷幅 ≦ 5）', info.h / info.w <= 5, `${(info.h / info.w).toFixed(2)}倍`);
+      check(label + '下端で内容が見切れていない', info.bottomDark > 50, `濃い画素${info.bottomDark}`);
+      check(label + '休みバッジが第N節側にはみ出さない', info.badgeMinRatio >= 0.186 - 0.005,
+        `左端 ${(info.badgeMinRatio * 100).toFixed(1)}% ≧ 18.6%`);
+      check(label + 'カード右端より外に文字が出ない', info.rightBleed === 0, `はみ出し画素${info.rightBleed}`);
+    }
   }
 
   // --- メンバー変更マーカー（長いラベル）---

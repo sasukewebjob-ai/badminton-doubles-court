@@ -422,6 +422,36 @@ h1 {
   border: 1px solid #ddd;
   border-radius: 6px;
 }
+.preview-label {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #2c3e50;
+  margin: 8px 0 4px;
+}
+.preview-guide {
+  font-size: 0.85em;
+  color: #1a5276;
+  background: #e8f4fd;
+  border: 1.5px solid #7fb6e0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.btn-photo {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #16a085, #1abc9c);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin: 8px 0 4px;
+}
+.btn-photo:active { transform: scale(0.97); }
 </style>
 </head>
 <body>
@@ -2035,8 +2065,18 @@ function renderResults() {
   html += `<button class="btn-share" onclick="shareLink()">🔗 対戦表のリンクを共有</button>`;
   html += `<div class="save-hint">リンクを開いた人のスマホにも同じ対戦表が表示されます</div>`;
 
-  // 画像保存ボタン
-  html += `<button class="btn-save" onclick="saveAsImage()">📷 対戦表を画像として保存</button>`;
+  // 画像保存ボタン（縦に長くなりすぎて文字が読めなくなるので10節ごとに分ける）
+  const imgChunks = imageChunks(lastRounds.length);
+  if (imgChunks.length === 1) {
+    html += `<button class="btn-save" onclick="saveAsImage(0)">📷 対戦表を画像として保存</button>`;
+  } else {
+    html += `<div class="save-hint">画像は${imgChunks.length}枚に分かれます（1枚10節まで）</div>`;
+    imgChunks.forEach((c, i) => {
+      const from = lastRounds[c.from].round;
+      const to = lastRounds[c.to - 1].round;
+      html += `<button class="btn-save" onclick="saveAsImage(${i})">📷 ${i + 1}枚目を保存（第${from}〜${to}節）</button>`;
+    });
+  }
   html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
   html += `<div id="imagePreview"></div>`;
 
@@ -2213,11 +2253,42 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function saveAsImage() {
+// 1枚の画像に入れる節数。20節などを1枚にすると縦に細長い画像になり、
+// スマホで画面に収めたときに文字が読めないほど小さくなるため分割する（2026-07-25）
+const IMAGE_CHUNK_ROUNDS = 10;
+
+function imageChunks(total) {
+  const out = [];
+  for (let s = 0; s < total; s += IMAGE_CHUNK_ROUNDS) {
+    out.push({ from: s, to: Math.min(s + IMAGE_CHUNK_ROUNDS, total) });
+  }
+  return out;
+}
+
+// iOS Safariは <a download> でのダウンロードに対応しておらず、押しても
+// 「外部アプリケーションを開こうとしています」と出て何も起きない。
+// そのためiOSではダウンロードを試みず、プレビュー長押し／共有シートで保存させる
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// 共有シートで写真アプリに保存する（iOSはこれが最も確実）
+async function sharePhoto() {
+  if (!lastImageFile) return;
+  try {
+    await navigator.share({ files: [lastImageFile] });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // ユーザーが閉じただけ
+    alert('共有できませんでした。画像を長押しして保存してください。');
+  }
+}
+
+function saveAsImage(chunkIndex) {
   if (!lastRounds || lastRounds.length === 0) return;
   // スマホ実機で途中失敗すると「何も起きない」ように見えるため、例外は必ず知らせる
   try {
-    saveAsImageImpl();
+    saveAsImageImpl(chunkIndex || 0);
   } catch (e) {
     alert('画像の作成に失敗しました。もう一度お試しください。\n(' + e.message + ')');
   }
@@ -2225,11 +2296,19 @@ function saveAsImage() {
 
 // プレビュー表示中のblob URL。次の保存まで解放しない（時間を置いた長押し保存を保証）
 let lastImageUrl = null;
+// 共有シート（写真に保存）用に、直近に作った画像を保持する
+let lastImageFile = null;
 
-function saveAsImageImpl() {
+function saveAsImageImpl(chunkIndex) {
+  const chunks = imageChunks(lastRounds.length);
+  const chunk = chunks[chunkIndex] || chunks[0];
+  const rounds = lastRounds.slice(chunk.from, chunk.to);
+  const split = chunks.length > 1;
+  const partNo = chunks.indexOf(chunk) + 1;
+
   // 10/15節向け最適化：節数が少ないときはレイアウト寸法を拡大して可読性UP
   // 15節以下は2倍、16-25節は1.2倍、26節以上は等倍（Canvas寸法上限内で最大化）
-  const n = lastRounds.length;
+  const n = rounds.length;
   const SCALE = n <= 15 ? 2.0 : (n <= 25 ? 1.2 : 1.0);
 
   const W = 600 * SCALE;
@@ -2259,12 +2338,12 @@ function saveAsImageImpl() {
   // 高さ計算
   let totalH = PAD + TITLE_H + PAD;
   if (mapH > 0) totalH += mapH + CARD_GAP;
-  lastRounds.forEach((round, i) => {
+  rounds.forEach((round, i) => {
     if (changes.some(c => c.atRound === round.round)) {
       totalH += MARK_H + CARD_GAP;
     }
     totalH += HEADER_H + round.assignments.length * COURT_H;
-    if (i < lastRounds.length - 1) totalH += CARD_GAP;
+    if (i < rounds.length - 1) totalH += CARD_GAP;
   });
   totalH += PAD;
 
@@ -2295,10 +2374,21 @@ function saveAsImageImpl() {
     roundRectPath(ctx, PAD, PAD, W - PAD * 2, TITLE_H - 8 * SCALE, 10 * SCALE);
     ctx.fill();
     ctx.fillStyle = '#1a5276';
-    ctx.font = `bold ${22 * SCALE}px ${FONT}`;
+    // 分割したときは何節目の画像か分かるようにタイトルへ範囲を入れる
+    const title = split
+      ? `🏸 ダブルス コート割（第${rounds[0].round}〜${rounds[rounds.length - 1].round}節）`
+      : '🏸 ダブルス コート割';
+    let titleFont = 22 * SCALE;
+    ctx.font = `bold ${titleFont}px ${FONT}`;
+    const titleMaxW = W - PAD * 2 - 24 * SCALE;
+    const titleW = ctx.measureText(title).width;
+    if (titleW > titleMaxW) {
+      titleFont = Math.max(12 * SCALE, titleFont * titleMaxW / titleW);
+      ctx.font = `bold ${titleFont}px ${FONT}`;
+    }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🏸 ダブルス コート割', W / 2, PAD + (TITLE_H - 8 * SCALE) / 2);
+    ctx.fillText(title, W / 2, PAD + (TITLE_H - 8 * SCALE) / 2);
 
     // 番号表カード
     let y = PAD + TITLE_H;
@@ -2323,9 +2413,11 @@ function saveAsImageImpl() {
     }
 
     // 各節カード
-    let prevCourts = session ? session.initialCourts : lastRounds[0].assignments.length;
-    for (let ri = 0; ri < lastRounds.length; ri++) {
-      const round = lastRounds[ri];
+    // この画像より前の節で起きたコート数変更を反映しておく（変更ラベルの「Nコートへ変更」用）
+    let prevCourts = session ? session.initialCourts : rounds[0].assignments.length;
+    for (const c of changes) if (c.atRound < rounds[0].round) prevCourts = c.courts;
+    for (let ri = 0; ri < rounds.length; ri++) {
+      const round = rounds[ri];
       const cardH = HEADER_H + round.assignments.length * COURT_H;
       const cardW = W - PAD * 2;
 
@@ -2523,22 +2615,58 @@ function saveAsImageImpl() {
   }
 
   // ダウンロード & プレビュー
-  const finalize = (url, isBlobUrl) => {
+  const finalize = (url, isBlobUrl, blob) => {
     const d = new Date();
     const pad2 = v => String(v).padStart(2, '0');
     const ts = `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+    const fileName = `badminton_${ts}${split ? '_' + partNo : ''}.png`;
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `badminton_${ts}.png`;
-    document.body.appendChild(a);
-    try { a.click(); } catch (e) { /* ダウンロード非対応のアプリ内ブラウザでもプレビューは出す */ }
-    document.body.removeChild(a);
+    // iOSは <a download> が効かず「外部アプリケーションを開こうとしています」と出るだけなので
+    // ダウンロードは試みない（プレビュー長押し／共有シートで保存してもらう）
+    const onIOS = isIOSDevice();
+    if (!onIOS) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      try { a.click(); } catch (e) { /* ダウンロード非対応のアプリ内ブラウザでもプレビューは出す */ }
+      document.body.removeChild(a);
+    }
+
+    // 共有シート（「画像を保存」で写真アプリに入る）が使える端末はボタンを出す
+    lastImageFile = null;
+    if (blob && typeof File === 'function' && navigator.canShare) {
+      try {
+        const f = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare({ files: [f] })) lastImageFile = f;
+      } catch (e) { lastImageFile = null; }
+    }
 
     // プレビュー表示（スマホ長押し保存用）
     const preview = document.getElementById('imagePreview');
     if (preview) {
       preview.textContent = '';
+      if (split) {
+        const label = document.createElement('div');
+        label.className = 'preview-label';
+        label.textContent = `${partNo}枚目（第${rounds[0].round}〜${rounds[rounds.length - 1].round}節）`;
+        preview.appendChild(label);
+      }
+      if (lastImageFile) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-photo';
+        btn.textContent = '📤 写真に保存 / 共有';
+        btn.onclick = sharePhoto;
+        preview.appendChild(btn);
+      }
+      if (onIOS) {
+        const guide = document.createElement('div');
+        guide.className = 'preview-guide';
+        guide.textContent = lastImageFile
+          ? '上のボタン、または下の画像を長押しして「"写真"に追加」で保存できます。'
+          : '下の画像を長押しして「"写真"に追加」で保存してください。';
+        preview.appendChild(guide);
+      }
       const img = document.createElement('img');
       img.src = url;
       img.alt = '対戦表';
@@ -2557,7 +2685,7 @@ function saveAsImageImpl() {
     if (settled) return;
     settled = true;
     try {
-      finalize(canvas.toDataURL('image/png'), false);
+      finalize(canvas.toDataURL('image/png'), false, null);
     } catch (e) {
       alert('画像の作成に時間がかかっています。\nもう一度お試しいただくか、節数を減らしてお試しください。');
     }
@@ -2570,10 +2698,10 @@ function saveAsImageImpl() {
     clearTimeout(watchdog);
     try {
       if (blob) {
-        finalize(URL.createObjectURL(blob), true);
+        finalize(URL.createObjectURL(blob), true, blob);
       } else {
         // iOSでtoBlobがnullを返す（PNGエンコード失敗）ときはdataURLで再挑戦
-        finalize(canvas.toDataURL('image/png'), false);
+        finalize(canvas.toDataURL('image/png'), false, null);
       }
     } catch (e) {
       alert('画像の保存に失敗しました。もう一度お試しください。\n(' + e.message + ')');
