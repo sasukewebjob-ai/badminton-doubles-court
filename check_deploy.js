@@ -72,8 +72,30 @@ const { chromium, launchOptions } = require('./pw');
   const imgOk = dims.w * dims.h <= 16777216 && dims.w >= 1800;
   console.log(`${imgOk ? 'OK' : 'NG'}: 画像 ${dims.w}x${dims.h}（iOS上限16,777,216px以内・十分な解像度）`);
 
+  // 休み指定（2026-08-13追加）が本番に載っているか。旧版を掴んだらここで落ちる
+  await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
+  await page.goto('https://sasukewebjob-ai.github.io/badminton-doubles-court/?v=' + Date.now());
+  await page.selectOption('#courtCount', '4');
+  await page.selectOption('#playerCount', '18');
+  await page.selectOption('#roundCount', '10');
+  const hasForcedUI = await page.locator('#forcedAddBtn').count() === 1;
+  let forcedOk = false;
+  if (hasForcedUI) {
+    await page.click('#forcedAddBtn');
+    const row = page.locator('#forcedRestList .forced-row').last();
+    await row.locator('.fr-round').selectOption('3');
+    await row.locator('.fr-player').selectOption('p:5');
+    await page.click('#generateBtn');
+    await page.waitForSelector('.round-card');
+    forcedOk = await page.evaluate(() =>
+      session.rounds[2].resting.includes(5) &&
+      session.rounds.every(r => r.resting.length === 2) &&
+      JSON.stringify(session.forcedRests) === JSON.stringify({ 3: [5] }));
+  }
+  console.log(`${hasForcedUI && forcedOk ? 'OK' : 'NG'}: 休み指定（第3節に5番）が本番で反映される`);
+
   // 後始末（本番確認で作ったlocalStorageを消す）
   await page.evaluate(() => localStorage.removeItem('badminton-court-session-v1'));
   await browser.close();
-  process.exit(selOk && gen26 && namesOk && imgOk ? 0 : 1);
+  process.exit(selOk && gen26 && namesOk && imgOk && hasForcedUI && forcedOk ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(1); });

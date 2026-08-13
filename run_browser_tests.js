@@ -12,6 +12,7 @@ const TESTS = [
   'test_gender.js',
   'test_bugfix.js',
   'test_26players.js',
+  'test_forced_rest.js',
   'test_image.js',
   'check_fixed_round1.js'
 ];

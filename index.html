@@ -294,6 +294,36 @@ h1 {
   color: #555;
   margin: -4px 0 12px;
 }
+/* 休み指定（「◯節に◯◯さんを必ず休み」）の入力行 */
+.forced-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.forced-row select {
+  flex: 1;
+  min-width: 0;   /* 375px幅で横にはみ出さないため */
+  padding: 9px 8px;
+  border: 2px solid #aed6f1;
+  border-radius: 8px;
+  font-size: 0.95em;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.forced-del {
+  flex: 0 0 auto;
+  border: none;
+  background: #f2f4f6;
+  color: #b03a3a;
+  font-size: 1.05em;
+  font-weight: bold;
+  line-height: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
 .roster-map {
   background: #fff;
   border-radius: 12px;
@@ -502,6 +532,9 @@ h1 {
   <div class="chips-label">参加メンバー（タップで選択）<button class="roster-clear" onclick="clearRoster()">全解除</button></div>
   <div class="chips" id="rosterChips"></div>
   <div class="roster-count" id="rosterCount">未選択（番号のみで作成します）</div>
+  <div class="chips-label">休み指定（任意）<button class="roster-clear" id="forcedAddBtn" onclick="addForcedRestRow()">＋ 追加</button></div>
+  <div id="forcedRestList"></div>
+  <div class="roster-count" id="forcedRestNote">「第◯節は◯◯さんを必ず休みにする」を指定できます（指定した人は休みが増えることがあります）</div>
   <div class="info-box" id="infoBox"></div>
   <button class="btn" id="generateBtn" onclick="generate()">コート割を作成</button>
 </div>
@@ -679,6 +712,20 @@ function restoreSession() {
   if (!s.guestGenders || typeof s.guestGenders !== 'object' || Array.isArray(s.guestGenders)) {
     s.guestGenders = s.genderMode ? {} : null;
   }
+  // 旧データには forcedRests が無い。壊れた値は捨てる（復元描画で落ちないように）
+  if (!s.forcedRests || typeof s.forcedRests !== 'object' || Array.isArray(s.forcedRests)) {
+    s.forcedRests = null;
+  } else {
+    const clean = {};
+    for (const rn in s.forcedRests) {
+      const n = Number(rn);
+      const arr = s.forcedRests[rn];
+      if (!Number.isInteger(n) || n < 1 || n > s.totalRounds || !Array.isArray(arr)) continue;
+      const nums = arr.filter(p => Number.isInteger(p) && p >= 1);
+      if (nums.length > 0) clean[n] = nums;
+    }
+    s.forcedRests = Object.keys(clean).length > 0 ? clean : null;
+  }
   session = s;
   lastRounds = s.rounds;
   TOTAL_ROUNDS = s.totalRounds;
@@ -710,6 +757,8 @@ function restoreSession() {
       b.classList.toggle('selected', activeNames.has(b.dataset.name)));
   }
   onRosterChange();
+  // 休み指定も復元する（onRosterChange→updateInfo が選択肢を作り直したあとに行を並べる）
+  restoreForcedRestRows(s);
 
   renderResults();
   return true;
@@ -1069,6 +1118,8 @@ function initUI() {
   courtSel.addEventListener('change', updatePlayerOptions);
   playerSel.addEventListener('change', updateInfo);
   document.getElementById('genderMode').addEventListener('change', updateInfo);
+  // 節数を変えたら休み指定の「第◯節」の選択肢も追従させる
+  document.getElementById('roundCount').addEventListener('change', rebuildForcedRestOptions);
 
   // 名簿チップ（タップで参加/不参加を切り替え）
   const rosterDiv = document.getElementById('rosterChips');
@@ -1162,6 +1213,232 @@ function updateInfo() {
       addLine(`※ 男女${ideal}人ずつに足りない節は、${adjCourt}コートなどの構成で調整されます`);
     }
   }
+  // 参加者・コート数が変われば休み指定の選択肢と注意書きも作り直す
+  rebuildForcedRestOptions();
+}
+
+// --- 休み指定（「第◯節は◯◯さんを必ず休み」） ---
+// 名簿モードは番号が生成時にランダムに決まるので、UIでは「名前」で指定して生成時に番号へ変換する
+// （番号のみモードは番号をそのまま使う）。値は 'n:名前' / 'p:番号' の形で持つ
+function forcedRestPeople() {
+  const names = selectedRosterNames();
+  if (names.length > 0) return names.map(nm => ({ value: 'n:' + nm, label: nm }));
+  const n = parseInt(document.getElementById('playerCount').value) || 0;
+  const list = [];
+  for (let i = 1; i <= n; i++) list.push({ value: 'p:' + i, label: i + '番' });
+  return list;
+}
+
+// 行のセレクトを現在の設定で作り直す。選択済みの値は選べる限り維持する
+function fillForcedRow(row, round, who) {
+  const rs = row.querySelector('.fr-round');
+  const ps = row.querySelector('.fr-player');
+  const hasOption = (sel, v) => Array.prototype.some.call(sel.options, o => o.value === v);
+
+  const keepRound = round != null ? String(round) : rs.value;
+  const total = parseInt(document.getElementById('roundCount').value) || 10;
+  rs.replaceChildren();
+  for (let i = 1; i <= total; i++) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.text = '第' + i + '節';
+    rs.appendChild(o);
+  }
+  if (keepRound && hasOption(rs, keepRound)) {
+    rs.value = keepRound;
+  } else if (keepRound) {
+    // 節数を減らして範囲外になった指定を、黙って第1節に落とさない（人の指定と同じ扱い）
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '⚠️ 第' + keepRound + '節（今は対象外）';
+    rs.insertBefore(o, rs.firstChild);
+    rs.value = '';
+  }
+
+  const keepWho = who != null ? who : ps.value;
+  ps.replaceChildren();
+  const people = forcedRestPeople();
+  if (people.length === 0) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '（先に人数かメンバーを選んでください）';
+    ps.appendChild(o);
+  }
+  for (const p of people) {
+    const o = document.createElement('option');
+    o.value = p.value;
+    o.text = p.label;
+    ps.appendChild(o);
+  }
+  if (keepWho && hasOption(ps, keepWho)) {
+    ps.value = keepWho;
+  } else if (keepWho) {
+    // 参加メンバーから外した・人数を減らした等で選べなくなった指定を、黙って別の人に
+    // すり替えない（先頭の選択肢に落ちると気づかないまま別人が休みになってしまう）。
+    // 空値の警告項目にして、生成時は無視＋注意書きで知らせる
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '⚠️ ' + (keepWho.slice(0, 2) === 'n:' ? keepWho.slice(2) : keepWho.slice(2) + '番') + '（今は対象外）';
+    ps.insertBefore(o, ps.firstChild);
+    ps.value = '';
+  }
+}
+
+function addForcedRestRow(round, who) {
+  const row = document.createElement('div');
+  row.className = 'forced-row';
+  const rs = document.createElement('select');
+  rs.className = 'fr-round';
+  const ps = document.createElement('select');
+  ps.className = 'fr-player';
+  const del = document.createElement('button');
+  del.className = 'forced-del';
+  del.type = 'button';
+  del.textContent = '×';
+  del.setAttribute('aria-label', 'この休み指定を削除');
+  del.onclick = () => { row.remove(); updateForcedRestNote(); };
+  row.append(rs, ps, del);
+  document.getElementById('forcedRestList').appendChild(row);
+  fillForcedRow(row, round, who);
+  updateForcedRestNote();
+}
+
+function rebuildForcedRestOptions() {
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => fillForcedRow(row));
+  updateForcedRestNote();
+}
+
+function updateForcedRestNote() {
+  const note = document.getElementById('forcedRestNote');
+  if (!note) return;
+  const rows = document.querySelectorAll('#forcedRestList .forced-row').length;
+  if (rows === 0) {
+    note.style.color = '';
+    note.textContent = '「第◯節は◯◯さんを必ず休みにする」を指定できます（指定した人は休みが増えることがあります）';
+    return;
+  }
+  const courts = parseInt(document.getElementById('courtCount').value);
+  const rosterN = selectedRosterNames().length;
+  const players = rosterN > 0 ? rosterN : parseInt(document.getElementById('playerCount').value);
+  const restCount = players - courts * 4;
+  // 対象外になった行（選んでいた人がメンバーから外れた／節数を減らして節が消えた）を数えて知らせる
+  let stale = 0;
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => {
+    if (!row.querySelector('.fr-player').value || !row.querySelector('.fr-round').value) stale++;
+  });
+  if (restCount <= 0) {
+    note.style.color = '#c0392b';
+    note.textContent = `⚠️ いまの構成は休みが出ない（全員プレー）ので、指定した${rows}件は使えません。人数を増やすかコート数を減らしてください。`;
+  } else if (stale > 0) {
+    note.style.color = '#c0392b';
+    note.textContent = `⚠️ ${stale}件の指定が対象外になっています（その人がメンバーから外れた／その節が無くなった）。選び直すか × で消してください。このままだとその指定は使われません。`;
+  } else {
+    note.style.color = '';
+    // すでにコート割がある状態でここを触っても、作り直すまで表示中の表には反映されない
+    const needRegen = (session && !viewerMode)
+      ? '　※ 表示中のコート割に反映するには「コート割を作成」で作り直してください'
+      : '';
+    note.textContent =
+      `指定 ${rows}件（1つの節に指定できるのは休み枠の${restCount}人まで。指定した人は休みが増えることがあります）${needRegen}`;
+  }
+}
+
+// UIの入力を読み取る（未選択の行は無視）
+function collectForcedRestInput() {
+  const out = [];
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => {
+    const rn = parseInt(row.querySelector('.fr-round').value);
+    const who = row.querySelector('.fr-player').value;
+    if (rn && who) out.push({ round: rn, who });
+  });
+  return out;
+}
+
+// 入力を番号ベースに変換して検証する。
+// 戻り値: { error: 'メッセージ' } または { byRound: {節番号: [番号,…]}, count: 件数 }
+function resolveForcedRests(entries, names, totalPlayers, totalRounds, restCount) {
+  if (entries.length === 0) return { byRound: {}, count: 0 };
+  if (restCount <= 0) {
+    return { error: '休みが出ない構成（全員プレー）では休み指定はできません。\n人数を増やすか、コート数を減らしてください。' };
+  }
+  const numOf = {};
+  if (names) for (const num in names) numOf[names[num]] = Number(num);
+
+  const byRound = {};
+  for (const e of entries) {
+    if (!(e.round >= 1 && e.round <= totalRounds)) {
+      return { error: `休み指定の「第${e.round}節」は節数（${totalRounds}節）の範囲外です。\n指定を消すか節数を増やしてください。` };
+    }
+    let num;
+    if (e.who.slice(0, 2) === 'n:') {
+      const nm = e.who.slice(2);
+      if (!names || !(nm in numOf)) {
+        return { error: `休み指定の「${nm}」さんが参加メンバーに入っていません。\nメンバーを選び直すか、指定を消してください。` };
+      }
+      num = numOf[nm];
+    } else {
+      num = parseInt(e.who.slice(2));
+      if (names) {
+        return { error: '休み指定が今のモードと合っていません。指定を消してやり直してください。' };
+      }
+      if (!(num >= 1 && num <= totalPlayers)) {
+        return { error: `休み指定の「${num}番」は参加人数（${totalPlayers}人）の範囲外です。` };
+      }
+    }
+    if (!byRound[e.round]) byRound[e.round] = [];
+    if (byRound[e.round].indexOf(num) === -1) byRound[e.round].push(num);
+  }
+  let count = 0;
+  for (const rn in byRound) {
+    if (byRound[rn].length > restCount) {
+      return { error: `第${rn}節に${byRound[rn].length}人を指定していますが、この構成の休みは${restCount}人までです。` };
+    }
+    byRound[rn].sort((a, b) => a - b);
+    count += byRound[rn].length;
+  }
+  return { byRound, count };
+}
+
+// その節で「指定休み」になっている番号の集合（画面・画像の * 印に使う）
+function forcedRestSetOf(roundNumber) {
+  const list = session && session.forcedRests && session.forcedRests[roundNumber];
+  return new Set(list || []);
+}
+
+// 表示中のセッションに指定休みが1件でもあるか（凡例の出し分け用）
+function hasForcedRests() {
+  const f = session && session.forcedRests;
+  if (!f) return false;
+  for (const rn in f) if (f[rn] && f[rn].length > 0) return true;
+  return false;
+}
+
+// 1始まりの節番号 → generateRestSchedule に渡す0始まりindex（offset=消化済み節数）
+function forcedByIndexOf(byRound, offset) {
+  const out = {};
+  if (!byRound) return out;
+  for (const rn in byRound) {
+    const idx = Number(rn) - 1 - (offset || 0);
+    if (idx >= 0) out[idx] = byRound[rn];
+  }
+  return out;
+}
+
+// 保存済みセッションから入力行を復元する（名簿モードは番号→名前に戻す）
+function restoreForcedRestRows(s) {
+  const list = document.getElementById('forcedRestList');
+  if (!list) return;
+  list.replaceChildren();
+  const byRound = s && s.forcedRests;
+  if (!byRound) { updateForcedRestNote(); return; }
+  const rounds = Object.keys(byRound).map(Number).sort((a, b) => a - b);
+  for (const rn of rounds) {
+    for (const num of byRound[rn]) {
+      const nm = s.names && s.names[num];
+      addForcedRestRow(rn, nm ? 'n:' + nm : 'p:' + num);
+    }
+  }
+  updateForcedRestNote();
 }
 
 // --- 休み人決定（ストライド方式 + 境目公平化） ---
@@ -1214,13 +1491,17 @@ function strideLinearOrder(N, cycle, restCount) {
 // reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
 // deferredNew: 途中追加者の番号。初回の休みを現在の周回の最後尾に回す（降順で末尾番号が
 //   キュー先頭に割り込み、追加直後に休みになるのを防ぐ）。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew) {
+// forcedByIndex: 指定休み { 0始まりの節index: [番号,…] }。その節で必ず休ませる人。
+//   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
+//   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
   const M = allPlayers.length;
   // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
   const playerAt = pos => allPlayers[pos - 1];
+  const playerSet = new Set(allPlayers);
 
   const restCounts = {};
   const initialOf = {};
@@ -1243,61 +1524,90 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
   };
 
   while (restSchedule.length < numRounds) {
-    let curMin = Infinity;
-    for (const p of allPlayers) {
-      if (restCounts[p] < curMin) curMin = restCounts[p];
+    const rIdx = restSchedule.length;
+    // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
+    const forcedHere = [];
+    const forcedSet = new Set();
+    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
+      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
+        forcedSet.add(p);
+        forcedHere.push(p);
+      }
     }
-    const poolA = allPlayers.filter(p => restCounts[p] === curMin);
-    const poolB = allPlayers.filter(p => restCounts[p] === curMin + 1);
-
-    const cycleA = curMin + 1;
-    const linearA = getLinearOrder(cycleA);
-    const rankA = new Map();
-    linearA.forEach((p, i) => rankA.set(p, i));
-
-    // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
-    // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
-    const deferWeight = p => {
-      if (!deferred.has(p)) return 0;
-      if (restCounts[p] === initialOf[p]) return 2;
-      if (prevSet.has(p)) return 1;
-      return 0;
-    };
-
-    const orderedA = poolA.slice().sort((a, b) => {
-      const wa = deferWeight(a);
-      const wb = deferWeight(b);
-      if (wa !== wb) return wa - wb;
-      const ra = rankA.has(a) ? rankA.get(a) : 0;
-      const rb = rankA.has(b) ? rankA.get(b) : 0;
-      return ra - rb;
-    });
+    const need = restCount - forcedHere.length;
 
     let picks;
     let fillersFromB = [];
 
-    if (orderedA.length >= restCount) {
-      // ストライド順を厳守（連続休み回避はpoolBの軟制約のみ）
-      picks = orderedA.slice(0, restCount);
+    if (need <= 0) {
+      picks = forcedHere.slice();
     } else {
-      const need = restCount - orderedA.length;
-      const cycleB = curMin + 2;
-      const linearB = getLinearOrder(cycleB);
-      const rankB = new Map();
-      linearB.forEach((p, i) => rankB.set(p, i));
+      // 残り枠は従来どおりの公平ロジック。指定済みの人は候補から外す
+      // （外さないと curMin が指定者の回数に引きずられ、poolBが空になって枠が埋まらない）
+      let curMin = Infinity;
+      for (const p of allPlayers) {
+        if (!forcedSet.has(p) && restCounts[p] < curMin) curMin = restCounts[p];
+      }
+      const poolA = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin);
+      const poolB = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin + 1);
 
-      const orderedB = poolB.slice().sort((a, b) => {
-        if (boundaryHits[a] !== boundaryHits[b]) {
-          return boundaryHits[a] - boundaryHits[b];
-        }
-        const ra = rankB.has(a) ? rankB.get(a) : 0;
-        const rb = rankB.has(b) ? rankB.get(b) : 0;
+      const cycleA = curMin + 1;
+      const linearA = getLinearOrder(cycleA);
+      const rankA = new Map();
+      linearA.forEach((p, i) => rankA.set(p, i));
+
+      // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+      // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+      const deferWeight = p => {
+        if (!deferred.has(p)) return 0;
+        if (restCounts[p] === initialOf[p]) return 2;
+        if (prevSet.has(p)) return 1;
+        return 0;
+      };
+
+      // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）。
+      // あくまで同じ休み回数グループ内の並び替えなので公平性は変わらず、
+      // 指定が無いときは常に0＝従来とまったく同じ並びになる
+      const nearForced = new Set([
+        ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
+        ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
+      ]);
+      const softWeight = p => deferWeight(p) + (nearForced.has(p) ? 1 : 0);
+
+      const orderedA = poolA.slice().sort((a, b) => {
+        const wa = softWeight(a);
+        const wb = softWeight(b);
+        if (wa !== wb) return wa - wb;
+        const ra = rankA.has(a) ? rankA.get(a) : 0;
+        const rb = rankA.has(b) ? rankA.get(b) : 0;
         return ra - rb;
       });
 
-      const nonPrevB = orderedB.filter(p => !prevSet.has(p));
-      fillersFromB = (nonPrevB.length >= need ? nonPrevB : orderedB).slice(0, need);
-      picks = orderedA.concat(fillersFromB);
+      let selected;
+      if (orderedA.length >= need) {
+        // ストライド順を厳守（連続休み回避はpoolBの軟制約のみ）
+        selected = orderedA.slice(0, need);
+      } else {
+        const shortfall = need - orderedA.length;
+        const cycleB = curMin + 2;
+        const linearB = getLinearOrder(cycleB);
+        const rankB = new Map();
+        linearB.forEach((p, i) => rankB.set(p, i));
+
+        const orderedB = poolB.slice().sort((a, b) => {
+          if (boundaryHits[a] !== boundaryHits[b]) {
+            return boundaryHits[a] - boundaryHits[b];
+          }
+          const ra = rankB.has(a) ? rankB.get(a) : 0;
+          const rb = rankB.has(b) ? rankB.get(b) : 0;
+          return ra - rb;
+        });
+
+        const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+        fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
+        selected = orderedA.concat(fillersFromB);
+      }
+      picks = forcedHere.concat(selected);
     }
 
     fillersFromB.forEach(p => boundaryHits[p]++);
@@ -1746,9 +2056,17 @@ function generate() {
     for (const num in names) genders[num] = GENDER[names[num]];
   }
 
+  // 休み指定（名前で指定されているので、番号が決まったこの時点で番号へ変換して検証する）
+  const forced = resolveForcedRests(collectForcedRestInput(), names, totalPlayers, TOTAL_ROUNDS, restCount);
+  if (forced.error) {
+    alert(forced.error);
+    return;
+  }
+
   const restOrder = document.getElementById('restOrder').value;
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
-  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null, restOrder === 'desc');
+  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null,
+    restOrder === 'desc', null, forcedByIndexOf(forced.byRound, 0));
 
   const pairHistory = {};
   const opponentHistory = {};
@@ -1803,6 +2121,7 @@ function generate() {
     names,
     genderMode,
     guestGenders: genderMode ? {} : null,
+    forcedRests: forced.count > 0 ? forced.byRound : null,
     changes: [],
     rounds
   };
@@ -1912,7 +2231,24 @@ function applyMemberChange() {
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers);
+  // コート数や人数が変わって休み枠が減ると、残り区間の指定を全部は反映できないことがある。
+  // 黙って一部を捨てると気づけないので、どの節が入り切らないかを見せて確認する
+  const overflow = [];
+  for (const rn in (session.forcedRests || {})) {
+    const n = Number(rn);
+    if (n <= consumed) continue;   // 消化済みの節は作り直さないので関係ない
+    const want = session.forcedRests[rn].filter(p => newPlayers.indexOf(p) !== -1);
+    if (want.length > restCount) overflow.push(`・第${n}節：指定${want.length}人 ／ 休み枠${restCount}人`);
+  }
+  if (overflow.length > 0 &&
+      !confirm(`休み枠が足りないため、次の休み指定は一部しか反映できません。\n${overflow.join('\n')}\n\nこのまま作り直しますか？`)) {
+    return;
+  }
+
+  // 休み指定は絶対節番号で持っているので、これから作り直す区間（consumed以降）だけを渡す。
+  // 離脱した人の指定は generateRestSchedule 側で在籍チェックにより無視される
+  const forcedIdx = forcedByIndexOf(session.forcedRests, consumed);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers, forcedIdx);
 
   // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
   let genders = null;
@@ -2038,9 +2374,12 @@ function renderResults() {
     html += `<span class="round-title">第${round.round}節`;
     html += `<button class="btn-speak" data-round="${round.round}" onclick="speakRound(${round.round})" aria-label="この節を読み上げ">🔊</button></span>`;
     if (round.resting.length > 0) {
+      // 指定休みの人には * を付ける（保存画像も同じ表記）
+      const fset = forcedRestSetOf(round.round);
+      const mark = p => fset.has(p) ? '*' : '';
       const restLabel = session.names
-        ? round.resting.map(p => escHtml(pname(p))).join('・')
-        : round.resting.map(p => p + '番').join(' ');
+        ? round.resting.map(p => escHtml(pname(p)) + mark(p)).join('・')
+        : round.resting.map(p => p + '番' + mark(p)).join(' ');
       html += `<span class="rest-badge">休み: ${restLabel}</span>`;
     } else {
       html += `<span class="rest-badge rest-none">休みなし</span>`;
@@ -2212,6 +2551,10 @@ function renderResults() {
       html += `<br>※ 途中参加・離脱があるため、在籍期間によって回数に差が出ることがあります`;
     }
   }
+  // 指定休みがあると、その人だけ休みが増えて差が広がることがあるので理由を明示する
+  if (hasForcedRests()) {
+    html += `${maxRest > 0 ? '<br>' : ''}※ <b>*</b> は指定した休み。指定した人はその分だけ休みが多くなることがあります`;
+  }
   html += `</div>`;
   html += `</div>`;
 
@@ -2347,6 +2690,13 @@ function saveAsImageImpl(chunkIndex) {
   const mapRows = Math.ceil(mapEntries.length / MAP_COLS);
   const mapH = mapEntries.length > 0 ? MAP_HEAD + mapRows * MAP_ROW_H + 10 * SCALE : 0;
 
+  // 画像は10節ごとに分割されるので、この画像に含まれる節に実際に * が付くときだけ凡例を出す
+  // （指定が第3節だけなら、第11〜20節の画像には凡例を出さない）
+  const legendH = rounds.some(r => {
+    const fs = forcedRestSetOf(r.round);
+    return fs.size > 0 && r.resting.some(p => fs.has(p));
+  }) ? 24 * SCALE : 0;
+
   // 高さ計算
   let totalH = PAD + TITLE_H + PAD;
   if (mapH > 0) totalH += mapH + CARD_GAP;
@@ -2357,6 +2707,7 @@ function saveAsImageImpl(chunkIndex) {
     totalH += HEADER_H + round.assignments.length * COURT_H;
     if (i < rounds.length - 1) totalH += CARD_GAP;
   });
+  totalH += legendH;
   totalH += PAD;
 
   // モバイルCanvasの寸法上限に収まる範囲で最大解像度を確保
@@ -2489,8 +2840,11 @@ function saveAsImageImpl(chunkIndex) {
       // 休みバッジ（名前入りで長いときはフォントを縮小、それでも入らなければ番号のみ）
       const restingSorted = [...round.resting].sort((a, b) => a - b);
       const hasRest = restingSorted.length > 0;
+      // 指定休みには * を付ける（画面の休みバッジと同じ表記）
+      const fset = forcedRestSetOf(round.round);
+      const fmark = p => fset.has(p) ? '*' : '';
       let badgeText = hasRest
-        ? `休み: ${restingSorted.map(iname).join(names ? '・' : ' ')}`
+        ? `休み: ${restingSorted.map(p => iname(p) + fmark(p)).join(names ? '・' : ' ')}`
         : '休みなし';
       const badgePadX = 10 * SCALE;
       const maxBadgeW = cardW - 110 * SCALE; // 左の「第N節」と重ならない範囲
@@ -2500,7 +2854,7 @@ function saveAsImageImpl(chunkIndex) {
       if (badgeTextW + badgePadX * 2 > maxBadgeW) {
         const fit = badgeFont * (maxBadgeW - badgePadX * 2) / badgeTextW;
         if (fit < 9 * SCALE && names && hasRest) {
-          badgeText = `休み: ${restingSorted.map(p => p + '番').join(' ')}`;
+          badgeText = `休み: ${restingSorted.map(p => p + '番' + fmark(p)).join(' ')}`;
           badgeFont = 13 * SCALE;
         } else {
           badgeFont = Math.max(9 * SCALE, fit);
@@ -2611,6 +2965,16 @@ function saveAsImageImpl(chunkIndex) {
       });
 
       y += cardH + CARD_GAP;
+    }
+
+    // 指定休みの凡例（* 印の意味。画面の休み回数表と同じ説明）
+    if (legendH > 0) {
+      ctx.fillStyle = '#5a6b78';
+      ctx.font = `${12 * SCALE}px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('* は指定した休み（その分だけ休みが多くなることがあります）',
+        PAD + 4 * SCALE, y - CARD_GAP + legendH / 2);
     }
 
     // 描画バッファが生きているか確認（iOSは上限超過・メモリ不足時に例外なしで
