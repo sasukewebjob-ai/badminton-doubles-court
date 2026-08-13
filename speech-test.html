@@ -32,7 +32,7 @@
   .label small { display: block; font-weight: 400; font-size: 11px; color: #7d9a94; margin-top: 2px; }
   button {
     font-family: inherit; border: none; border-radius: 9px;
-    padding: 10px 12px; font-size: 13px; font-weight: 700;
+    padding: 10px 9px; font-size: 12px; font-weight: 700;
     color: #fff; background: #2e9e78; cursor: pointer; white-space: nowrap;
   }
   button.ctx { background: #3d8fc4; }
@@ -51,8 +51,8 @@
 <h1>🔊 読み上げ聞き比べ</h1>
 <p class="lead">
   本体アプリと同じ設定（ja-JP / 速度0.89 / 音量1.0）で読み上げます。<br>
-  <b>緑ボタン＝名前だけ</b>／<b>青ボタン＝実際の対戦読み上げの中で</b>。<br>
-  一番自然なものの<b>番号（A-2 など）</b>を教えてください。
+  <b>緑「単独」＝名前だけ</b>／<b>青＝実際の対戦読み上げの中</b>（濱島は<b>先頭</b>と<b>2番目</b>の両方）。<br>
+  一番自然なものの<b>番号（B-2 など）</b>を教えてください。
 </p>
 
 <div class="warn">
@@ -60,14 +60,14 @@
 </div>
 
 <div class="card">
-  <h2>A. バレ さん</h2>
-  <p class="note">狙い：「バ」を高く（頭高）。<br>A-1が現在の読み方です。</p>
+  <h2>A. バレ さん <span style="color:#2e9e78">✓ A-2で決定</span></h2>
+  <p class="note">狙い：「バ」を高く（頭高）。<br>A-2（カタカナ）を採用済み。念のため聞き直す用に残しています。</p>
   <div id="listA"></div>
 </div>
 
 <div class="card">
   <h2>B. 濱島 さん</h2>
-  <p class="note">狙い：先頭の「ハ」がはっきり聞こえること（今は「マシマ」に聞こえる）。<br>B-1が現在の読み方です。</p>
+  <p class="note">狙い：先頭の「ハ」がはっきり聞こえること（今は「マシマ」に聞こえる）。<br>B-1が現在の読み方です。<b>「先頭」＝コート名のすぐ後</b>、<b>「2番目」＝前に別の名前がある</b>位置。</p>
   <div id="listB"></div>
 </div>
 
@@ -97,10 +97,16 @@ const CANDIDATES = {
 };
 
 // 実際の対戦読み上げの中に埋めた文（本体の roundSpeechText と同じ書式）。
-// 名前が真ん中＝前の「、」に頭が飲まれやすい、一番条件の厳しい位置に置く
+// 位置によって頭の「ハ」の飲まれ方が変わるので、2番目（前に名前がある）と
+// 先頭（「コート、」の直後）の両方を聞き比べられるようにする
 const CONTEXT = {
-  A: n => `Aコート、たかはし、${n}、たい、こばやし、はら。`,
-  B: n => `Bコート、うちだ、${n}、たい、たなか、よだ。`,
+  A: [
+    { tag: '文の中', build: n => `Aコート、たかはし、${n}、たい、こばやし、はら。` },
+  ],
+  B: [
+    { tag: '先頭',   build: n => `Bコート、${n}、うちだ、たい、たなか、よだ。` },
+    { tag: '2番目',  build: n => `Bコート、うちだ、${n}、たい、たなか、よだ。` },
+  ],
 };
 
 function speak(text) {
@@ -133,16 +139,18 @@ for (const key of ['A', 'B']) {
     small.textContent = c.desc;
     label.appendChild(small);
 
-    const b1 = document.createElement('button');
-    b1.textContent = '🔊 単独';
-    b1.onclick = () => speak(c.text);
+    const solo = document.createElement('button');
+    solo.textContent = '単独';
+    solo.onclick = () => speak(c.text);
+    row.append(id, label, solo);
 
-    const b2 = document.createElement('button');
-    b2.className = 'ctx';
-    b2.textContent = '🔊 文の中';
-    b2.onclick = () => speak(CONTEXT[key](c.text));
-
-    row.append(id, label, b1, b2);
+    CONTEXT[key].forEach(ctx => {
+      const b = document.createElement('button');
+      b.className = 'ctx';
+      b.textContent = ctx.tag;
+      b.onclick = () => speak(ctx.build(c.text));
+      row.appendChild(b);
+    });
     box.appendChild(row);
   });
 }
