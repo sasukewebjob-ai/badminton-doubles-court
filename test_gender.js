@@ -17,6 +17,20 @@ function check(name, cond) {
   else { fail++; console.log('  NG  ' + name); }
 }
 
+// 名簿チップから男性・女性を指定人数だけ選ぶ。
+// 以前は「index 0〜13が男性・14〜が女性」と直書きしていたが、名簿の男女構成が変わると
+// 意図した男女比にならずテストだけが落ちるため、GENDER から並び位置を引く（2026-08-13）
+async function pickByGender(page, males, females) {
+  const idx = await page.evaluate(([m, f]) => {
+    const mi = [], fi = [];
+    ROSTER.forEach((n, i) => (GENDER[n] === 'M' ? mi : fi).push(i));
+    if (mi.length < m || fi.length < f) return null;   // 名簿の人数不足はテスト側の設定ミス
+    return [...mi.slice(0, m), ...fi.slice(0, f)];
+  }, [males, females]);
+  if (!idx) throw new Error(`名簿に男${males}人・女${females}人が足りません`);
+  for (const i of idx) await page.locator('#rosterChips .chip').nth(i).click();
+}
+
 // ページ内で全節のテンプレート準拠を検証する共通関数（n=コート数）
 const checkRoundsJs = n => `(() => {
   const g = p => {
@@ -55,9 +69,8 @@ const checkRoundsJs = n => `(() => {
   await page.goto(URL);
   check('名簿未選択では非表示（4コートでも）', !(await page.locator('#genderModeRow').isVisible()));
 
-  // 男8人（先頭14人が男性）＋女8人（15人目以降が女性）を選択
-  for (let i = 0; i < 8; i++) await page.locator('#rosterChips .chip').nth(i).click();
-  for (let i = 14; i < 22; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  // 男8人＋女8人を選択
+  await pickByGender(page, 8, 8);
   check('4コート×名簿選択で表示', await page.locator('#genderModeRow').isVisible());
 
   await page.selectOption('#courtCount', '3');
@@ -150,8 +163,7 @@ const checkRoundsJs = n => `(() => {
   await page.evaluate(() => localStorage.clear());
   await page.goto(URL);
   await page.waitForSelector('#rosterChips .chip');
-  for (let i = 0; i < 8; i++) await page.locator('#rosterChips .chip').nth(i).click();
-  for (let i = 14; i < 22; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await pickByGender(page, 8, 8);
   // genderMode はデフォルト off のまま生成
   await page.click('#generateBtn');
   await page.waitForSelector('.round-card');
@@ -174,8 +186,7 @@ const checkRoundsJs = n => `(() => {
   await page.evaluate(() => localStorage.clear());
   await page.goto(URL);
   await page.waitForSelector('#rosterChips .chip');
-  for (let i = 0; i < 10; i++) await page.locator('#rosterChips .chip').nth(i).click();
-  for (let i = 14; i < 20; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await pickByGender(page, 10, 6);
   await page.selectOption('#genderMode', 'on');
   await page.selectOption('#roundCount', '10');
   await page.click('#generateBtn');
@@ -199,8 +210,7 @@ const checkRoundsJs = n => `(() => {
   await page.evaluate(() => localStorage.clear());
   await page.goto(URL);
   await page.waitForSelector('#rosterChips .chip');
-  for (let i = 0; i < 6; i++) await page.locator('#rosterChips .chip').nth(i).click();
-  for (let i = 14; i < 20; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await pickByGender(page, 6, 6);
   await page.selectOption('#courtCount', '3');
   check('3コート×名簿選択で設定行表示', await page.locator('#genderModeRow').isVisible());
   await page.selectOption('#genderMode', 'on');
@@ -222,8 +232,7 @@ const checkRoundsJs = n => `(() => {
   await page.evaluate(() => localStorage.clear());
   await page.goto(URL);
   await page.waitForSelector('#rosterChips .chip');
-  for (let i = 0; i < 8; i++) await page.locator('#rosterChips .chip').nth(i).click();
-  for (let i = 14; i < 18; i++) await page.locator('#rosterChips .chip').nth(i).click();
+  await pickByGender(page, 8, 4);
   await page.selectOption('#courtCount', '3');
   await page.selectOption('#genderMode', 'on');
   await page.selectOption('#roundCount', '10');
