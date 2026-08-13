@@ -1,0 +1,149 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>読み上げ聞き比べ（バレ・濱島）</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 12px 60px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+    background: linear-gradient(160deg, #e8f7ef 0%, #e4f2fb 100%);
+    color: #1e3a34; max-width: 600px; margin: 0 auto;
+  }
+  h1 { font-size: 19px; margin: 0 0 6px; }
+  .lead { font-size: 13px; line-height: 1.7; color: #40615a; margin: 0 0 18px; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 14px 14px 8px;
+    box-shadow: 0 2px 10px rgba(30,80,70,.10); margin-bottom: 18px;
+  }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .note { font-size: 12px; color: #6b8a83; margin: 0 0 12px; line-height: 1.6; }
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 0; border-top: 1px solid #eef3f1;
+  }
+  .row:first-of-type { border-top: none; }
+  .id {
+    flex: 0 0 34px; height: 34px; border-radius: 8px;
+    background: #2e9e78; color: #fff; font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .row.current .id { background: #98a8a4; }
+  .label { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; }
+  .label small { display: block; font-weight: 400; font-size: 11px; color: #7d9a94; margin-top: 2px; }
+  button {
+    font-family: inherit; border: none; border-radius: 9px;
+    padding: 10px 12px; font-size: 13px; font-weight: 700;
+    color: #fff; background: #2e9e78; cursor: pointer; white-space: nowrap;
+  }
+  button.ctx { background: #3d8fc4; }
+  button:active { filter: brightness(.9); }
+  .stop {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px;
+    background: #d15757; padding: 12px 26px; font-size: 15px;
+    box-shadow: 0 3px 12px rgba(0,0,0,.2);
+  }
+  .warn {
+    background: #fff6e0; border-left: 4px solid #e8b34a; border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; line-height: 1.7; margin-bottom: 18px; color: #6b5424;
+  }
+</style>
+
+<h1>🔊 読み上げ聞き比べ</h1>
+<p class="lead">
+  本体アプリと同じ設定（ja-JP / 速度0.89 / 音量1.0）で読み上げます。<br>
+  <b>緑ボタン＝名前だけ</b>／<b>青ボタン＝実際の対戦読み上げの中で</b>。<br>
+  一番自然なものの<b>番号（A-2 など）</b>を教えてください。
+</p>
+
+<div class="warn">
+  iPhoneは<b>本体横の消音スイッチをOFF</b>にしてから試してください（消音中は音が出ません）。
+</div>
+
+<div class="card">
+  <h2>A. バレ さん</h2>
+  <p class="note">狙い：「バ」を高く（頭高）。<br>A-1が現在の読み方です。</p>
+  <div id="listA"></div>
+</div>
+
+<div class="card">
+  <h2>B. 濱島 さん</h2>
+  <p class="note">狙い：先頭の「ハ」がはっきり聞こえること（今は「マシマ」に聞こえる）。<br>B-1が現在の読み方です。</p>
+  <div id="listB"></div>
+</div>
+
+<button class="stop" onclick="stopAll()">⏹ 停止</button>
+
+<script>
+// 本体アプリ（index.html の speakRound）と同じパラメータ
+const RATE = 0.89, VOLUME = 1.0, LANG = 'ja-JP';
+
+// 候補：text = TTSへ渡す文字列、ctx = 実際の読み上げ文の中に置いたもの
+const CANDIDATES = {
+  A: [
+    { text: 'ばれ',     desc: 'ひらがな（現在）', current: true },
+    { text: 'バレ',     desc: 'カタカナ' },
+    { text: 'ヴァレ',   desc: 'ヴァ表記' },
+    { text: 'バ・レ',   desc: 'カタカナ＋中黒' },
+    { text: 'バレさん', desc: 'カタカナ＋さん付け' },
+  ],
+  B: [
+    { text: 'はましま',   desc: 'ひらがな（現在）', current: true },
+    { text: 'ハマシマ',   desc: 'カタカナ' },
+    { text: '濱島',       desc: '漢字（旧字）' },
+    { text: '浜島',       desc: '漢字（新字）' },
+    { text: 'はま しま',  desc: 'ひらがな＋空白で区切り' },
+    { text: 'ハマシマさん', desc: 'カタカナ＋さん付け' },
+  ],
+};
+
+// 実際の対戦読み上げの中に埋めた文（本体の roundSpeechText と同じ書式）。
+// 名前が真ん中＝前の「、」に頭が飲まれやすい、一番条件の厳しい位置に置く
+const CONTEXT = {
+  A: n => `Aコート、たかはし、${n}、たい、こばやし、はら。`,
+  B: n => `Bコート、うちだ、${n}、たい、たなか、よだ。`,
+};
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) { alert('この端末は音声読み上げに対応していません'); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = LANG;
+  u.rate = RATE;
+  u.volume = VOLUME;
+  speechSynthesis.speak(u);
+}
+function stopAll() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+for (const key of ['A', 'B']) {
+  const box = document.getElementById('list' + key);
+  CANDIDATES[key].forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'row' + (c.current ? ' current' : '');
+
+    const id = document.createElement('div');
+    id.className = 'id';
+    id.textContent = key + '-' + (i + 1);
+
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = c.text;
+    const small = document.createElement('small');
+    small.textContent = c.desc;
+    label.appendChild(small);
+
+    const b1 = document.createElement('button');
+    b1.textContent = '🔊 単独';
+    b1.onclick = () => speak(c.text);
+
+    const b2 = document.createElement('button');
+    b2.className = 'ctx';
+    b2.textContent = '🔊 文の中';
+    b2.onclick = () => speak(CONTEXT[key](c.text));
+
+    row.append(id, label, b1, b2);
+    box.appendChild(row);
+  });
+}
+</script>
