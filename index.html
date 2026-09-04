@@ -1235,7 +1235,12 @@ function fillForcedRow(row, round, who) {
   const ps = row.querySelector('.fr-player');
   const hasOption = (sel, v) => Array.prototype.some.call(sel.options, o => o.value === v);
 
-  const keepRound = round != null ? String(round) : rs.value;
+  // 選んだ値は行そのものに覚えさせる。セレクトの現在値だけを見ていると、いったん
+  // 「（今は対象外）」の空値になった行が次の作り直しで先頭の選択肢にすり替わってしまう
+  // （例: 春日を指定 → 春日を外す → 別の操作 → 黙って大野の指定に変わる）
+  if (round != null) row.dataset.frRound = String(round);
+  else if (rs.value) row.dataset.frRound = rs.value;
+  const keepRound = row.dataset.frRound || '';
   const total = parseInt(document.getElementById('roundCount').value) || 10;
   rs.replaceChildren();
   for (let i = 1; i <= total; i++) {
@@ -1255,7 +1260,9 @@ function fillForcedRow(row, round, who) {
     rs.value = '';
   }
 
-  const keepWho = who != null ? who : ps.value;
+  if (who != null) row.dataset.frWho = who;
+  else if (ps.value) row.dataset.frWho = ps.value;
+  const keepWho = row.dataset.frWho || '';
   ps.replaceChildren();
   const people = forcedRestPeople();
   if (people.length === 0) {
@@ -1297,6 +1304,9 @@ function addForcedRestRow(round, who) {
   del.textContent = '×';
   del.setAttribute('aria-label', 'この休み指定を削除');
   del.onclick = () => { row.remove(); updateForcedRestNote(); };
+  // 選び直したら覚え直す（対象外の警告が解消したことを注意書きにも反映する）
+  rs.onchange = () => { if (rs.value) row.dataset.frRound = rs.value; updateForcedRestNote(); };
+  ps.onchange = () => { if (ps.value) row.dataset.frWho = ps.value; updateForcedRestNote(); };
   row.append(rs, ps, del);
   document.getElementById('forcedRestList').appendChild(row);
   fillForcedRow(row, round, who);
@@ -1606,6 +1616,17 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
         const nonPrevB = orderedB.filter(p => !prevSet.has(p));
         fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
         selected = orderedA.concat(fillersFromB);
+      }
+      // 指定休みが続くと、指定された人の回数だけが先に伸びて curMin と curMin+1 の
+      // 2グループでは枠を埋めきれないことがある。埋まらないまま返すと出場者が
+      // 4の倍数にならず、出場も休みもしない人が出る／コート割の生成が失敗する。
+      // 残りは休み回数が少ない順に補充して、必ず枠ちょうどにする（2026-09-04修正）
+      if (selected.length < need) {
+        const chosen = new Set(selected);
+        const spare = allPlayers
+          .filter(p => !forcedSet.has(p) && !chosen.has(p))
+          .sort((a, b) => restCounts[a] - restCounts[b]); // 同数はストライド側の並び順を維持
+        selected = selected.concat(spare.slice(0, need - selected.length));
       }
       picks = forcedHere.concat(selected);
     }

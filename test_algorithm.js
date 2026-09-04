@@ -162,6 +162,17 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
         fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
         selected = orderedA.concat(fillersFromB);
       }
+      // 指定休みが続くと、指定された人の回数だけが先に伸びて curMin と curMin+1 の
+      // 2グループでは枠を埋めきれないことがある。埋まらないまま返すと出場者が
+      // 4の倍数にならず、出場も休みもしない人が出る／コート割の生成が失敗する。
+      // 残りは休み回数が少ない順に補充して、必ず枠ちょうどにする（2026-09-04修正）
+      if (selected.length < need) {
+        const chosen = new Set(selected);
+        const spare = allPlayers
+          .filter(p => !forcedSet.has(p) && !chosen.has(p))
+          .sort((a, b) => restCounts[a] - restCounts[b]); // 同数はストライド側の並び順を維持
+        selected = selected.concat(spare.slice(0, need - selected.length));
+      }
       picks = forcedHere.concat(selected);
     }
 
@@ -2079,6 +2090,17 @@ console.log('\n=== 種目別コート分散検証 ===');
                 6: [1, 2], 7: [1, 2], 8: [1, 2], 9: [1, 2], 10: [1, 2] } },
     { name: '休み枠を超える指定はあふれ分を捨てて枠を守る（休み2人に3人指定）',
       courts: 4, players: 18, rounds: 10, order: 'desc', forced: { 5: [1, 2, 3] }, overflow: true },
+    // 以下2件は「指定で回数が偏った結果、休み枠が埋まらない」回帰（2026-09-04修正）。
+    // 修正前は休み人数が枠に足りず、出場も休みもしない人が出る／コート割の生成に失敗していた
+    { name: '大量指定で枠が埋まらない回帰A（2c×14p・別グループを3節ずつ指定）',
+      courts: 2, players: 14, rounds: 10, order: 'desc',
+      forced: { 1: [1, 2, 3, 4, 5], 2: [1, 2, 3, 4, 5], 3: [1, 2, 3, 4, 5],
+                4: [6, 7, 8, 9, 10], 5: [6, 7, 8, 9, 10], 6: [6, 7, 8, 9, 10] } },
+    { name: '大量指定で枠が埋まらない回帰B（2c×20p・11人を3節連続で指定）',
+      courts: 2, players: 20, rounds: 6, order: 'desc',
+      forced: { 1: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                2: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                3: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] } },
   ];
 
   for (const sc of scenarios) {

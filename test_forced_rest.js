@@ -123,7 +123,7 @@ async function pickNames(page, names) {
   await page.goto(URL);
   await page.selectOption('#courtCount', '4');
   await page.selectOption('#roundCount', '10');
-  await pickNames(page, ['大野', '唐澤', '北原', '越野', '小林', '善志', '高橋', '原',
+  await pickNames(page, ['大野', '唐澤', '北原', '越野', '小林', '善志', '髙橋', '原',
                          'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '春日', '黒河内']);
   check('18人選択で休み2人', (await page.locator('#infoBox').textContent()).includes('2人が休み'));
   await addRow(page, 4, 'n:濱島');
@@ -203,7 +203,7 @@ async function pickNames(page, names) {
   await page.goto(URL);
   await page.selectOption('#courtCount', '2');
   await page.selectOption('#roundCount', '10');
-  await pickNames(page, ['大野', '唐澤', '北原', '越野', '小林', '善志', '高橋', '原', 'バレ', '根津']);
+  await pickNames(page, ['大野', '唐澤', '北原', '越野', '小林', '善志', '髙橋', '原', 'バレ', '根津']);
   await addRow(page, 3, 'n:バレ');
   await pickNames(page, ['バレ']);   // 選択を外す
   // 黙って別人の指定にすり替わらないこと（すり替わると気づかないまま別人が休みになる）
@@ -424,6 +424,47 @@ async function pickNames(page, names) {
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check('375pxで横はみ出しなし', overflow <= 0, `overflow=${overflow}`);
+
+  // ============ 10. 「今は対象外」の行が別の値にすり替わらない ============
+  // 修正前は、警告項目（value='')になった行が次の作り直しで先頭の選択肢に落ちて、
+  // 指定していない人・節が黙って休みになっていた（2026-09-04修正）
+  console.log('[10] 対象外になった指定は別の値に化けない');
+  await page.goto(URL);
+  const frRow = () => page.locator('#forcedRestList .forced-row').first();
+  const shown = async sel => frRow().locator(sel).evaluate(s => s.options[s.selectedIndex].text);
+  const collected = () => page.evaluate(() => JSON.stringify(collectForcedRestInput()));
+
+  // (a) 節が範囲外になったあと、別の操作をしても第1節に化けない
+  await page.selectOption('#roundCount', '30');
+  await addRow(page, 25, 'p:18');
+  check('30節で第25節・18番を指定できる', await collected() === '[{"round":25,"who":"p:18"}]');
+  await page.selectOption('#roundCount', '10');
+  check('節数を10に減らすと対象外表示', (await shown('.fr-round')).includes('今は対象外'));
+  await page.selectOption('#playerCount', '20');
+  check('その後に人数を変えても第1節に化けない', (await shown('.fr-round')).includes('今は対象外'),
+    await shown('.fr-round'));
+  check('対象外の行は生成に渡らない', await collected() === '[]', await collected());
+  await page.selectOption('#roundCount', '30');
+  check('節数を30に戻すと第25節の指定がよみがえる', await collected() === '[{"round":25,"who":"p:18"}]',
+    await collected());
+
+  // (b) 人がメンバーから外れたあと、別の操作をしても先頭の人に化けない
+  await page.goto(URL);
+  await pickNames(page, ['大野', '上條', '唐澤', '北原', '越野', '小林', '善志', '髙橋', '原',
+    'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '春日']);
+  await addRow(page, 3, 'n:春日');
+  check('名簿モードで第3節・春日を指定できる', await collected() === '[{"round":3,"who":"n:春日"}]');
+  await pickNames(page, ['春日']);    // 春日を参加から外す
+  await pickNames(page, ['黒河内']);  // 別の人を追加（人数は18のまま）
+  check('外した本人が対象外表示になる', (await shown('.fr-player')).includes('春日'),
+    await shown('.fr-player'));
+  await page.selectOption('#roundCount', '15');
+  check('その後に節数を変えても大野に化けない', (await shown('.fr-player')).includes('春日'),
+    await shown('.fr-player'));
+  check('対象外の人は生成に渡らない', await collected() === '[]', await collected());
+  await pickNames(page, ['春日']);    // 春日を戻す
+  check('春日を戻すと指定がよみがえる', await collected() === '[{"round":3,"who":"n:春日"}]',
+    await collected());
 
   check('ページ例外が最後まで発生していない', pageErrors.length === 0, pageErrors.join(' / '));
 
