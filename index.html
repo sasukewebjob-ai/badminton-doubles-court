@@ -706,7 +706,9 @@ function restoreSession() {
     return false;
   }
   // 旧データや壊れた names は番号のみモードとして扱う
-  if (s.names && (typeof s.names !== 'object' || Array.isArray(s.names))) s.names = null;
+  s.names = validateNames(s.names);
+  // 復帰機能より前の保存形式には returned が無い。
+  for (const c of s.changes) if (c && c.returned === undefined) c.returned = [];
   // 旧データには genderMode / guestGenders が無い → 通常モード扱い
   if (s.genderMode !== true || !s.names) s.genderMode = false;
   if (!s.guestGenders || typeof s.guestGenders !== 'object' || Array.isArray(s.guestGenders)) {
@@ -725,6 +727,12 @@ function restoreSession() {
       if (nums.length > 0) clean[n] = nums;
     }
     s.forcedRests = Object.keys(clean).length > 0 ? clean : null;
+  }
+  // 共有と同じ構造検証を、状態を採用・描画する前に行う。
+  // 配列の外形だけでは、null の節や重複番号を含む破損データを検出できない。
+  if (!validateSharedSession(s)) {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    return false;
   }
   session = s;
   lastRounds = s.rounds;
@@ -833,7 +841,7 @@ const SHARE_LIMITS = {
   minCourts: 2, maxCourts: 4,   // コート数 2〜4
   minRounds: 10, maxRounds: 30, // 節数 10〜30
   maxPlayers: 26,               // 同時参加は最大26人
-  maxNumber: 200,               // 出入りを繰り返しても現実的にこの範囲
+  maxNumber: 1071,              // 可変長整数の上限。同時参加26人でも出入りで番号は増える
   maxChanges: 100
 };
 
@@ -860,6 +868,7 @@ function keysWithin(obj, allowed) {
 
 function validateSharedSession(s) {
   const L = SHARE_LIMITS;
+  if (!s || typeof s !== 'object') return false;
 
   // 節数・コート数・番号の上限
   if (!Number.isInteger(s.totalRounds) || s.totalRounds < L.minRounds || s.totalRounds > L.maxRounds) return false;
@@ -873,33 +882,59 @@ function validateSharedSession(s) {
   const ever = new Set(s.everPlayers);
   if (!s.players.every(p => ever.has(p))) return false;
 
-  // 変更履歴：節番号は非減少で最終節未満、コート数は2〜4、番号はのべ参加者の範囲内
+  // atRound は「変更後の最初の節」。最終節からの変更も有効。
   if (!Array.isArray(s.changes) || s.changes.length > L.maxChanges) return false;
-  let prevAt = 1;
+  let prevAt = 2;
   let courtsAfter = s.initialCourts;
+  const added = new Set();
   for (const c of s.changes) {
-    if (!Number.isInteger(c.atRound) || c.atRound < prevAt || c.atRound >= s.totalRounds) return false;
+    if (!c || !Number.isInteger(c.atRound) || c.atRound < prevAt || c.atRound > s.totalRounds) return false;
     prevAt = c.atRound;
     if (!Number.isInteger(c.courts) || c.courts < L.minCourts || c.courts > L.maxCourts) return false;
     for (const list of [c.added, c.removed, c.returned]) {
       if (!isNumList(list, s.maxNumber, L.maxPlayers)) return false;
       if (!list.every(p => ever.has(p))) return false;
     }
+    for (const p of c.added) {
+      if (added.has(p)) return false;
+      added.add(p);
+    }
     courtsAfter = c.courts;
   }
   // 最終区間のコート数と現役人数の整合
   if (s.players.length < courtsAfter * 4) return false;
+  if (s.courts !== undefined && s.courts !== courtsAfter) return false;
 
   // 節の構造：節数一致・番号連番・コート数は変更履歴どおり・出場と休みに重複なし
   if (!Array.isArray(s.rounds) || s.rounds.length !== s.totalRounds) return false;
-  const lastAt = s.changes.length > 0 ? s.changes[s.changes.length - 1].atRound : 0;
+  const active = new Set(s.everPlayers.filter(p => !added.has(p)));
+  const joined = new Set(active);
+  let changeIndex = 0;
+  let courts = s.initialCourts;
   for (let i = 0; i < s.rounds.length; i++) {
     const r = s.rounds[i];
     if (!r || r.round !== i + 1) return false;
     const rn = i + 1;
-    // この節に適用されるコート数（atRound < 節番号 の最後の変更が有効）
-    let courts = s.initialCourts;
-    for (const c of s.changes) if (c.atRound < rn) courts = c.courts;
+    // 変更した当節から人数・コート数を反映し、全区間の在籍者を確認する。
+    while (changeIndex < s.changes.length && s.changes[changeIndex].atRound === rn) {
+      const c = s.changes[changeIndex++];
+      const touched = c.added.concat(c.removed, c.returned);
+      if (new Set(touched).size !== touched.length) return false;
+      for (const p of c.removed) {
+        if (!active.delete(p)) return false;
+      }
+      for (const p of c.returned) {
+        if (!joined.has(p) || active.has(p)) return false;
+        active.add(p);
+      }
+      for (const p of c.added) {
+        if (joined.has(p)) return false;
+        joined.add(p);
+        active.add(p);
+      }
+      courts = c.courts;
+    }
+    if (active.size < courts * 4 || active.size > L.maxPlayers) return false;
     if (!Array.isArray(r.assignments) || r.assignments.length !== courts) return false;
     if (!isNumList(r.resting, s.maxNumber, L.maxPlayers)) return false;
 
@@ -914,9 +949,9 @@ function validateSharedSession(s) {
       }
     }
     if (inRound.size > L.maxPlayers) return false;
-    // 最後の変更より後の節は、現役参加者がちょうど全員登場するはず
-    if (rn > lastAt && (inRound.size !== s.players.length || !s.players.every(p => inRound.has(p)))) return false;
+    if (inRound.size !== active.size || ![...active].every(p => inRound.has(p))) return false;
   }
+  if (active.size !== s.players.length || !s.players.every(p => active.has(p))) return false;
 
   // 名前・ゲスト性別のキーはのべ参加者の範囲内
   if (!keysWithin(s.names, ever) || !keysWithin(s.guestGenders, ever)) return false;
@@ -2033,7 +2068,7 @@ function generate() {
   // 保存済みの状態を誤タップで失わないよう、既存セッションがあるときは確認する
   if (session && !confirm('現在のコート割を破棄して、新しく作成しますか？')) return;
 
-  TOTAL_ROUNDS = parseInt(document.getElementById('roundCount').value);
+  const totalRounds = parseInt(document.getElementById('roundCount').value);
   const courts = parseInt(document.getElementById('courtCount').value);
   const rosterNames = selectedRosterNames();
   const totalPlayers = rosterNames.length > 0
@@ -2078,7 +2113,7 @@ function generate() {
   }
 
   // 休み指定（名前で指定されているので、番号が決まったこの時点で番号へ変換して検証する）
-  const forced = resolveForcedRests(collectForcedRestInput(), names, totalPlayers, TOTAL_ROUNDS, restCount);
+  const forced = resolveForcedRests(collectForcedRestInput(), names, totalPlayers, totalRounds, restCount);
   if (forced.error) {
     alert(forced.error);
     return;
@@ -2086,7 +2121,7 @@ function generate() {
 
   const restOrder = document.getElementById('restOrder').value;
   const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
-  const restSchedule = generateRestSchedule(allPlayers, restCount, TOTAL_ROUNDS, null, null,
+  const restSchedule = generateRestSchedule(allPlayers, restCount, totalRounds, null, null,
     restOrder === 'desc', null, forcedByIndexOf(forced.byRound, 0));
 
   const pairHistory = {};
@@ -2098,7 +2133,7 @@ function generate() {
 
   const rounds = [];
 
-  for (let r = 0; r < TOTAL_ROUNDS; r++) {
+  for (let r = 0; r < totalRounds; r++) {
     const resting = restSchedule[r];
     const restSet = new Set(resting);
     const active = allPlayers.filter(p => !restSet.has(p));
@@ -2132,7 +2167,7 @@ function generate() {
   }
 
   session = {
-    totalRounds: TOTAL_ROUNDS,
+    totalRounds,
     initialCourts: courts,
     courts,
     restOrder,
@@ -2146,6 +2181,7 @@ function generate() {
     changes: [],
     rounds
   };
+  TOTAL_ROUNDS = totalRounds;
   lastRounds = rounds;
   restoredAt = null;
   saveSession();
@@ -2165,6 +2201,32 @@ function changeLabel(change, prevCourts) {
   if (change.removed.length > 0) parts.push('−' + change.removed.map(pname).join('・'));
   if (change.courts !== prevCourts) parts.push(change.courts + 'コートへ変更');
   return '↻ メンバー変更' + (parts.length > 0 ? '：' + parts.join(' ／ ') : '（組み直し）');
+}
+
+// 休み割当用の累計は、過去の途中参加・復帰時の補正も含めて再構築する。
+// 実際に休んだ回数だけを数え直すと、2回目の変更で以前の補正が消え、
+// 途中参加者が不足分を埋めるために連続して休むことになる。
+// 表示する休み回数は従来どおり実績のみ。この累計は次の割当専用。
+function restCountsThrough(s, kept) {
+  const later = new Set(s.changes.flatMap(c => c.added));
+  const active = new Set(s.everPlayers.filter(p => !later.has(p)));
+  const counts = {};
+  s.everPlayers.forEach(p => counts[p] = 0);
+  let ci = 0;
+  for (const round of kept) {
+    while (ci < s.changes.length && s.changes[ci].atRound <= round.round) {
+      const c = s.changes[ci++];
+      c.removed.forEach(p => active.delete(p));
+      const minimum = active.size ? Math.min(...[...active].map(p => counts[p])) : 0;
+      c.added.forEach(p => { counts[p] = minimum; active.add(p); });
+      (c.returned || []).forEach(p => {
+        counts[p] = Math.max(counts[p], minimum);
+        active.add(p);
+      });
+    }
+    round.resting.forEach(p => counts[p]++);
+  }
+  return counts;
 }
 
 function applyMemberChange() {
@@ -2241,13 +2303,14 @@ function applyMemberChange() {
   }
 
   // 休み回数の引き継ぎ。途中参加者は「現時点の最少回数」扱いで以降を公平に
-  const contCounts = continuing.map(p => restHistory[p]);
+  const creditedRestCounts = restCountsThrough(session, kept);
+  const contCounts = continuing.map(p => creditedRestCounts[p]);
   const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
   const initialRestCounts = {};
-  continuing.forEach(p => initialRestCounts[p] = restHistory[p]);
+  continuing.forEach(p => initialRestCounts[p] = creditedRestCounts[p]);
   // 復帰者は自身の休み履歴を引き継ぐ。不在中に休みが少なくても現役の最少回数までは
   // 引き上げ、復帰直後に休みが集中しないようにする
-  returnNumbers.forEach(p => initialRestCounts[p] = Math.max(restHistory[p], minCont));
+  returnNumbers.forEach(p => initialRestCounts[p] = Math.max(creditedRestCounts[p], minCont));
   newNumbers.forEach(p => initialRestCounts[p] = minCont);
 
   const restCount = newPlayers.length - newCourts * 4;
