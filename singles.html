@@ -58,7 +58,7 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
   <div class="row"><label for="roundCount">節数</label><select id="roundCount"><option>10</option><option>15</option><option>20</option><option>25</option><option>30</option></select></div>
   <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
   <p class="note" id="infoBox"></p>
-  <details><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
+  <details id="forcedBox"><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
   <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。休む順番は通常のダブルス版と同じで、1周目は番号順（最後の番号から休む：大きい番号から／1番から休む：1番から）、2周目以降は並びをずらします。毎節の休みが参加番号の半分以上になる構成では、対戦相手が固定されないよう番号順は1周目だけにし、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
   <button class="primary" id="generateBtn">コート割を作成</button>
 </section>
@@ -96,6 +96,15 @@ function checkConfig(c) {
   if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
   for (const [rn, ids] of Object.entries(c.forced)) {
     if (!/^[1-9]\d*$/.test(rn) || !isInt(Number(rn),1,c.totalRounds) || !Array.isArray(ids) || ids.length > 12 || ids.some(p => !isInt(p,1,12)) || new Set(ids).size !== ids.length) throw Error('休み指定の節番号・参加番号を確認してください。');
+  }
+}
+// Imposed rests must name participating numbers and fit the rest slots of each regenerated round.
+function checkForced(config, from=1) {
+  const restSize=config.players.length-config.courts*2;
+  for (let rn=from;rn<=config.totalRounds;rn++) {
+    const forced=config.forced[rn] || [];
+    if (forced.some(p => !config.players.includes(p))) throw Error(`第${rn}節の休み指定に参加していない番号があります。`);
+    if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
   }
 }
 function parseForced(text) {
@@ -516,11 +525,7 @@ function buildCandidate(config, kept=[]) {
     segmentStart--;
   }
   const restSize=config.players.length-config.courts*2;
-  for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
-    const forced=config.forced[rn] || [];
-    if (forced.some(p => !config.players.includes(p))) throw Error(`第${rn}節の休み指定に参加していない番号があります。`);
-    if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
-  }
+  checkForced(config,kept.length+1);
   // Rest order (2026-09-23): when fewer than half rest, use exactly the doubles version's order.
   // Otherwise that order locks opponents to nearby numbers, so only the first lap follows number order.
   const doublesOrder=restSize>0 && restSize*2<config.players.length;
@@ -599,7 +604,10 @@ function validSession(s) {
 function encodeShare(s) { return btoa(JSON.stringify(s)); }
 function decodeShare(data) {
   if (data.length>24000) throw Error('共有リンクが長すぎます。');
-  const s=JSON.parse(atob(data));
+  // Links cut off by mail or chat apps, or with "=" percent-encoded, must not surface browser errors in English.
+  let s;
+  try { s=JSON.parse(atob(decodeURIComponent(data))); }
+  catch { throw Error('共有リンクが途中で切れているか、壊れています。共有した人にリンクをもう一度送ってもらってください。'); }
   if (!validSession(s)) throw Error('共有リンクの対戦表が正しくありません。');
   return s;
 }
@@ -623,7 +631,7 @@ function inputConfig() {
 function generate() {
   try {
     const config=inputConfig();
-    checkConfig(config);
+    checkConfig(config); checkForced(config);
     if (session && !confirm('表示中の対戦表を作り直しますか？')) return;
     const next=buildSession(config);
     session=next; notify('対戦表を作成しました。'); persist(); render();
@@ -745,9 +753,13 @@ function render() {
     card.append(rest); $('results').append(card); previous=r;
   }
 }
+// Restore the settings the table was created with (as before reloading), not those after later changes.
 function restoreInputs() {
-  $('mode').value=session.mode; $('courtCount').value=String(session.courts); $('playerCount').value=String(session.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
+  const first=session.rounds[0];
+  $('mode').value=session.mode; $('courtCount').value=String(first.courts); $('playerCount').value=String(first.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
   $('forcedRests').value=Object.entries(session.forced).map(([rn,ids])=>`${rn}: ${ids.join(',')}`).join('\n'); updateInfo();
+  // Keep restored imposed rests visible so they are not reused unnoticed.
+  $('forcedBox').open=!!$('forcedRests').value;
 }
 function init() {
   window.addEventListener('hashchange',()=>location.reload());
