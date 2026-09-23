@@ -59,7 +59,7 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
   <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
   <p class="note" id="infoBox"></p>
   <details><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
-  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。対戦相手が固定されないよう、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
+  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。休む順番は通常のダブルス版と同じで、1周目は番号順（最後の番号から休む：大きい番号から／1番から休む：1番から）、2周目以降は並びをずらします。毎節の休みが参加番号の半分以上になる構成では、対戦相手が固定されないよう番号順は1周目だけにし、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
   <button class="primary" id="generateBtn">コート割を作成</button>
 </section>
 <section id="summary" class="panel" hidden></section>
@@ -114,6 +114,248 @@ function shuffled(list) {
   for (let i=out.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [out[i],out[j]]=[out[j],out[i]]; }
   return out;
 }
+// ===== ここから通常のダブルス版（index.html）の休み順と同じ処理 =====
+// 休みが参加番号の半分未満のときは、ダブルス版と全く同じ休み順にする（2026-09-23ユーザー要望）。
+// index.html の makeStrideGroups〜generateRestSchedule をそのまま写したもの。
+// 片方だけ直さないこと（test_singles_rest_order.js が両方の関数の一致を確認する）
+function makeStrideGroups(N, cycle, restCount) {
+  const stride = cycle;
+  const used = new Set();
+  const groups = [];
+
+  for (let offset = 0; offset < stride; offset++) {
+    const candidates = [];
+    for (let i = 0; offset + 1 + i * stride <= N; i++) {
+      candidates.push(offset + 1 + i * stride);
+    }
+    for (let i = 0; i + restCount <= candidates.length; i += restCount) {
+      const group = candidates.slice(i, i + restCount);
+      groups.push(group);
+      group.forEach(p => used.add(p));
+    }
+  }
+
+  const leftovers = [];
+  for (let p = 1; p <= N; p++) {
+    if (!used.has(p)) leftovers.push(p);
+  }
+  for (let i = 0; i < leftovers.length; i += restCount) {
+    groups.push(leftovers.slice(i, i + restCount));
+  }
+
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups;
+}
+
+function strideLinearOrder(N, cycle, restCount) {
+  return makeStrideGroups(N, cycle, restCount).flat();
+}
+
+// players: 参加者番号の配列（欠番可）
+// initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
+// prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
+// reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
+// deferredNew: 途中追加者の番号。初回の休みを現在の周回の最後尾に回す（降順で末尾番号が
+//   キュー先頭に割り込み、追加直後に休みになるのを防ぐ）。省略可
+// forcedByIndex: 指定休み { 0始まりの節index: [番号,…] }。その節で必ず休ませる人。
+//   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
+//   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
+// roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset) {
+  if (restCount === 0) return Array.from({length: numRounds}, () => []);
+
+  const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
+  const M = allPlayers.length;
+  // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
+  const playerAt = pos => allPlayers[pos - 1];
+  const playerSet = new Set(allPlayers);
+
+  const restCounts = {};
+  const initialOf = {};
+  const boundaryHits = {};
+  const deferred = new Set(deferredNew || []);
+  allPlayers.forEach(p => {
+    restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    initialOf[p] = restCounts[p];
+    boundaryHits[p] = 0;
+  });
+
+  const restSchedule = [];
+  let prevSet = new Set(prevResting || []);
+
+  // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
+  const forcedAt = rIdx => {
+    const forcedHere = [];
+    const forcedSet = new Set();
+    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
+      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
+        forcedSet.add(p);
+        forcedHere.push(p);
+      }
+    }
+    return { forcedHere, forcedSet };
+  };
+  // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）
+  const nearForcedAt = rIdx => new Set([
+    ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
+    ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
+  ]);
+
+  // 休みが参加人数の半分以上のときは「出場する順番」で回す（2026-09-23）。
+  // 休む順のストライドは休み人数ぶんの組を作れず毎周同じ番号順に戻るため、
+  // 出場する顔ぶれが固定されていた（例: 2コート24人で1〜8・9〜16・17〜24番がずっと同じ組）。
+  // 休み回数が多い人から出場させるのは、少ない人から休ませるのと同じなので公平性は変わらない。
+  // 1周目は番号順（最後の番号から休む＝小さい番号から出場）、2周目以降は周ごとに並びを入れ替える
+  if (restCount * 2 >= M) {
+    const playCount = M - restCount;
+    const playRankCache = {};
+    const playRank = cycle => {
+      if (!playRankCache[cycle]) {
+        // 並び位置（1=最初に休む）を逆にしたものが出場順。2周目以降は周ごとに決まった乱数列で並べ替える
+        const pos = Array.from({length: M}, (_, i) => M - i);
+        if (cycle > 1) {
+          let seed = (cycle * 7919 + M * 131 + playCount) >>> 0;
+          const rand = () => {
+            seed = (seed + 0x6D2B79F5) >>> 0;
+            let t = seed;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+          for (let i = pos.length - 1; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            [pos[i], pos[j]] = [pos[j], pos[i]];
+          }
+        }
+        playRankCache[cycle] = new Map(pos.map((p, i) => [playerAt(p), i]));
+      }
+      return playRankCache[cycle];
+    };
+    for (let rIdx = 0; rIdx < numRounds; rIdx++) {
+      const { forcedSet } = forcedAt(rIdx);
+      const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
+      const rank = playRank(cycle);
+      const nearForced = nearForcedAt(rIdx);
+      // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
+      const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const playing = new Set(allPlayers
+        .filter(p => !forcedSet.has(p))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || rank.get(a) - rank.get(b))
+        .slice(0, playCount));
+      const picks = allPlayers.filter(p => !playing.has(p));
+      picks.forEach(p => restCounts[p]++);
+      restSchedule.push(picks.sort((a, b) => a - b));
+    }
+    return restSchedule;
+  }
+
+  const linearOrderCache = {};
+  const getLinearOrder = (cycle) => {
+    if (!linearOrderCache[cycle]) {
+      linearOrderCache[cycle] = strideLinearOrder(M, cycle, restCount).map(playerAt);
+    }
+    return linearOrderCache[cycle];
+  };
+
+  while (restSchedule.length < numRounds) {
+    const rIdx = restSchedule.length;
+    const { forcedHere, forcedSet } = forcedAt(rIdx);
+    const need = restCount - forcedHere.length;
+
+    let picks;
+    let fillersFromB = [];
+
+    if (need <= 0) {
+      picks = forcedHere.slice();
+    } else {
+      // 残り枠は従来どおりの公平ロジック。指定済みの人は候補から外す
+      // （外さないと curMin が指定者の回数に引きずられ、poolBが空になって枠が埋まらない）
+      let curMin = Infinity;
+      for (const p of allPlayers) {
+        if (!forcedSet.has(p) && restCounts[p] < curMin) curMin = restCounts[p];
+      }
+      const poolA = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin);
+      const poolB = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin + 1);
+
+      const cycleA = curMin + 1;
+      const linearA = getLinearOrder(cycleA);
+      const rankA = new Map();
+      linearA.forEach((p, i) => rankA.set(p, i));
+
+      // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+      // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+      const deferWeight = p => {
+        if (!deferred.has(p)) return 0;
+        if (restCounts[p] === initialOf[p]) return 2;
+        if (prevSet.has(p)) return 1;
+        return 0;
+      };
+
+      // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）。
+      // あくまで同じ休み回数グループ内の並び替えなので公平性は変わらず、
+      // 指定が無いときは常に0＝従来とまったく同じ並びになる
+      const nearForced = nearForcedAt(rIdx);
+      const softWeight = p => deferWeight(p) + (nearForced.has(p) ? 1 : 0);
+
+      const orderedA = poolA.slice().sort((a, b) => {
+        const wa = softWeight(a);
+        const wb = softWeight(b);
+        if (wa !== wb) return wa - wb;
+        const ra = rankA.has(a) ? rankA.get(a) : 0;
+        const rb = rankA.has(b) ? rankA.get(b) : 0;
+        return ra - rb;
+      });
+
+      let selected;
+      if (orderedA.length >= need) {
+        // ストライド順を守りつつ、直前の節に休んだ人は同じ回数の中で後ろへ回す（2026-09-23）。
+        // 周の切り替わりで、新しい周の先頭に直前の休みの人が来て2節続けて休むのを防ぐ。
+        // 1周目は全員が未休みなので影響せず、番号順のまま
+        const fresh = orderedA.filter(p => !prevSet.has(p));
+        selected = fresh.concat(orderedA.filter(p => prevSet.has(p))).slice(0, need);
+      } else {
+        const shortfall = need - orderedA.length;
+        const cycleB = curMin + 2;
+        const linearB = getLinearOrder(cycleB);
+        const rankB = new Map();
+        linearB.forEach((p, i) => rankB.set(p, i));
+
+        const orderedB = poolB.slice().sort((a, b) => {
+          if (boundaryHits[a] !== boundaryHits[b]) {
+            return boundaryHits[a] - boundaryHits[b];
+          }
+          const ra = rankB.has(a) ? rankB.get(a) : 0;
+          const rb = rankB.has(b) ? rankB.get(b) : 0;
+          return ra - rb;
+        });
+
+        const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+        fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
+        selected = orderedA.concat(fillersFromB);
+      }
+      // 指定休みが続くと、指定された人の回数だけが先に伸びて curMin と curMin+1 の
+      // 2グループでは枠を埋めきれないことがある。埋まらないまま返すと出場者が
+      // 4の倍数にならず、出場も休みもしない人が出る／コート割の生成が失敗する。
+      // 残りは休み回数が少ない順に補充して、必ず枠ちょうどにする（2026-09-04修正）
+      if (selected.length < need) {
+        const chosen = new Set(selected);
+        const spare = allPlayers
+          .filter(p => !forcedSet.has(p) && !chosen.has(p))
+          .sort((a, b) => restCounts[a] - restCounts[b]); // 同数はストライド側の並び順を維持
+        selected = selected.concat(spare.slice(0, need - selected.length));
+      }
+      picks = forcedHere.concat(selected);
+    }
+
+    fillersFromB.forEach(p => boundaryHits[p]++);
+    picks.forEach(p => restCounts[p]++);
+    restSchedule.push(picks.slice().sort((a, b) => a - b));
+    prevSet = new Set(picks);
+  }
+
+  return restSchedule;
+}
+// ===== ここまで通常のダブルス版と同じ処理 =====
 // At most eight active numbers: enumerate all 105 matchings and 24 court orders.
 function bestMatches(active, opponents, courtHistory, previous, fixed, planned) {
   if (fixed) return Array.from({length:active.length/2}, (_,i) => active.slice(i*2,i*2+2));
@@ -127,7 +369,8 @@ function bestMatches(active, opponents, courtHistory, previous, fixed, planned) 
     const a=rest[0];
     for (let i=1;i<rest.length;i++) {
       const b=rest[i], k=key(a,b), count=opponents[k] || 0;
-      const cost=100*(count+1)**2 + (previous.has(k) ? 1 : 0);
+      // Never repeat the previous round's opponents when another matching exists (rests may be fixed in advance).
+      const cost=100*(count+1)**2 + (previous.has(k) ? 1000000 : 0);
       match(rest.slice(1,i).concat(rest.slice(i+1)), pairs.concat([[a,b]]), score+cost);
     }
   }
@@ -272,27 +515,64 @@ function buildCandidate(config, kept=[]) {
     if (r.courts!==config.courts || r.players.length!==config.players.length || !r.players.every(p=>config.players.includes(p))) break;
     segmentStart--;
   }
-  // Saved schedules from earlier versions may not follow this decomposition.
-  const useCycle=segmentStart===0 && !Object.values(config.forced).some(ids=>ids.length) && kept.every(r=>{
-    const expected=cycleMatches(config.players,config.courts,r.round-1,config.restOrder);
-    return expected && expected.map(pair=>key(...pair)).sort().join(',')===r.matches.map(pair=>key(...pair)).sort().join(',');
-  });
+  const restSize=config.players.length-config.courts*2;
   for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
-    const restSize=config.players.length-config.courts*2;
     const forced=config.forced[rn] || [];
     if (forced.some(p => !config.players.includes(p))) throw Error(`第${rn}節の休み指定に参加していない番号があります。`);
     if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
-    const rank = new Map(shuffled(config.players).map((p,i) => [p,i]));
-    const available=config.players.filter(p => !forced.includes(p)).sort((a,b) =>
-      (restCounts[a] || 0)-(restCounts[b] || 0) || Number(previousRest.has(a))-Number(previousRest.has(b)) ||
-      (rn===1 ? (config.restOrder==='desc' ? b-a : a-b) : rank.get(a)-rank.get(b)));
+  }
+  // Rest order (2026-09-23): when fewer than half rest, use exactly the doubles version's order.
+  // Otherwise that order locks opponents to nearby numbers, so only the first lap follows number order.
+  const doublesOrder=restSize>0 && restSize*2<config.players.length;
+  let doublesRest=null;
+  if (doublesOrder) {
+    const seen=new Set(kept.flatMap(r=>r.players)), forcedByIndex={};
+    for (let rn=kept.length+1;rn<=config.totalRounds;rn++) if ((config.forced[rn] || []).length) forcedByIndex[rn-kept.length-1]=config.forced[rn];
+    doublesRest=generateRestSchedule(config.players,restSize,config.totalRounds-kept.length,
+      Object.fromEntries(config.players.map(p=>[p,restCounts[p] || 0])),[...previousRest],config.restOrder==='desc',
+      kept.length ? config.players.filter(p=>!seen.has(p)) : null,forcedByIndex,kept.length);
+  }
+  const joinedAt={};
+  kept.forEach((r,i)=>r.players.forEach(p=>{ if (joinedAt[p]===undefined) joinedAt[p]=i; }));
+  config.players.forEach(p=>{ if (joinedAt[p]===undefined) joinedAt[p]=kept.length; });
+  // Saved schedules from earlier versions may not follow this decomposition.
+  const useCycle=!doublesOrder && segmentStart===0 && !Object.values(config.forced).some(ids=>ids.length) && kept.every(r=>{
+    const expected=cycleMatches(config.players,config.courts,r.round-1,config.restOrder);
+    return expected && expected.map(pair=>key(...pair)).sort().join(',')===r.matches.map(pair=>key(...pair)).sort().join(',');
+  });
+  // After a change into an all-play segment, start the round robin where its first round does not repeat
+  // the last completed round. Kept rounds of the segment decide the start, so regenerations continue it.
+  let rrShift=0;
+  if (restSize===0 && segmentStart>0) {
+    const inSegment=kept.slice(segmentStart), last=new Set(kept[segmentStart-1].matches.map(m=>key(...m)));
+    const same=(a,b)=>a.map(m=>key(...m)).sort().join()===b.map(m=>key(...m)).sort().join();
+    const fits=s=>inSegment.every((r,j)=>same(r.matches,roundRobin(config.players,j+s)));
+    const shifts=sequence(Math.max(1,config.players.length-1)).map(s=>s-1);
+    rrShift=shifts.find(s=>fits(s) && !roundRobin(config.players,s).some(m=>last.has(key(...m)))) ?? shifts.find(fits) ?? 0;
+  }
+  // First lap: numbers that have not rested yet rest in number order (late joiners after the original numbers).
+  // A number with an imposed rest within this lap takes that rest as its turn.
+  function firstLapRest(rn, forced) {
+    const slots=restSize-forced.length;
+    if (slots<=0) return forced.slice();
+    const unrested=config.players.filter(p=>!forced.includes(p) && !(restCounts[p] || 0));
+    const lapEnd=rn-1+Math.ceil(unrested.length/restSize);
+    const pending=new Set(unrested.filter(p=>Object.entries(config.forced).some(([f,ids])=>Number(f)>rn && Number(f)<=lapEnd && ids.includes(p))));
+    const queue=unrested.filter(p=>!pending.has(p)).sort((a,b)=>joinedAt[a]-joinedAt[b] || (config.restOrder==='desc' ? b-a : a-b));
+    if (queue.length>=slots) return forced.concat(queue.slice(0,slots));
+    const counts={...restCounts};
+    pending.forEach(p=>counts[p]=1);
+    return chooseRest(config.players,config.courts,forced.concat(queue),counts,opponents,previousMatches,previousRest);
+  }
+  for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
+    const forced=config.forced[rn] || [];
     const cycle=useCycle ?
       cycleMatches(config.players,config.courts,rn-1,config.restOrder) : null;
-    const rest=(cycle ? config.players.filter(p=>!cycle.flat().includes(p)) :
-      rn===1 ? forced.concat(available.slice(0,restSize-forced.length)) :
-      chooseRest(config.players,config.courts,forced,restCounts,opponents,previousMatches,previousRest)).sort((a,b)=>a-b);
+    const rest=(doublesRest ? doublesRest[rn-kept.length-1].slice() :
+      cycle ? config.players.filter(p=>!cycle.flat().includes(p)) :
+      firstLapRest(rn,forced)).sort((a,b)=>a-b);
     const active=config.players.filter(p => !rest.includes(p)).sort((a,b)=>a-b);
-    const planned=cycle || (restSize===0 && segmentStart>0 ? roundRobin(active,rn-segmentStart-1) : null);
+    const planned=cycle || (restSize===0 && segmentStart>0 ? roundRobin(active,rn-segmentStart-1+rrShift) : null);
     const matches=bestMatches(active,opponents,courtHistory,previousMatches,rn===1 && config.restOrder==='desc',planned);
     const round={round:rn,players:config.players.slice(),courts:config.courts,rest,matches};
     rounds.push(round); record(round);

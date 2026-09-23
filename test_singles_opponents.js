@@ -22,14 +22,18 @@ try {
    last=current;
   }
   const possible=n*(n-1)/2,total=courts*totalRounds,lowerMax=Math.ceil(total/possible),lowerMissing=Math.max(0,possible-total);
+  // Since 2026-09-23, sessions where fewer than half rest follow the doubles version's rest order.
+  // With the rests fixed in advance, up to two more pairs may never meet (measured worst: 3c 10-11p 15-20r).
+  const restSize=n-courts*2, doublesOrder=restSize>0&&restSize*2<n;
   const max=Math.max(...counts.values()),missing=possible-counts.size;
   // The lower bound is not a claim of attainability with every fairness constraint.
   assert(max<=lowerMax+1,`opponent concentration: ${courts}c ${n}p ${totalRounds}r -> ${max}`);
-  assert(missing<=lowerMissing+1,`opponent coverage: ${courts}c ${n}p ${totalRounds}r -> ${missing}`);
+  assert(missing<=lowerMissing+(doublesOrder?2:1),`opponent coverage: ${courts}c ${n}p ${totalRounds}r -> ${missing}`);
   if(max>lowerMax)extraRepeatCases++;
   if(n>2){assert.equal(consecutive,0,'same opponents in adjacent rounds');avoidableConsecutive+=consecutive;}
-  // Divisible schedules are exact round-robin decompositions, including rest rounds.
-  if((n%2===0&&n%(2*courts)===0)||(n%2===1&&n%courts===0)) {
+  // Divisible schedules are exact round-robin decompositions, including rest rounds
+  // (except sessions using the doubles rest order).
+  if(!doublesOrder&&((n%2===0&&n%(2*courts)===0)||(n%2===1&&n%courts===0))) {
    const all=[];for(let a=1;a<=n;a++)for(let b=a+1;b<=n;b++)all.push(counts.get(a+'-'+b)||0);
    assert(Math.max(...all)-Math.min(...all)<=1,'round-robin pair frequency difference exceeds one');
   }
