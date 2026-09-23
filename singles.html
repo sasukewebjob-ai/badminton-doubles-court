@@ -59,7 +59,7 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
   <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
   <p class="note" id="infoBox"></p>
   <details><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
-  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
+  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。対戦相手が固定されないよう、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
   <button class="primary" id="generateBtn">コート割を作成</button>
 </section>
 <section id="summary" class="panel" hidden></section>
@@ -151,7 +151,98 @@ function roundRobin(players, offset) {
   for (let i=0;i<offset%(ring.length-1);i++) ring.splice(1,0,ring.pop());
   return Array.from({length:ring.length/2},(_,i)=>[ring[i],ring[ring.length-1-i]]);
 }
+// Choose rest and opponents together. Giving consecutive-rest avoidance priority
+// over opponents locks half-capacity sessions into two permanent groups.
+function chooseRest(players, courts, forced, restCounts, opponents, previousMatches, previousRest) {
+  const slots=players.length-courts*2-forced.length;
+  if (!slots) return forced.slice();
+  const available=players.filter(p=>!forced.includes(p));
+  const cutoff=available.map(p=>restCounts[p] || 0).sort((a,b)=>a-b)[slots-1];
+  const mandatoryRest=available.filter(p=>(restCounts[p] || 0)<cutoff);
+  const pool=shuffled(available.filter(p=>!mandatoryRest.includes(p)));
+  const mustPlay=pool.reduce((mask,p,i)=>(restCounts[p] || 0)>cutoff ? mask | (1<<i) : mask,0);
+  const cache=new Map();
+  function solve(mask, remaining) {
+    const id=mask*5+remaining;
+    if (cache.has(id)) return cache.get(id);
+    if (!mask) return {score:remaining ? Infinity : 0,active:[]};
+    const i=31-Math.clz32(mask & -mask), bit=1<<i, tail=mask^bit;
+    let best={score:Infinity,active:[]};
+    function consider(score,active) {
+      if (score<best.score || (score===best.score && Math.random()<0.5)) best={score,active};
+    }
+    if (!(mustPlay & bit)) {
+      const next=solve(tail,remaining);
+      consider(next.score+(previousRest.has(pool[i]) ? 1 : 0),next.active);
+    }
+    if (remaining>0) for (let j=i+1;j<pool.length;j++) if(tail & (1<<j)) {
+      const next=solve(tail^(1<<j),remaining-1), k=key(pool[i],pool[j]);
+      const cost=1000000*((opponents[k] || 0)+1)**2+(previousMatches.has(k) ? 100 : 0);
+      consider(next.score+cost,next.active.concat(pool[i],pool[j]));
+    }
+    cache.set(id,best); return best;
+  }
+  const result=solve((1<<pool.length)-1,courts);
+  if (!Number.isFinite(result.score)) throw Error('参加番号の割り当てを作成できませんでした。');
+  return players.filter(p=>!result.active.includes(p));
+}
+function cycleMatches(players, courts, offset, order) {
+  const sorted=players.slice().sort((a,b)=>order==='desc' ? a-b : b-a), n=sorted.length;
+  if (n%2===0 && n%(courts*2)===0) {
+    const batches=n/(courts*2), cycle=Math.floor(offset/batches);
+    const ring=sorted.filter((_,i)=>i%2===0).concat(sorted.filter((_,i)=>i%2===1).reverse());
+    for (let i=0;i<cycle%(n-1);i++) ring.splice(1,0,ring.pop());
+    const pairs=Array.from({length:n/2},(_,i)=>[ring[i],ring[n-1-i]]);
+    return pairs.slice((offset%batches)*courts,(offset%batches+1)*courts);
+  }
+  if (n%2===1 && n%courts===0) {
+    // Walecki Hamilton-cycle decomposition, with disjoint edges in fair order.
+    const batches=n/courts, k=Math.floor(offset/batches)%((n-1)/2);
+    const mod=n-1;
+    function vertices(shift) {
+      const out=[0,1+shift];
+      for(let d=1;d<=(n-1)/2;d++) {
+        out.push(1+(shift-d+mod)%mod);
+        if(d<(n-1)/2) out.push(1+(shift+d)%mod);
+      }
+      return out;
+    }
+    const names={}; vertices(0).forEach((v,i)=>names[v]=sorted[i]);
+    const ring=vertices(k).map(v=>names[v]);
+    return Array.from({length:courts},(_,i)=>{
+      const edge=((offset%batches)*courts+i)*2%n;
+      return [ring[edge],ring[(edge+1)%n]];
+    });
+  }
+  return null;
+}
+function scheduleQuality(s) {
+  const counts={}, history={}; let repeated=0, last=new Set();
+  for(const r of s.rounds) {
+    const now=new Set();
+    r.matches.forEach((pair,ci)=>{
+      const k=key(...pair); counts[k]=(counts[k] || 0)+1; now.add(k);if(last.has(k)) repeated++;
+      pair.forEach(p=>{const ck=p+'-'+ci;history[ck]=(history[ck] || 0)+1;});
+    });last=now;
+  }
+  const values=Object.values(counts);
+  return [Math.max(...values),values.reduce((sum,n)=>sum+n*n,0),repeated,Object.values(history).reduce((sum,n)=>sum+n*n,0)];
+}
 function buildSession(config, kept=[]) {
+  checkConfig(config);
+  let best=null, bestQuality=null;
+  const total=config.totalRounds*config.courts, pairs=config.players.length*(config.players.length-1)/2;
+  const q=Math.floor(total/pairs), extra=total%pairs, lowerSquares=(pairs-extra)*q*q+extra*(q+1)*(q+1);
+  const trials=!kept.length && !Object.values(config.forced).some(ids=>ids.length) ? 32 : 8;
+  for(let trial=0;trial<trials;trial++) {
+    const candidate=buildCandidate(config,kept), quality=scheduleQuality(candidate);
+    if(!best || quality.some((value,i)=>value<bestQuality[i] && quality.slice(0,i).every((v,j)=>v===bestQuality[j]))) {best=candidate;bestQuality=quality;}
+    // This bound ignores imposed rests/changes; only use it for unchanged sessions.
+    if(!kept.length && quality[0]===Math.ceil(total/pairs) && quality[1]===lowerSquares && quality[2]===(config.players.length===2 ? config.totalRounds-1 : 0)) break;
+  }
+  return best;
+}
+function buildCandidate(config, kept=[]) {
   checkConfig(config);
   if (kept.length >= config.totalRounds) throw Error('作り直す節がありません。');
   const restCounts={}, courtHistory={}, opponents={}, rounds=kept.slice();
@@ -181,6 +272,11 @@ function buildSession(config, kept=[]) {
     if (r.courts!==config.courts || r.players.length!==config.players.length || !r.players.every(p=>config.players.includes(p))) break;
     segmentStart--;
   }
+  // Saved schedules from earlier versions may not follow this decomposition.
+  const useCycle=segmentStart===0 && !Object.values(config.forced).some(ids=>ids.length) && kept.every(r=>{
+    const expected=cycleMatches(config.players,config.courts,r.round-1,config.restOrder);
+    return expected && expected.map(pair=>key(...pair)).sort().join(',')===r.matches.map(pair=>key(...pair)).sort().join(',');
+  });
   for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
     const restSize=config.players.length-config.courts*2;
     const forced=config.forced[rn] || [];
@@ -190,9 +286,13 @@ function buildSession(config, kept=[]) {
     const available=config.players.filter(p => !forced.includes(p)).sort((a,b) =>
       (restCounts[a] || 0)-(restCounts[b] || 0) || Number(previousRest.has(a))-Number(previousRest.has(b)) ||
       (rn===1 ? (config.restOrder==='desc' ? b-a : a-b) : rank.get(a)-rank.get(b)));
-    const rest=forced.concat(available.slice(0,restSize-forced.length)).sort((a,b)=>a-b);
+    const cycle=useCycle ?
+      cycleMatches(config.players,config.courts,rn-1,config.restOrder) : null;
+    const rest=(cycle ? config.players.filter(p=>!cycle.flat().includes(p)) :
+      rn===1 ? forced.concat(available.slice(0,restSize-forced.length)) :
+      chooseRest(config.players,config.courts,forced,restCounts,opponents,previousMatches,previousRest)).sort((a,b)=>a-b);
     const active=config.players.filter(p => !rest.includes(p)).sort((a,b)=>a-b);
-    const planned=restSize===0 ? roundRobin(active,rn-segmentStart-1) : null;
+    const planned=cycle || (restSize===0 && segmentStart>0 ? roundRobin(active,rn-segmentStart-1) : null);
     const matches=bestMatches(active,opponents,courtHistory,previousMatches,rn===1 && config.restOrder==='desc',planned);
     const round={round:rn,players:config.players.slice(),courts:config.courts,rest,matches};
     rounds.push(round); record(round);
