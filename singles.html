@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>シングルス・固定ペア コート割</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: auto; padding: 12px; max-width: 600px; background: #f0f4f8; color: #263c4c; font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', Meiryo, sans-serif; }
+h1 { margin: 0 0 12px; padding: 18px 10px; font-size: 1.3rem; text-align: center; border-radius: 12px; background: linear-gradient(135deg,#d4efdf,#aed6f1); }
+h2 { font-size: 1.1rem; margin: 0 0 12px; }
+p { line-height: 1.7; }
+a { color: #17618c; }
+.panel,.round-card { background: white; border-radius: 12px; margin: 12px 0; padding: 16px; box-shadow: 0 2px 8px #0000000d; }
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.row label { flex: 0 0 90px; font-weight: bold; }
+select,textarea { min-width: 0; width: 100%; padding: 10px; border: 2px solid #aed6f1; border-radius: 8px; background: white; color: #263c4c; font: inherit; }
+textarea { margin-top: 8px; }
+button { cursor: pointer; font: inherit; border: 0; border-radius: 8px; padding: 12px; background: #eaf2f8; color: #245370; }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offset: 3px; }
+.primary { width: 100%; font-weight: bold; color: white; background: linear-gradient(135deg,#218c50,#27ae60); font-size: 1.08rem; }
+.note { background: #eaf2f8; border-radius: 8px; padding: 10px; font-size: .87rem; line-height: 1.6; }
+.muted { font-size: .85rem; color: #536875; line-height: 1.6; }
+#status { color: #98421b; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.actions button { flex: 1 1 130px; }
+.round-card { padding: 0; overflow: hidden; }
+.round-header { display: flex; align-items: center; justify-content: space-between; background: #2c4558; color: white; padding: 10px 14px; }
+.round-header h2 { margin: 0; }
+.round-header button { padding: 6px 10px; background: #ffffff22; color: white; }
+.court-match { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid #ecf0f1; }
+.court-label { background: #2381b7; color: white; border-radius: 6px; padding: 5px 10px; font-weight: bold; }
+.match { flex: 1; display: flex; justify-content: space-evenly; align-items: center; font-size: 1.12rem; font-weight: bold; }
+.vs { color: #748796; font-size: .8rem; font-weight: normal; }
+.rest { padding: 10px 14px; background: #fff1e9; line-height: 1.7; font-size: .9rem; }
+.rest-number { display: inline-block; white-space: nowrap; }
+.chips { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 12px 0; }
+.chips label { padding: 8px 2px; border-radius: 6px; background: #eaf2f8; text-align: center; }
+.chips input { accent-color: #218c50; }
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; font-size: .87rem; }
+.stats div { padding: 8px; border-radius: 6px; background: #f0f4f8; text-align: center; }
+.stats strong,.stats span { display: block; white-space: nowrap; line-height: 1.6; }
+summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
+.change-note { border-left: 4px solid #ed9e28; padding: 8px 12px; margin: 16px 0 8px; background: #fff6df; }
+[hidden] { display: none !important; }
+@media print { body { max-width: none; background: white; } #setup,.actions,#changePanel,nav,#status,.round-header button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
+</style>
+</head>
+<body>
+<h1>🏸 シングルス・固定ペア<br>コート割</h1>
+<nav><a href="index.html">通常のダブルス版へ</a></nav>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="setup" class="panel">
+  <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
+  <div class="row"><label for="courtCount">コート数</label><select id="courtCount"><option value="1">1コート</option><option value="2">2コート</option><option value="3">3コート</option><option value="4" selected>4コート</option></select></div>
+  <div class="row"><label for="playerCount" id="countLabel">参加人数</label><select id="playerCount"></select></div>
+  <div class="row"><label for="roundCount">節数</label><select id="roundCount"><option>10</option><option>15</option><option>20</option><option>25</option><option>30</option></select></div>
+  <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
+  <p class="note" id="infoBox"></p>
+  <details><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
+  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
+  <button class="primary" id="generateBtn">コート割を作成</button>
+</section>
+<section id="summary" class="panel" hidden></section>
+<section id="changePanel" class="panel" hidden>
+  <details><summary>途中で参加番号・コート数を変更</summary>
+    <p class="muted">終了した節を残して、それ以降を作り直します。参加する番号にチェックしてください。固定ペアではペア単位で変更します。</p>
+    <div class="row"><label for="consumedRound">終了した節</label><select id="consumedRound"></select></div>
+    <div class="chips" id="memberChips"></div>
+    <div class="row"><label for="changeCourts">コート数</label><select id="changeCourts"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+    <p class="muted">休み指定は作成時の設定を引き継ぎます。途中参加・復帰のある場合、休み回数は参加していた期間で集計します。</p>
+    <button class="primary" id="changeBtn">残りの節を作り直す</button>
+  </details>
+</section>
+<div id="results"></div>
+<script>
+'use strict';
+const STORAGE_KEY = 'badminton-singles-pairs-session-v1';
+const SHARE_PREFIX = '#sp1=';
+const COURTS = ['A','B','C','D'];
+const ROUND_OPTIONS = [10,15,20,25,30];
+let session = null;
+let viewerMode = false;
+const $ = id => document.getElementById(id);
+const unit = mode => mode === 'pairs' ? 'ペア' : '人';
+const label = (p, mode) => `${p}番${mode === 'pairs' ? 'ペア' : ''}`;
+const key = (a,b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+const sequence = n => Array.from({length:n}, (_,i) => i+1);
+const isInt = (n,min,max) => Number.isInteger(n) && n >= min && n <= max;
+function validPlayers(players) {
+  return Array.isArray(players) && players.length >= 2 && players.length <= 12 && players.every(p => isInt(p,1,12)) && new Set(players).size === players.length;
+}
+function checkConfig(c) {
+  if (!c || !['singles','pairs'].includes(c.mode) || !validPlayers(c.players) || !isInt(c.courts,1,4) || c.players.length < c.courts*2 || !ROUND_OPTIONS.includes(c.totalRounds) || !['asc','desc'].includes(c.restOrder)) throw Error('人数・ペア数は2〜12、コート数は1〜4で、1コートにつき2番号が必要です。');
+  if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
+  for (const [rn, ids] of Object.entries(c.forced)) {
+    if (!/^[1-9]\d*$/.test(rn) || !isInt(Number(rn),1,c.totalRounds) || !Array.isArray(ids) || ids.length > 12 || ids.some(p => !isInt(p,1,12)) || new Set(ids).size !== ids.length) throw Error('休み指定の節番号・参加番号を確認してください。');
+  }
+}
+function parseForced(text) {
+  const forced = {};
+  for (const line of text.split(/\r?\n/).filter(s => s.trim())) {
+    const normalized = line.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/：/g,':').replace(/[、，]/g,',');
+    const m = normalized.match(/^\s*(\d+)\s*:\s*(\d+(?:\s*,\s*\d+)*)\s*$/);
+    if (!m) throw Error('休み指定は「3: 2,5」の形式で入力してください。');
+    const rn = Number(m[1]);
+    forced[rn] = [...new Set([...(forced[rn] || []), ...m[2].split(',').map(Number)])];
+  }
+  return forced;
+}
+function shuffled(list) {
+  const out = list.slice();
+  for (let i=out.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [out[i],out[j]]=[out[j],out[i]]; }
+  return out;
+}
+// At most eight active numbers: enumerate all 105 matchings and 24 court orders.
+function bestMatches(active, opponents, courtHistory, previous, fixed, planned) {
+  if (fixed) return Array.from({length:active.length/2}, (_,i) => active.slice(i*2,i*2+2));
+  let best = Infinity, candidates = [];
+  function match(rest, pairs, score) {
+    if (!rest.length) {
+      if (score < best) { best=score; candidates=[]; }
+      if (score === best) candidates.push(pairs);
+      return;
+    }
+    const a=rest[0];
+    for (let i=1;i<rest.length;i++) {
+      const b=rest[i], k=key(a,b), count=opponents[k] || 0;
+      const cost=100*(count+1)**2 + (previous.has(k) ? 1 : 0);
+      match(rest.slice(1,i).concat(rest.slice(i+1)), pairs.concat([[a,b]]), score+cost);
+    }
+  }
+  if (planned) candidates=[planned];
+  else match(active,[],0);
+  let courtBest=Infinity, result;
+  function order(rest, pairs, score) {
+    if (!rest.length) { if (score < courtBest) { courtBest=score; result=pairs; } return; }
+    for (let i=0;i<rest.length;i++) {
+      const pair=rest[i], ci=pairs.length;
+      const cost=pair.reduce((sum,p) => sum+((courtHistory[p]?.[ci] || 0)+1)**2,0);
+      order(rest.slice(0,i).concat(rest.slice(i+1)),pairs.concat([pair]),score+cost);
+    }
+  }
+  for (const pairs of shuffled(candidates)) order(shuffled(pairs),[],0);
+  return result;
+}
+function roundRobin(players, offset) {
+  const sorted=players.slice().sort((a,b)=>a-b);
+  const ring=sorted.filter((_,i)=>i%2===0).concat(sorted.filter((_,i)=>i%2===1).reverse());
+  for (let i=0;i<offset%(ring.length-1);i++) ring.splice(1,0,ring.pop());
+  return Array.from({length:ring.length/2},(_,i)=>[ring[i],ring[ring.length-1-i]]);
+}
+function buildSession(config, kept=[]) {
+  checkConfig(config);
+  if (kept.length >= config.totalRounds) throw Error('作り直す節がありません。');
+  const restCounts={}, courtHistory={}, opponents={}, rounds=kept.slice();
+  let previousRest=new Set(), previousMatches=new Set();
+  let priorPlayers=[];
+  function preparePlayers(players) {
+    const continuing=players.filter(p=>priorPlayers.includes(p));
+    const base=continuing.length ? Math.min(...continuing.map(p=>restCounts[p] || 0)) : 0;
+    players.forEach(p=>{ if (!priorPlayers.includes(p)) restCounts[p]=base; });
+    priorPlayers=players;
+  }
+  function record(round) {
+    round.rest.forEach(p => restCounts[p]=(restCounts[p] || 0)+1);
+    round.matches.forEach((pair,ci) => {
+      const k=key(...pair); opponents[k]=(opponents[k] || 0)+1;
+      pair.forEach(p => { if (!courtHistory[p]) courtHistory[p]=[0,0,0,0]; courtHistory[p][ci]++; });
+    });
+    previousRest=new Set(round.rest); previousMatches=new Set(round.matches.map(pair => key(...pair)));
+  }
+  // Replay every historical join/return to retain its rest credit on later edits.
+  kept.forEach(round=>{ preparePlayers(round.players); record(round); });
+  preparePlayers(config.players);
+  // Continue the current round-robin segment when only regenerating its future.
+  let segmentStart=kept.length;
+  while (segmentStart>0) {
+    const r=kept[segmentStart-1];
+    if (r.courts!==config.courts || r.players.length!==config.players.length || !r.players.every(p=>config.players.includes(p))) break;
+    segmentStart--;
+  }
+  for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
+    const restSize=config.players.length-config.courts*2;
+    const forced=config.forced[rn] || [];
+    if (forced.some(p => !config.players.includes(p))) throw Error(`第${rn}節の休み指定に参加していない番号があります。`);
+    if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
+    const rank = new Map(shuffled(config.players).map((p,i) => [p,i]));
+    const available=config.players.filter(p => !forced.includes(p)).sort((a,b) =>
+      (restCounts[a] || 0)-(restCounts[b] || 0) || Number(previousRest.has(a))-Number(previousRest.has(b)) ||
+      (rn===1 ? (config.restOrder==='desc' ? b-a : a-b) : rank.get(a)-rank.get(b)));
+    const rest=forced.concat(available.slice(0,restSize-forced.length)).sort((a,b)=>a-b);
+    const active=config.players.filter(p => !rest.includes(p)).sort((a,b)=>a-b);
+    const planned=restSize===0 ? roundRobin(active,rn-segmentStart-1) : null;
+    const matches=bestMatches(active,opponents,courtHistory,previousMatches,rn===1 && config.restOrder==='desc',planned);
+    const round={round:rn,players:config.players.slice(),courts:config.courts,rest,matches};
+    rounds.push(round); record(round);
+  }
+  return {...config,version:1,completedThrough:kept.length,rounds};
+}
+function validSession(s) {
+  try {
+    checkConfig(s);
+    if (s.version!==1 || !Array.isArray(s.rounds) || s.rounds.length!==s.totalRounds) return false;
+    if (s.completedThrough!==undefined && !isInt(s.completedThrough,0,s.totalRounds-1)) return false;
+    for (let i=0;i<s.rounds.length;i++) {
+      const r=s.rounds[i];
+      if (!r || r.round!==i+1 || !validPlayers(r.players) || !isInt(r.courts,1,4) || r.players.length<r.courts*2 || !Array.isArray(r.matches) || r.matches.length!==r.courts || !Array.isArray(r.rest)) return false;
+      if (r.matches.some(m => !Array.isArray(m) || m.length!==2)) return false;
+      const all=r.matches.flat().concat(r.rest);
+      if (all.length!==r.players.length || new Set(all).size!==all.length || all.some(p => !r.players.includes(p))) return false;
+      if ((s.forced[r.round] || []).some(p => !r.rest.includes(p))) return false;
+    }
+    const last=s.rounds.at(-1);
+    return last.courts===s.courts && last.players.length===s.players.length && last.players.every(p => s.players.includes(p));
+  } catch { return false; }
+}
+function encodeShare(s) { return btoa(JSON.stringify(s)); }
+function decodeShare(data) {
+  if (data.length>24000) throw Error('共有リンクが長すぎます。');
+  const s=JSON.parse(atob(data));
+  if (!validSession(s)) throw Error('共有リンクの対戦表が正しくありません。');
+  return s;
+}
+function notify(message) { $('status').textContent=message; }
+function persist() {
+  if (viewerMode) return;
+  try { localStorage.setItem(STORAGE_KEY,JSON.stringify(session)); }
+  catch { notify('対戦表は作成できましたが、このブラウザでは保存できません。画像または共有リンクを保存してください。'); }
+}
+function updateInfo() {
+  const mode=$('mode').value, n=Number($('playerCount').value), courts=Number($('courtCount').value);
+  $('countLabel').textContent=mode==='pairs' ? '参加ペア数' : '参加人数';
+  [...$('playerCount').options].forEach(o => o.textContent=`${o.value}${unit(mode)}`);
+  const explanation=mode==='pairs' ? '1番号＝固定ペア1組。最大12ペア（24名）です。ペアの組み替えは行いません。' : '1番号＝1人。最大12名です。';
+  $('infoBox').textContent=explanation+(n<courts*2 ? ' 選んだコート数では人数・ペア数が不足しています。' : ` 毎節${courts*2}${unit(mode)}が対戦し、${n-courts*2}${unit(mode)}が休みます。`);
+  $('generateBtn').disabled=n<courts*2;
+}
+function inputConfig() {
+  return {mode:$('mode').value,players:sequence(Number($('playerCount').value)),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value,forced:parseForced($('forcedRests').value)};
+}
+function generate() {
+  try {
+    const config=inputConfig();
+    checkConfig(config);
+    if (session && !confirm('表示中の対戦表を作り直しますか？')) return;
+    const next=buildSession(config);
+    session=next; notify('対戦表を作成しました。'); persist(); render();
+  } catch(e) { notify(e.message); }
+}
+function applyChange() {
+  try {
+    const consumed=Number($('consumedRound').value);
+    if (!isInt(consumed,1,session.totalRounds-1)) throw Error('終了した節を選んでください。');
+    const players=[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value));
+    const next=buildSession({...session,players,courts:Number($('changeCourts').value)},session.rounds.slice(0,consumed));
+    if (!confirm(`第${consumed+1}節以降を作り直しますか？`)) return;
+    session=next; notify(`第${consumed}節までを残して更新しました。`); persist(); render();
+  } catch(e) { notify(e.message); }
+}
+function speechText(r) {
+  return `第${r.round}節。`+r.matches.map((m,i)=>`${COURTS[i]}コート、${label(m[0],session.mode)} 対 ${label(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>label(p,session.mode)).join('、') : 'なし'}。`;
+}
+function speak(r) {
+  if (!('speechSynthesis' in window)) { notify('このブラウザは読み上げに対応していません。'); return; }
+  speechSynthesis.cancel(); const utterance=new SpeechSynthesisUtterance(speechText(r)); utterance.lang='ja-JP'; speechSynthesis.speak(utterance);
+}
+async function shareLink() {
+  if (!['https:','http:'].includes(location.protocol)) { notify('共有リンクはWeb公開したページで利用できます。今は画像保存を利用してください。'); return; }
+  const url=new URL(location.href); url.hash=SHARE_PREFIX+encodeShare(session);
+  try {
+    if (navigator.share) { await navigator.share({title:'シングルス・固定ペア コート割',url:url.href}); return; }
+    await navigator.clipboard.writeText(url.href); notify('共有リンクをコピーしました。');
+  } catch(e) { if (e.name!=='AbortError') prompt('共有リンクをコピーしてください。',url.href); }
+}
+function makeImage(start) {
+  const rounds=session.rounds.slice(start,start+10), canvas=document.createElement('canvas');
+  const height=110+rounds.reduce((n,r)=>n+72+r.courts*46,0);
+  canvas.width=800; canvas.height=height;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
+  ctx.fillStyle='#263c4c'; ctx.font='bold 25px sans-serif';
+  ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
+  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'} ／ * は指定休み`,24,72);
+  let y=100;
+  for (const r of rounds) {
+    ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
+    for (let i=0;i<r.matches.length;i++) {
+      ctx.fillStyle='white'; ctx.fillRect(16,y,768,46); ctx.fillStyle='#263c4c'; ctx.font='22px sans-serif';
+      ctx.fillText(`${COURTS[i]}コート`,30,y+31); ctx.fillText(`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,240,y+31); y+=46;
+    }
+    ctx.fillStyle='#fff1e9'; ctx.fillRect(16,y,768,30); ctx.fillStyle='#804321'; ctx.font='18px sans-serif';
+    ctx.fillText('休み：'+(r.rest.map(p=>p+((session.forced[r.round] || []).includes(p) ? '*' : '')).join('・') || 'なし'),30,y+22); y+=36;
+  }
+  return canvas;
+}
+function saveImage(start) {
+  const a=document.createElement('a'); a.href=makeImage(start).toDataURL('image/png'); a.download=`${session.mode}-court-${start+1}-${Math.min(start+10,session.totalRounds)}.png`; a.click();
+}
+function clearSession() {
+  if (!confirm('保存した対戦表を消して最初から始めますか？')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch { notify('保存データを消去できませんでした。'); return; }
+  session=null; render(); notify('保存した対戦表を消去しました。');
+}
+function button(text, handler) { const b=document.createElement('button'); b.textContent=text; b.onclick=handler; return b; }
+function render() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  $('results').replaceChildren(); $('summary').replaceChildren();
+  $('summary').hidden=!session; $('changePanel').hidden=!session || viewerMode; $('setup').hidden=viewerMode;
+  if (!session) return;
+  const title=document.createElement('h2');
+  title.textContent=`${session.mode==='pairs' ? '固定ペア番号' : 'シングルス'} ／ ${session.totalRounds}節${viewerMode ? '（閲覧用）' : ''}`;
+  $('summary').append(title);
+  const description=document.createElement('p'); description.className='muted';
+  description.textContent=`1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}。表示中の表は作成時の設定です。* は指定休み。途中変更がある場合、各番号の参加期間内で集計します。`;
+  $('summary').append(description);
+  const stats=document.createElement('div'); stats.className='stats';
+  const ids=[...new Set(session.rounds.flatMap(r=>r.players))].sort((a,b)=>a-b);
+  for (const p of ids) {
+    const rest=session.rounds.filter(r=>r.rest.includes(p)).length;
+    const played=session.rounds.filter(r=>r.matches.flat().includes(p)).length;
+    const cell=document.createElement('div'), name=document.createElement('strong'), playedText=document.createElement('span'), restText=document.createElement('span');
+    name.textContent=label(p,session.mode); playedText.textContent=`出場 ${played}回`; restText.textContent=`休み ${rest}回`; cell.append(name,playedText,restText); stats.append(cell);
+  }
+  $('summary').append(stats);
+  const actions=document.createElement('div'); actions.className='actions';
+  actions.append(button('対戦表のリンクを共有',shareLink));
+  for (let start=0;start<session.totalRounds;start+=10) actions.append(button(`画像保存 ${start+1}〜${Math.min(start+10,session.totalRounds)}節`,()=>saveImage(start)));
+  actions.append(button('印刷',()=>window.print()));
+  if (!viewerMode) actions.append(button('消去して最初から',clearSession));
+  else actions.append(button('自分の対戦表を作る',()=>{ location.hash=''; location.reload(); }));
+  $('summary').append(actions);
+  if (!viewerMode) {
+    $('consumedRound').replaceChildren(...sequence(session.totalRounds-1).map(n=>new Option(`第${n}節まで`,n)));
+    // Older saved tables have no completedThrough; use their latest change boundary.
+    const lastChange=session.rounds.reduce((last,r,i)=>i>0 && (r.courts!==session.rounds[i-1].courts || r.players.join(',')!==session.rounds[i-1].players.join(',')) ? i : last,0);
+    $('consumedRound').value=String(Math.max(1,session.completedThrough ?? lastChange));
+    $('changeCourts').value=String(session.courts);
+    $('memberChips').replaceChildren();
+    for (const p of sequence(12)) {
+      const l=document.createElement('label'), input=document.createElement('input'); input.type='checkbox'; input.value=p; input.checked=session.players.includes(p); l.append(input,`${p}番`); $('memberChips').append(l);
+    }
+  }
+  let previous=null;
+  for (const r of session.rounds) {
+    if (previous && (previous.courts!==r.courts || previous.players.join(',')!==r.players.join(','))) {
+      const note=document.createElement('p'); note.className='change-note'; note.textContent=`第${r.round}節から ${r.courts}コート・参加番号 ${r.players.join('、')}`; $('results').append(note);
+    }
+    const card=document.createElement('section'); card.className='round-card';
+    const header=document.createElement('div'); header.className='round-header';
+    const heading=document.createElement('h2'); heading.textContent=`第${r.round}節`; header.append(heading,button('🔊 読み上げ',()=>speak(r))); card.append(header);
+    r.matches.forEach((m,i)=>{
+      const row=document.createElement('div'); row.className='court-match';
+      // All interpolated values are validated numbers or fixed labels.
+      row.innerHTML=`<span class="court-label">${COURTS[i]}</span><div class="match"><span>${label(m[0],session.mode)}</span><span class="vs">vs</span><span>${label(m[1],session.mode)}</span></div>`; card.append(row);
+    });
+    const rest=document.createElement('div'); rest.className='rest';
+    rest.textContent='休み：';
+    if (!r.rest.length) rest.append('なし');
+    r.rest.forEach((p,i)=>{
+      if (i) rest.append('・');
+      const number=document.createElement('span'); number.className='rest-number'; number.textContent=label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : ''); rest.append(number);
+    });
+    card.append(rest); $('results').append(card); previous=r;
+  }
+}
+function restoreInputs() {
+  $('mode').value=session.mode; $('courtCount').value=String(session.courts); $('playerCount').value=String(session.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
+  $('forcedRests').value=Object.entries(session.forced).map(([rn,ids])=>`${rn}: ${ids.join(',')}`).join('\n'); updateInfo();
+}
+function init() {
+  window.addEventListener('hashchange',()=>location.reload());
+  $('playerCount').replaceChildren(...sequence(12).slice(1).map(n=>new Option(`${n}人`,n))); $('playerCount').value='12';
+  ['mode','courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));
+  $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; updateInfo();
+  if (location.hash) {
+    viewerMode=true; $('setup').hidden=true;
+    try {
+      if (!location.hash.startsWith(SHARE_PREFIX)) throw Error('このページでは読み込めない共有リンクです。');
+      session=decodeShare(location.hash.slice(SHARE_PREFIX.length)); notify('共有された対戦表です。'); render();
+    } catch(e) { notify(e.message); $('status').append(document.createTextNode(' ')); const a=document.createElement('a'); a.href=location.pathname+location.search; a.textContent='自分の対戦表に戻る'; $('status').append(a); }
+    return;
+  }
+  try {
+    const saved=localStorage.getItem(STORAGE_KEY);
+    if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); render(); notify('前回保存した対戦表を復元しました。'); }
+  } catch { notify('前回のデータを復元できませんでした。新しい対戦表を作成できます。'); }
+}
+// Startup is kept separate so Node tests exercise the exact production functions.
+init();
+</script>
+</body>
+</html>
