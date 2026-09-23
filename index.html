@@ -688,6 +688,8 @@ function clearSavedSession() {
   lastRounds = null;
   restoredAt = null;
   document.getElementById('results').replaceChildren();
+  // 「表示中のコート割に反映するには…」の注意書きを消す（表が無くなったので）
+  updateForcedRestNote();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -740,15 +742,20 @@ function restoreSession() {
   TOTAL_ROUNDS = s.totalRounds;
   restoredAt = data.savedAt || null;
 
-  // 入力欄も復元したセッションに合わせる（次回再生成時の初期値として自然に）
+  // 入力欄は「作成したときの設定」に戻す（再読み込みしない画面と同じ状態）。
+  // 途中変更後の人数・コート数に合わせていたため、番号のみモードで離脱者がいると
+  // 在籍中の大きい番号への休み指定が「今は対象外」と誤表示されていた（2026-09-23修正）
+  const laterAdded = new Set(s.changes.flatMap(c => c.added));
+  const initialCount = s.everPlayers.filter(p => !laterAdded.has(p)).length;
+  const initialCourts = s.initialCourts || s.courts;
   const courtSel = document.getElementById('courtCount');
-  if (courtSel.querySelector(`option[value="${s.courts}"]`)) {
-    courtSel.value = s.courts;
+  if (courtSel.querySelector(`option[value="${initialCourts}"]`)) {
+    courtSel.value = initialCourts;
     courtSel.dispatchEvent(new Event('change')); // 人数の選択肢を再構築
   }
   const playerSel = document.getElementById('playerCount');
-  if (playerSel.querySelector(`option[value="${s.players.length}"]`)) {
-    playerSel.value = s.players.length;
+  if (playerSel.querySelector(`option[value="${initialCount}"]`)) {
+    playerSel.value = initialCount;
     updateInfo();
   }
   const roundSel = document.getElementById('roundCount');
@@ -1540,7 +1547,8 @@ function strideLinearOrder(N, cycle, restCount) {
 // forcedByIndex: 指定休み { 0始まりの節index: [番号,…] }。その節で必ず休ませる人。
 //   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
 //   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex) {
+// roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
@@ -1561,6 +1569,73 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
 
   const restSchedule = [];
   let prevSet = new Set(prevResting || []);
+
+  // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
+  const forcedAt = rIdx => {
+    const forcedHere = [];
+    const forcedSet = new Set();
+    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
+      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
+        forcedSet.add(p);
+        forcedHere.push(p);
+      }
+    }
+    return { forcedHere, forcedSet };
+  };
+  // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）
+  const nearForcedAt = rIdx => new Set([
+    ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
+    ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
+  ]);
+
+  // 休みが参加人数の半分以上のときは「出場する順番」で回す（2026-09-23）。
+  // 休む順のストライドは休み人数ぶんの組を作れず毎周同じ番号順に戻るため、
+  // 出場する顔ぶれが固定されていた（例: 2コート24人で1〜8・9〜16・17〜24番がずっと同じ組）。
+  // 休み回数が多い人から出場させるのは、少ない人から休ませるのと同じなので公平性は変わらない。
+  // 1周目は番号順（最後の番号から休む＝小さい番号から出場）、2周目以降は周ごとに並びを入れ替える
+  if (restCount * 2 >= M) {
+    const playCount = M - restCount;
+    const playRankCache = {};
+    const playRank = cycle => {
+      if (!playRankCache[cycle]) {
+        // 並び位置（1=最初に休む）を逆にしたものが出場順。2周目以降は周ごとに決まった乱数列で並べ替える
+        const pos = Array.from({length: M}, (_, i) => M - i);
+        if (cycle > 1) {
+          let seed = (cycle * 7919 + M * 131 + playCount) >>> 0;
+          const rand = () => {
+            seed = (seed + 0x6D2B79F5) >>> 0;
+            let t = seed;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+          for (let i = pos.length - 1; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            [pos[i], pos[j]] = [pos[j], pos[i]];
+          }
+        }
+        playRankCache[cycle] = new Map(pos.map((p, i) => [playerAt(p), i]));
+      }
+      return playRankCache[cycle];
+    };
+    for (let rIdx = 0; rIdx < numRounds; rIdx++) {
+      const { forcedSet } = forcedAt(rIdx);
+      const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
+      const rank = playRank(cycle);
+      const nearForced = nearForcedAt(rIdx);
+      // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
+      const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const playing = new Set(allPlayers
+        .filter(p => !forcedSet.has(p))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || rank.get(a) - rank.get(b))
+        .slice(0, playCount));
+      const picks = allPlayers.filter(p => !playing.has(p));
+      picks.forEach(p => restCounts[p]++);
+      restSchedule.push(picks.sort((a, b) => a - b));
+    }
+    return restSchedule;
+  }
+
   const linearOrderCache = {};
   const getLinearOrder = (cycle) => {
     if (!linearOrderCache[cycle]) {
@@ -1571,15 +1646,7 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
 
   while (restSchedule.length < numRounds) {
     const rIdx = restSchedule.length;
-    // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
-    const forcedHere = [];
-    const forcedSet = new Set();
-    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
-      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
-        forcedSet.add(p);
-        forcedHere.push(p);
-      }
-    }
+    const { forcedHere, forcedSet } = forcedAt(rIdx);
     const need = restCount - forcedHere.length;
 
     let picks;
@@ -1614,10 +1681,7 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
       // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）。
       // あくまで同じ休み回数グループ内の並び替えなので公平性は変わらず、
       // 指定が無いときは常に0＝従来とまったく同じ並びになる
-      const nearForced = new Set([
-        ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
-        ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
-      ]);
+      const nearForced = nearForcedAt(rIdx);
       const softWeight = p => deferWeight(p) + (nearForced.has(p) ? 1 : 0);
 
       const orderedA = poolA.slice().sort((a, b) => {
@@ -1631,8 +1695,11 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
 
       let selected;
       if (orderedA.length >= need) {
-        // ストライド順を厳守（連続休み回避はpoolBの軟制約のみ）
-        selected = orderedA.slice(0, need);
+        // ストライド順を守りつつ、直前の節に休んだ人は同じ回数の中で後ろへ回す（2026-09-23）。
+        // 周の切り替わりで、新しい周の先頭に直前の休みの人が来て2節続けて休むのを防ぐ。
+        // 1周目は全員が未休みなので影響せず、番号順のまま
+        const fresh = orderedA.filter(p => !prevSet.has(p));
+        selected = fresh.concat(orderedA.filter(p => prevSet.has(p))).slice(0, need);
       } else {
         const shortfall = need - orderedA.length;
         const cycleB = curMin + 2;
@@ -1816,7 +1883,9 @@ function balanceCourtsSameType(assignments, courtHistory, genders) {
 
 // --- ペア・対戦割り当て ---
 // genders: 種目別モード時のみ {番号: 'M'|'F'}。省略時は従来どおり性別を考慮しない
-function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders, mixDiff) {
+// courtHistory を渡すと、ペア・対戦の評価が同点の候補の中から、A〜Dコートの登場回数が
+// 偏らない候補を選ぶ（2026-09-23。2コートで同じ人が同じコートに固定されやすかったため）
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders, mixDiff, courtHistory) {
   const candidates = [];
 
   // 複数回試行して候補を集める
@@ -1842,15 +1911,25 @@ function assignCourts(activePlayers, courts, pairHistory, opponentHistory, gende
   // 上位5候補を局所探索で磨き、最良を採用
   candidates.sort((a, b) => a.score - b.score);
   const best = { assignments: null, score: Infinity };
+  const improved = [];
   for (const cand of candidates.slice(0, 5)) {
     const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders, mixDiff);
+    improved.push(r);
     if (r.score < best.score) {
       best.score = r.score;
       best.assignments = r.assignments;
     }
   }
+  if (!courtHistory || !best.assignments) return best.assignments;
 
-  return best.assignments;
+  // 同点の候補（局所探索後の上位＋最初から同点だった候補）をコートの偏りで比べる
+  let bestCourt = courtBalance(best.assignments, courtHistory);
+  for (const c of improved.concat(candidates)) {
+    if (c.score !== best.score || c.assignments === best.assignments) continue;
+    const cb = courtBalance(c.assignments, courtHistory);
+    if (cb.score < bestCourt.score) bestCourt = cb;
+  }
+  return bestCourt.assignments;
 }
 
 // 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
@@ -2009,7 +2088,12 @@ function updateHistories(assignments, pairHistory, opponentHistory) {
 // マッチアップ自体は変更せず、A/B/C/Dの割当順だけを過去登場回数で最適化
 // 二乗ペナルティ：count² の合計を最小化。高頻度コートへの再割当を強く抑制
 function balanceCourts(assignments, courtHistory) {
-  if (!assignments || assignments.length <= 1) return assignments;
+  return courtBalance(assignments, courtHistory).assignments;
+}
+
+// balanceCourts の本体。並べ替えた結果と、その二乗ペナルティの合計を返す
+function courtBalance(assignments, courtHistory) {
+  if (!assignments || assignments.length <= 1) return { assignments, score: 0 };
   const n = assignments.length;
 
   // n! 通りの順列を列挙（最大 4! = 24 通り）
@@ -2041,7 +2125,7 @@ function balanceCourts(assignments, courtHistory) {
     }
   }
 
-  return bestPerm.map(i => assignments[i]);
+  return { assignments: bestPerm.map(i => assignments[i]), score: bestScore };
 }
 
 function updateCourtHistory(assignments, courtHistory) {
@@ -2154,7 +2238,7 @@ function generate() {
         });
       }
     } else {
-      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff);
+      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff, genderMode ? null : courtHistory);
       // 種目別モードはコートの種目が固定（A=男子…）なので、同じ構成のコート同士だけ均す
       assignments = genderMode
         ? balanceCourtsSameType(assignments, courtHistory, genders)
@@ -2333,7 +2417,7 @@ function applyMemberChange() {
   // 休み指定は絶対節番号で持っているので、これから作り直す区間（consumed以降）だけを渡す。
   // 離脱した人の指定は generateRestSchedule 側で在籍チェックにより無視される
   const forcedIdx = forcedByIndexOf(session.forcedRests, consumed);
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers, forcedIdx);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers, forcedIdx, consumed);
 
   // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
   let genders = null;
@@ -2355,7 +2439,7 @@ function applyMemberChange() {
 
     resting.forEach(p => restHistory[p]++);
 
-    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders, mixDiff);
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders, mixDiff, genders ? null : courtHistory);
     assignments = genders
       ? balanceCourtsSameType(assignments, courtHistory, genders)
       : balanceCourts(assignments, courtHistory);

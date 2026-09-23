@@ -4,7 +4,7 @@
   "private": true,
   "description": "バドミントンのダブルス試合のコート割を自動生成するWebアプリ（index.html 単体で動作。本ファイルはテスト実行用）",
   "scripts": {
-    "test": "node test_algorithm.js && node test_audit_regressions.js && node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js",
+    "test": "node test_algorithm.js && node test_audit_regressions.js && node test_rest_rotation.js && node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js",
     "test:singles": "node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js && node test_singles_browser.js",
     "test:browser": "node run_browser_tests.js",
     "test:all": "npm test && node test_calculation_stress.js && node run_browser_tests.js",
