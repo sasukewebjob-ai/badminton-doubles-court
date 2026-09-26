@@ -252,7 +252,7 @@ async function freshPage(browser, init) {
         await waitImg(page);
         const st = await previewState(page);
         check('S4: PCはダウンロードされる（ファイル名も従来どおり）', download.suggestedFilename() === 'singles-court-11-20.png', download.suggestedFilename());
-        check('S4: PCでもプレビューが出る（第11〜20節）', st.loaded && st.text.includes('第11〜20節') && st.width === 800, JSON.stringify(st));
+        check('S4: PCでもプレビューが出る（第11〜20節）', st.loaded && st.text.includes('第11〜20節') && st.width === 1600, JSON.stringify(st));
         check('S4: PCでは長押しの案内を出さない', !st.guide, JSON.stringify(st));
         check('S4: PC ページエラーなし', errors.length === 0, errors.join(' / '));
       }
@@ -321,6 +321,93 @@ async function freshPage(browser, init) {
         check('S4: iPhone ページエラーなし（異常系のあと）', errors.length === 0, errors.join(' / '));
         await context.close();
       }
+    }
+    // ---------- L: 左寄せ・印刷・画像（2026-09-26 ユーザー要望） ----------
+    console.log('[L] 左寄せ・ダブルス版の印刷・シングルス版の画像');
+    {
+      const { page, errors } = await freshPage(browser);
+      // ダブルス版: 画面は「A」のすぐ右から番号が並ぶ
+      await page.goto(indexUrl);
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await page.selectOption('#courtCount', '2');
+      await page.selectOption('#playerCount', '10');
+      await page.click('#generateBtn');
+      const gap = await page.evaluate(() => {
+        const row = document.querySelector('.court-match');
+        const label = row.querySelector('.court-label').getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(row.querySelector('.match-detail'));
+        return range.getBoundingClientRect().left - label.right;
+      });
+      check('L: ダブルス版の画面は「A」のすぐ右に番号が並ぶ（左寄せ）', gap >= 0 && gap < 20, `隙間 ${gap.toFixed(1)}px`);
+      // ダブルス版: 保存画像も左寄せ（対戦の最初の文字が画像幅の2割より左）
+      const drawn = await page.evaluate(() => {
+        const calls = [];
+        const orig = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t, x, y) { calls.push({ t: String(t), x, w: this.canvas.width }); return orig.apply(this, arguments); };
+        saveAsImageImpl(0);
+        CanvasRenderingContext2D.prototype.fillText = orig;
+        const vs = calls.findIndex(c => c.t.trim() === 'VS');
+        return vs >= 3 ? { x: calls[vs - 3].x, w: calls[vs - 3].w } : null;
+      });
+      check('L: ダブルス版の保存画像も左寄せ', drawn && drawn.x < drawn.w * 0.2, JSON.stringify(drawn));
+      // ダブルス版の印刷: ボタン・入力欄・メンバー変更を隠し、節のカードは切らない
+      await page.emulateMedia({ media: 'print' });
+      const print = await page.evaluate(() => {
+        const shown = sel => { const e = document.querySelector(sel); return !!e && getComputedStyle(e).display !== 'none'; };
+        const card = getComputedStyle(document.querySelector('.round-card'));
+        return {
+          input: shown('.input-section'), save: shown('.btn-save'), share: shown('.btn-share'), change: shown('.change-section'),
+          speak: shown('.btn-speak'), card: shown('.round-card'), stats: shown('.stats-section'), breakInside: card.breakInside,
+        };
+      });
+      check('L: 印刷では入力欄・保存/共有ボタン・メンバー変更・読み上げボタンを隠す',
+        !print.input && !print.save && !print.share && !print.change && !print.speak, JSON.stringify(print));
+      check('L: 印刷では対戦表と休み回数は出て、節のカードをページで切らない', print.card && print.stats && print.breakInside === 'avoid', JSON.stringify(print));
+      await page.emulateMedia({ media: 'screen' });
+      check('L: 画面表示に戻すと入力欄が出る', await page.isVisible('.input-section'));
+
+      // シングルス版: 画面の左寄せ・画像の凡例・解像度
+      await page.goto(singlesUrl);
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await page.selectOption('#courtCount', '2');
+      await page.selectOption('#playerCount', '6');
+      await page.click('#generateBtn');
+      const sgap = await page.evaluate(() => {
+        const row = document.querySelector('.court-match');
+        return row.querySelector('.match span').getBoundingClientRect().left - row.querySelector('.court-label').getBoundingClientRect().right;
+      });
+      check('L: シングルス版の画面も「A」のすぐ右に番号が並ぶ', sgap >= 0 && sgap < 20, `隙間 ${sgap.toFixed(1)}px`);
+      const texts = () => page.evaluate(() => {
+        const calls = [];
+        const orig = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t) { calls.push(String(t)); return orig.apply(this, arguments); };
+        const c = makeImage(0);
+        CanvasRenderingContext2D.prototype.fillText = orig;
+        return { w: c.width, h: c.height, legend: calls.some(t => t.includes('* は指定休み')) };
+      });
+      const noForced = await texts();
+      check('L: 指定休みが無ければ画像に「* は指定休み」を出さない', !noForced.legend, JSON.stringify(noForced));
+      check('L: シングルス版の画像は2倍の解像度（幅1600px）で、iOSの上限内', noForced.w === 1600 && noForced.w * noForced.h <= 15000000, JSON.stringify(noForced));
+      await page.click('#forcedBox summary');
+      await page.fill('#forcedRests', '2: 3');
+      await page.click('#generateBtn');
+      check('L: 指定休みがある画像には「* は指定休み」を出す', (await texts()).legend);
+      await page.fill('#forcedRests', '12: 3');
+      await page.selectOption('#roundCount', '15');
+      await page.click('#generateBtn');
+      const second = await page.evaluate(() => {
+        const calls = [];
+        const orig = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t) { calls.push(String(t)); return orig.apply(this, arguments); };
+        makeImage(0); const first = calls.some(t => t.includes('* は指定休み')); calls.length = 0;
+        makeImage(10); const later = calls.some(t => t.includes('* は指定休み'));
+        CanvasRenderingContext2D.prototype.fillText = orig;
+        return { first, later };
+      });
+      check('L: 指定が第12節だけなら、凡例は第11〜15節の画像だけに出る', !second.first && second.later, JSON.stringify(second));
+      check('L: ページエラーなし', errors.length === 0, errors.join(' / '));
     }
   } finally {
     await browser.close();

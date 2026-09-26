@@ -33,6 +33,8 @@ test('休み順の関数は index.html と singles.html で一字一句同じ', 
     const start = src.indexOf(`function ${name}(`);
     assert.ok(start >= 0, `${name} が見つからない`);
     const end = src.indexOf('\n}\n', start);
+    // 終わりが見つからないと空文字同士の比較になり、中身が違っても合格してしまう
+    assert.ok(end > start + 100, `${name} の終わりが見つからない`);
     return src.slice(start, end + 2);
   };
   const idx = read('index.html'), sg = read('singles.html');

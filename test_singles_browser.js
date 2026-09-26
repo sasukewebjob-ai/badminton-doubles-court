@@ -74,7 +74,7 @@ const http=require('http');
     await page.locator('.round-header button').first().click();
     check((await page.evaluate(()=>window.spoken[0])).includes('番ペア'),'ペア読み上げ');
     const canvas=await page.evaluate(()=>{const c=makeImage(20);return {w:c.width,h:c.height,data:c.toDataURL()};});
-    check(canvas.w===800 && canvas.h<4000 && canvas.data.length>10000,'PNG生成');
+    check(canvas.w===1600 && canvas.h<8000 && canvas.data.length>10000,'PNG生成（2026-09-26から2倍解像度＝幅1600px）');
     const downloadPromise=page.waitForEvent('download'); await page.getByRole('button',{name:'画像保存 21〜30節',exact:true}).click();
     const download=await downloadPromise; check(download.suggestedFilename()==='pairs-court-21-30.png','PNGダウンロード');
     const work=path.join(__dirname,'work','singles-preview'); fs.mkdirSync(work,{recursive:true});

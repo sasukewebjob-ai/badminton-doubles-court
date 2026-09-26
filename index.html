@@ -161,7 +161,7 @@ h1 {
 .ct-o { background: #27ae60; }
 .match-detail {
   flex: 1;
-  text-align: center;
+  text-align: left; /* 「A」のすぐ右に番号・名前を並べる（中央寄せより目で追いやすい。2026-09-26ユーザー要望） */
   font-weight: 500;
 }
 .vs { color: #e74c3c; font-weight: bold; margin: 0 4px; }
@@ -486,6 +486,15 @@ h1 {
   margin: 8px 0 4px;
 }
 .btn-photo:active { transform: scale(0.97); }
+/* 印刷：対戦表と集計だけを出し、ボタン・入力欄・メンバー変更は隠す。節のカードはページの境目で切らない（2026-09-26） */
+@media print {
+  body { max-width: none; padding: 0; background: #fff; }
+  h1 + p, .input-section, .viewer-banner, .restore-banner, .btn-save, .btn-share, .save-hint,
+  #imagePreview, .change-section, .btn-speak { display: none !important; }
+  .round-card, .roster-map, .stats-section, .pair-stats-section { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .stats-table th { position: static; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
 </style>
 </head>
 <body>
@@ -3142,8 +3151,8 @@ function saveAsImageImpl(chunkIndex) {
         let segW = 0;
         for (const s of segs) segW += ctx.measureText(s.t).width;
 
-        // コートラベル右端 〜 カード右端 の中央に配置（名前入りで長ければ縮小）
-        const areaLeft = labelX + labelW + typeW + 6 * SCALE;
+        // コートラベルのすぐ右から左寄せで描く（画面と同じ。名前入りで長ければ縮小。2026-09-26に中央から変更）
+        const areaLeft = labelX + labelW + typeW + 10 * SCALE;
         const areaRight = PAD + cardW - 14 * SCALE;
         if (segW > areaRight - areaLeft) {
           segFont = Math.max(10 * SCALE, segFont * (areaRight - areaLeft) / segW);
@@ -3151,7 +3160,7 @@ function saveAsImageImpl(chunkIndex) {
           segW = 0;
           for (const s of segs) segW += ctx.measureText(s.t).width;
         }
-        let tx = areaLeft + (areaRight - areaLeft - segW) / 2;
+        let tx = areaLeft;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         for (const s of segs) {

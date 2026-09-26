@@ -12,8 +12,10 @@ function test(label, run) {
   try { run(); console.log('OK ' + label); }
   catch (e) { failed++; console.error('FAIL ' + label + ': ' + e.message); }
 }
-const singlesSrc = fs.readFileSync(path.join(__dirname, 'singles.html'), 'utf8');
-const indexSrc = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+// 改行コード（Windowsで名簿スクリプトを実行するとCRLFになる）の違いで誤って失敗しないようにそろえる
+const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\r\n/g, '\n');
+const singlesSrc = read('singles.html');
+const indexSrc = read('index.html');
 const script = singlesSrc.match(/<script>([\s\S]*?)<\/script>/)[1].split('// Startup is kept separate')[0];
 const app = vm.runInNewContext(`${script}
 ;({ buildSession, validSession, parseForced, resolveForcedNames, encodeShare, decodeShare, ROSTER, KANA, SPEECH_KANA,

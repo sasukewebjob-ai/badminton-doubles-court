@@ -31,7 +31,8 @@ button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offse
 .round-header button { padding: 6px 10px; background: #ffffff22; color: white; }
 .court-match { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid #ecf0f1; }
 .court-label { background: #2381b7; color: white; border-radius: 6px; padding: 5px 10px; font-weight: bold; }
-.match { flex: 1; display: flex; justify-content: space-evenly; align-items: center; font-size: 1.12rem; font-weight: bold; }
+/* 「A」のすぐ右に番号・名前を並べる（中央寄せより目で追いやすい。2026-09-26ユーザー要望） */
+.match { flex: 1; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 4px 10px; font-size: 1.12rem; font-weight: bold; }
 .vs { color: #748796; font-size: .8rem; font-weight: normal; }
 .rest { padding: 10px 14px; background: #fff1e9; line-height: 1.7; font-size: .9rem; }
 .rest-number { display: inline-block; white-space: nowrap; }
@@ -841,19 +842,23 @@ function makeImage(start) {
   const measure=canvas.getContext('2d'); measure.font='18px sans-serif';
   const restLines=rounds.map(r=>wrapItems(measure,'休み：',r.rest.length ? r.rest.map(p=>label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : '')) : ['なし'],740,restSeparator()));
   const height=110+rounds.reduce((n,r,i)=>n+72+r.courts*46+(restLines[i].length-1)*24,0);
-  canvas.width=800; canvas.height=height;
-  const ctx=canvas.getContext('2d');
+  // 2倍の解像度で描く（幅1600px。スマホで拡大しても文字がぼやけない）。
+  // iOSのCanvas上限（約1,677万画素）に余裕を持たせ、超えそうなら倍率を下げる
+  const scale=Math.min(2,Math.sqrt(15000000/(800*height)));
+  canvas.width=Math.round(800*scale); canvas.height=Math.round(height*scale);
+  const ctx=canvas.getContext('2d'); ctx.scale(scale,scale);
+  const hasForced=rounds.some(r=>r.rest.some(p=>(session.forced[r.round] || []).includes(p)));
   ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
   ctx.fillStyle='#263c4c'; ctx.font='bold 25px sans-serif';
   ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
-  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'} ／ * は指定休み`,24,72);
+  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}${hasForced ? ' ／ * は指定休み' : ''}`,24,72);
   let y=100;
   rounds.forEach((r,ri)=>{
     ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
     for (let i=0;i<r.matches.length;i++) {
       ctx.fillStyle='white'; ctx.fillRect(16,y,768,46); ctx.fillStyle='#263c4c'; ctx.font='22px sans-serif';
       ctx.fillText(`${COURTS[i]}コート`,30,y+31);
-      fitText(ctx,`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,150,y+31,620,22); y+=46;
+      fitText(ctx,`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,140,y+31,630,22); y+=46;
     }
     const lines=restLines[ri], restH=30+(lines.length-1)*24;
     ctx.fillStyle='#fff1e9'; ctx.fillRect(16,y,768,restH); ctx.fillStyle='#804321'; ctx.font='18px sans-serif';
