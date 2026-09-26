@@ -240,6 +240,13 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
       }
       return playRankCache[cycle];
     };
+    // 休みが半分を超える構成では、周ごとの並べ替えで同じ人が何節も続けて休むことがあった
+    // （例: 2コート26人30節で6節連続。避けられない長さは3節）。避けられない長さ+1節を
+    // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
+    // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
+    const streak = {};
+    allPlayers.forEach(p => streak[p] = prevSet.has(p) ? 1 : 0);
+    const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
     for (let rIdx = 0; rIdx < numRounds; rIdx++) {
       const { forcedSet } = forcedAt(rIdx);
       const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
@@ -247,11 +254,13 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
       const nearForced = nearForcedAt(rIdx);
       // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
       const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const overCap = p => streak[p] > streakCap ? 1 : 0;
       const playing = new Set(allPlayers
         .filter(p => !forcedSet.has(p))
-        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || rank.get(a) - rank.get(b))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || overCap(b) - overCap(a) || rank.get(a) - rank.get(b))
         .slice(0, playCount));
       const picks = allPlayers.filter(p => !playing.has(p));
+      allPlayers.forEach(p => streak[p] = playing.has(p) ? 0 : streak[p] + 1);
       picks.forEach(p => restCounts[p]++);
       restSchedule.push(picks.sort((a, b) => a - b));
     }
@@ -533,9 +542,12 @@ function buildCandidate(config, kept=[]) {
   if (doublesOrder) {
     const seen=new Set(kept.flatMap(r=>r.players)), forcedByIndex={};
     for (let rn=kept.length+1;rn<=config.totalRounds;rn++) if ((config.forced[rn] || []).length) forcedByIndex[rn-kept.length-1]=config.forced[rn];
+    // Earlier late joiners that have not rested yet keep their first rest at the end of the lap; otherwise a
+    // second change (or a plain regeneration) lets the highest number cut to the front right after joining.
+    const lateUnrested=p=>kept.length>0 && !kept[0].players.includes(p) && !kept.some(r=>r.rest.includes(p));
     doublesRest=generateRestSchedule(config.players,restSize,config.totalRounds-kept.length,
       Object.fromEntries(config.players.map(p=>[p,restCounts[p] || 0])),[...previousRest],config.restOrder==='desc',
-      kept.length ? config.players.filter(p=>!seen.has(p)) : null,forcedByIndex,kept.length);
+      kept.length ? config.players.filter(p=>!seen.has(p) || lateUnrested(p)) : null,forcedByIndex,kept.length);
   }
   const joinedAt={};
   kept.forEach((r,i)=>r.players.forEach(p=>{ if (joinedAt[p]===undefined) joinedAt[p]=i; }));
@@ -597,7 +609,7 @@ function validSession(s) {
       if (all.length!==r.players.length || new Set(all).size!==all.length || all.some(p => !r.players.includes(p))) return false;
       if ((s.forced[r.round] || []).some(p => !r.rest.includes(p))) return false;
     }
-    const last=s.rounds.at(-1);
+    const last=s.rounds[s.rounds.length-1]; // not .at(-1): iOS 14.0-15.3 Safari lacks it
     return last.courts===s.courts && last.players.length===s.players.length && last.players.every(p => s.players.includes(p));
   } catch { return false; }
 }
@@ -688,8 +700,10 @@ function saveImage(start) {
 }
 function clearSession() {
   if (!confirm('保存した対戦表を消して最初から始めますか？')) return;
-  try { localStorage.removeItem(STORAGE_KEY); } catch { notify('保存データを消去できませんでした。'); return; }
-  session=null; render(); notify('保存した対戦表を消去しました。');
+  // Storage may be blocked (private mode, site data disabled); the table on screen must still clear.
+  let removed=true;
+  try { localStorage.removeItem(STORAGE_KEY); } catch { removed=false; }
+  session=null; render(); notify(removed ? '保存した対戦表を消去しました。' : '対戦表を消去しました（この端末では保存が使えません）。');
 }
 function button(text, handler) { const b=document.createElement('button'); b.textContent=text; b.onclick=handler; return b; }
 function render() {
@@ -769,13 +783,17 @@ function init() {
   if (location.hash) {
     viewerMode=true; $('setup').hidden=true;
     try {
-      if (!location.hash.startsWith(SHARE_PREFIX)) throw Error('このページでは読み込めない共有リンクです。');
-      session=decodeShare(location.hash.slice(SHARE_PREFIX.length)); notify('共有された対戦表です。'); render();
+      // Some apps percent-encode every "=", including the one in the prefix (#sp1%3D...).
+      const hash=location.hash.replace(/^#sp1%3D/i,SHARE_PREFIX);
+      if (!hash.startsWith(SHARE_PREFIX)) throw Error('このページでは読み込めない共有リンクです。');
+      session=decodeShare(hash.slice(SHARE_PREFIX.length)); notify('共有された対戦表です。'); render();
     } catch(e) { notify(e.message); $('status').append(document.createTextNode(' ')); const a=document.createElement('a'); a.href=location.pathname+location.search; a.textContent='自分の対戦表に戻る'; $('status').append(a); }
     return;
   }
+  // Blocked storage means there is nothing saved, not a failed restore.
+  let saved=null;
+  try { saved=localStorage.getItem(STORAGE_KEY); } catch {}
   try {
-    const saved=localStorage.getItem(STORAGE_KEY);
     if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); render(); notify('前回保存した対戦表を復元しました。'); }
   } catch { notify('前回のデータを復元できませんでした。新しい対戦表を作成できます。'); }
 }

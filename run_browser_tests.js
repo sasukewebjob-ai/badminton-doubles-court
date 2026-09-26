@@ -15,6 +15,7 @@ const TESTS = [
   'test_bugfix.js',
   'test_audit_browser.js',
   'test_forced_note_browser.js',
+  'test_audit_2026_09_26_browser.js',
   'test_26players.js',
   'test_forced_rest.js',
   'test_image.js',

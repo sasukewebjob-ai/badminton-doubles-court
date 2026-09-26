@@ -573,6 +573,11 @@ function escHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// 名簿テーブル（GENDER・KANA等）の引き当て。共有リンクの名前は細工できるので、
+// 「toString」などが Object の組み込みプロパティに当たらないよう自前のキーだけを見る
+function ownValue(table, key) {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
 // 番号の表示名（名簿モードなら「1 田中」、番号のみなら「1番」）
 function pname(p) {
   const nm = session && session.names && session.names[p];
@@ -582,7 +587,7 @@ function pname(p) {
 function genderOfNum(p) {
   if (!session) return null;
   const nm = session.names && session.names[p];
-  if (nm && GENDER[nm]) return GENDER[nm];
+  if (nm && ownValue(GENDER, nm)) return ownValue(GENDER, nm);
   return (session.guestGenders && session.guestGenders[p]) || null;
 }
 // コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す。
@@ -607,7 +612,7 @@ function courtTypeLabel(court, idx, courtCount) {
 // SPEECH_KANA に手動の上書きがあればそちらを優先（実機で聞いて不自然だった人だけ登録）
 function sname(p) {
   const nm = session && session.names && session.names[p];
-  return nm ? (SPEECH_KANA[nm] || KANA[nm] || nm) : p + '番';
+  return nm ? (ownValue(SPEECH_KANA, nm) || ownValue(KANA, nm) || nm) : p + '番';
 }
 // 節の読み上げ文（例:「第3節の対戦を読み上げます！Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
 // 冒頭は漢字かな交じりで渡す：ひらがな＋数字のベタ書き（だい1せつ…）だと形態素解析が効かず
@@ -684,6 +689,7 @@ function saveSession() {
 function clearSavedSession() {
   if (!confirm('保存されたコート割を消去して、最初からやり直しますか？')) return;
   try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  stopSpeech(); // 表を消すので読み上げ中なら止める
   session = null;
   lastRounds = null;
   restoredAt = null;
@@ -766,9 +772,12 @@ function restoreSession() {
   document.getElementById('restOrder').value = s.restOrder === 'desc' ? 'desc' : 'asc';
   document.getElementById('genderMode').value = s.genderMode ? 'on' : 'off';
 
-  // 名簿チップも復元セッションに合わせる（次回再生成時に同じメンバーが初期選択に）
+  // 名簿チップも作成したときのメンバーに戻す（コート数・人数と同じく作成時の設定）。
+  // 現在のメンバーに合わせると、途中変更後は「4コートなのに15人」のように食い違い、
+  // 作成できない・休み指定が「今は対象外」になっていた
   if (s.names) {
-    const activeNames = new Set(s.players.map(p => s.names[p]).filter(Boolean));
+    const initialPlayers = s.everPlayers.filter(p => !laterAdded.has(p));
+    const activeNames = new Set(initialPlayers.map(p => s.names[p]).filter(Boolean));
     document.querySelectorAll('#rosterChips .chip').forEach(b =>
       b.classList.toggle('selected', activeNames.has(b.dataset.name)));
   }
@@ -892,11 +901,13 @@ function validateSharedSession(s) {
 
   // atRound は「変更後の最初の節」。最終節からの変更も有効。
   if (!Array.isArray(s.changes) || s.changes.length > L.maxChanges) return false;
-  let prevAt = 2;
+  // 画面の操作では同じ節に変更が2件できない（次の変更は前の変更より後の節から）。
+  // 同じ節の2件を通すと、変更帯が最初の1件しか表示されず参加・離脱の表示が欠ける
+  let prevAt = 1;
   let courtsAfter = s.initialCourts;
   const added = new Set();
   for (const c of s.changes) {
-    if (!c || !Number.isInteger(c.atRound) || c.atRound < prevAt || c.atRound > s.totalRounds) return false;
+    if (!c || !Number.isInteger(c.atRound) || c.atRound <= prevAt || c.atRound > s.totalRounds) return false;
     prevAt = c.atRound;
     if (!Number.isInteger(c.courts) || c.courts < L.minCourts || c.courts > L.maxCourts) return false;
     for (const list of [c.added, c.removed, c.returned]) {
@@ -1458,12 +1469,14 @@ function forcedRestSetOf(roundNumber) {
   return new Set(list || []);
 }
 
-// 表示中のセッションに指定休みが1件でもあるか（凡例の出し分け用）
+// 表示中の表に * が付く節が1つでもあるか（凡例の出し分け用。保存画像と同じ判定）。
+// 指定があっても、その人が離脱して休みバッジに * が出なければ凡例は出さない
 function hasForcedRests() {
-  const f = session && session.forcedRests;
-  if (!f) return false;
-  for (const rn in f) if (f[rn] && f[rn].length > 0) return true;
-  return false;
+  if (!session || !session.forcedRests) return false;
+  return session.rounds.some(r => {
+    const fs = forcedRestSetOf(r.round);
+    return fs.size > 0 && r.resting.some(p => fs.has(p));
+  });
 }
 
 // 1始まりの節番号 → generateRestSchedule に渡す0始まりindex（offset=消化済み節数）
@@ -1618,6 +1631,13 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
       }
       return playRankCache[cycle];
     };
+    // 休みが半分を超える構成では、周ごとの並べ替えで同じ人が何節も続けて休むことがあった
+    // （例: 2コート26人30節で6節連続。避けられない長さは3節）。避けられない長さ+1節を
+    // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
+    // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
+    const streak = {};
+    allPlayers.forEach(p => streak[p] = prevSet.has(p) ? 1 : 0);
+    const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
     for (let rIdx = 0; rIdx < numRounds; rIdx++) {
       const { forcedSet } = forcedAt(rIdx);
       const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
@@ -1625,11 +1645,13 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
       const nearForced = nearForcedAt(rIdx);
       // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
       const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const overCap = p => streak[p] > streakCap ? 1 : 0;
       const playing = new Set(allPlayers
         .filter(p => !forcedSet.has(p))
-        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || rank.get(a) - rank.get(b))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || overCap(b) - overCap(a) || rank.get(a) - rank.get(b))
         .slice(0, playCount));
       const picks = allPlayers.filter(p => !playing.has(p));
+      allPlayers.forEach(p => streak[p] = playing.has(p) ? 0 : streak[p] + 1);
       picks.forEach(p => restCounts[p]++);
       restSchedule.push(picks.sort((a, b) => a - b));
     }
@@ -2397,6 +2419,14 @@ function applyMemberChange() {
   // 引き上げ、復帰直後に休みが集中しないようにする
   returnNumbers.forEach(p => initialRestCounts[p] = Math.max(creditedRestCounts[p], minCont));
   newNumbers.forEach(p => initialRestCounts[p] = minCont);
+  // 以前の変更で途中参加し、まだ一度も休んでいない人も初休みを周の最後尾に回す。
+  // 今回の追加者だけを渡すと、2回目の変更（何も変えない作り直しを含む）で
+  // 最大番号の前回参加者が休み待ちの先頭に割り込み、参加直後に休んでいた
+  const joinedAtRound = {};
+  session.changes.forEach(c => c.added.forEach(p => joinedAtRound[p] = c.atRound));
+  const notYetRested = continuing.filter(p => joinedAtRound[p] !== undefined &&
+    !kept.some(r => r.round >= joinedAtRound[p] && r.resting.includes(p)));
+  const deferredNew = notYetRested.concat(newNumbers);
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
@@ -2417,7 +2447,7 @@ function applyMemberChange() {
   // 休み指定は絶対節番号で持っているので、これから作り直す区間（consumed以降）だけを渡す。
   // 離脱した人の指定は generateRestSchedule 側で在籍チェックにより無視される
   const forcedIdx = forcedByIndexOf(session.forcedRests, consumed);
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', newNumbers, forcedIdx, consumed);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', deferredNew, forcedIdx, consumed);
 
   // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
   let genders = null;
@@ -3164,7 +3194,14 @@ function saveAsImageImpl(chunkIndex) {
   }
 
   // ダウンロード & プレビュー
+  // 画像を作っている間に作り直し・消去されたら、古い表の画像は出さない
+  // （新しい画面のプレビューに古い表が出て、そのまま保存されるのを防ぐ）
+  const roundsAtStart = lastRounds;
   const finalize = (url, isBlobUrl, blob) => {
+    if (lastRounds !== roundsAtStart) {
+      if (isBlobUrl) URL.revokeObjectURL(url);
+      return;
+    }
     const d = new Date();
     const pad2 = v => String(v).padStart(2, '0');
     const ts = `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
