@@ -150,3 +150,4 @@
 - シングルス版：S1 `#sp1%3D` のリンクを開ける／S2 `.at(-1)` を使わない（iOS 14.0〜15.3）／S3 保存不可の端末でも消去できる・誤案内なし。
 - 回帰テスト：`test_audit_2026_09_26.js`（`npm test`）、`test_audit_2026_09_26_browser.js`（`npm run test:browser`、全15ファイル）。
 - **シングルス版の画像保存をiPhone対応**（同日）：ダブルス版と同じく、プレビュー長押し＋「写真に保存」ボタン、iOSではダウンロードを試みない。
+- **シングルス版に名簿の名前を追加**（同日・ユーザー依頼）：シングルスは作成時にランダム、固定ペアはタップ順に2人ずつペア番号。名前は作成時のみ（途中参加は番号のみ）。休み指定は名前でも書ける。共有リンクは日本語の名前を扱えるよう UTF-8→base64 に変更（従来のリンクも読める）。名簿は `update_members.py` が singles.html にも書き込む。`SPEECH_KANA` は手動で index.html と揃える（`test_singles_names.js` が一致を確認）。テスト：`test_singles_names.js`（`npm test`）、`test_singles_names_browser.js`（ブラウザ16ファイル）。

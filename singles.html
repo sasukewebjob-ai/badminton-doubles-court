@@ -43,6 +43,18 @@ button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offse
 .stats strong,.stats span { display: block; white-space: nowrap; line-height: 1.6; }
 summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .change-note { border-left: 4px solid #ed9e28; padding: 8px 12px; margin: 16px 0 8px; background: #fff6df; }
+.roster-box { margin-bottom: 12px; }
+.roster-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.roster-head button { padding: 6px 12px; font-size: .85rem; }
+.roster-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.roster-chips button { position: relative; min-width: 64px; padding: 10px 12px; border: 2px solid #aed6f1; background: white; color: #263c4c; }
+.roster-chips button.selected { border-color: #218c50; background: #d4efdf; font-weight: bold; }
+.roster-chips .order { display: inline-block; min-width: 1.5em; margin-right: 4px; padding: 0 4px; border-radius: 10px; background: #218c50; color: white; font-size: .78rem; line-height: 1.5em; }
+.pair-preview { margin: 4px 0 0; padding-left: 0; list-style: none; font-size: .9rem; line-height: 1.8; }
+.pair-preview .pending { color: #98421b; }
+.stats .names { white-space: normal; font-weight: bold; }
+.stats .names span { display: inline-block; white-space: nowrap; }
+.chips label { overflow-wrap: anywhere; font-size: .85rem; }
 .image-preview { margin-top: 12px; text-align: center; }
 .image-preview img { max-width: 100%; border: 1px solid #ccd6dd; border-radius: 6px; }
 .image-preview .preview-label { font-weight: bold; margin: 4px 0; }
@@ -59,11 +71,17 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 <section id="setup" class="panel">
   <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
   <div class="row"><label for="courtCount">コート数</label><select id="courtCount"><option value="1">1コート</option><option value="2">2コート</option><option value="3">3コート</option><option value="4" selected>4コート</option></select></div>
-  <div class="row"><label for="playerCount" id="countLabel">参加人数</label><select id="playerCount"></select></div>
+  <div class="roster-box">
+    <div class="roster-head"><strong>参加メンバー（名簿から・任意）</strong><button type="button" id="rosterClear">全解除</button></div>
+    <div class="roster-chips" id="rosterChips"></div>
+    <p class="muted" id="rosterInfo"></p>
+    <ol class="pair-preview" id="pairPreview" hidden></ol>
+  </div>
+  <div class="row" id="playerCountRow"><label for="playerCount" id="countLabel">参加人数</label><select id="playerCount"></select></div>
   <div class="row"><label for="roundCount">節数</label><select id="roundCount"><option>10</option><option>15</option><option>20</option><option>25</option><option>30</option></select></div>
   <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
   <p class="note" id="infoBox"></p>
-  <details id="forcedBox"><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
+  <details id="forcedBox"><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。名簿からメンバーを選んだときは名前でも書けます（例：3: 田中。固定ペアはその人のペアが休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
   <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。休む順番は通常のダブルス版と同じで、1周目は番号順（最後の番号から休む：大きい番号から／1番から休む：1番から）、2周目以降は並びをずらします。毎節の休みが参加番号の半分以上になる構成では、対戦相手が固定されないよう番号順は1周目だけにし、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
   <button class="primary" id="generateBtn">コート割を作成</button>
 </section>
@@ -85,19 +103,63 @@ const STORAGE_KEY = 'badminton-singles-pairs-session-v1';
 const SHARE_PREFIX = '#sp1=';
 const COURTS = ['A','B','C','D'];
 const ROUND_OPTIONS = [10,15,20,25,30];
+// KALIDIAの名簿（原本 バドミントン系/members.txt から update_members.py が自動生成。直接編集しない）
+const ROSTER = [
+  // 男性
+  '大野','上條','唐澤','北原','越野','小林','善志','髙橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
+  // 女性
+  '濱島','内田','春日','黒河内','纐纈','後藤','下平','田中','宮澤真','宮下','依田',
+];
+// 読み上げ用フリガナ（原本から自動生成。対応がない名前は漢字のまま読み上げエンジンに渡す）
+const KANA = {
+  '大野':'おおの','上條':'かみじょう','唐澤':'からさわ','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','髙橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
+  '濱島':'はましま','内田':'うちだ','春日':'かすが','黒河内':'くろごうち','纐纈':'こうけつ','後藤':'ごとう','下平':'しもだいら','田中':'たなか','宮澤真':'みやざわまほ','宮下':'みやした','依田':'よだ',
+};
+// 読み上げ専用の表記上書き（手動管理。index.html の SPEECH_KANA と同じ内容にする。test_singles_names.js が一致を確認）
+const SPEECH_KANA = {
+  'バレ': 'バレ',     // 'ばれ'だと平板で「バレる」のように聞こえる → カタカナで頭高に（2026-08-13）
+  '濱島': 'ハマシマ', // 'はましま'だとスマホで頭の「は」が飲まれ「マシマ」に聞こえる（2026-08-13）
+};
 let session = null;
 let viewerMode = false;
+// 名簿から選んだ順（固定ペアはこの順に2人ずつペアにする）
+let rosterPicks = [];
 const $ = id => document.getElementById(id);
 const unit = mode => mode === 'pairs' ? 'ペア' : '人';
-const label = (p, mode) => `${p}番${mode === 'pairs' ? 'ペア' : ''}`;
+const own = (table, k) => table && Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined;
+// 番号の名前（シングルス: '田中'、固定ペア: ['田中','鈴木']）。名簿を使っていなければ undefined
+const namesOf = p => session ? own(session.names, p) : undefined;
+// 休みの並びの区切り。名前付きの固定ペアは「宮澤輝・濱島」の中の「・」と見分けるため「／」にする
+const restSeparator = () => session && session.mode === 'pairs' && session.names ? ' ／ ' : '・';
+const label = (p, mode) => {
+  const nm = namesOf(p);
+  if (!nm) return `${p}番${mode === 'pairs' ? 'ペア' : ''}`;
+  return `${p} ${Array.isArray(nm) ? nm.join('・') : nm}`;
+};
+// 読み上げ用の呼び名（名前はフリガナ、番号のみなら「5番」「5番ペア」）
+const speechName = nm => own(SPEECH_KANA, nm) || own(KANA, nm) || nm;
+const speechLabel = (p, mode) => {
+  const nm = namesOf(p);
+  if (!nm) return label(p, mode);
+  return Array.isArray(nm) ? nm.map(speechName).join('、') : speechName(nm);
+};
 const key = (a,b) => a < b ? `${a}-${b}` : `${b}-${a}`;
 const sequence = n => Array.from({length:n}, (_,i) => i+1);
 const isInt = (n,min,max) => Number.isInteger(n) && n >= min && n <= max;
 function validPlayers(players) {
   return Array.isArray(players) && players.length >= 2 && players.length <= 12 && players.every(p => isInt(p,1,12)) && new Set(players).size === players.length;
 }
+// 名前は共有リンク経由で細工されうるので形だけでなく長さも見る（表示は textContent のみで innerHTML には入れない）
+function validNames(names, mode) {
+  if (names === undefined) return true;
+  if (!names || typeof names !== 'object' || Array.isArray(names)) return false;
+  const okName = s => typeof s === 'string' && s.trim().length > 0 && s.length <= 20;
+  return Object.entries(names).every(([k, v]) => /^[1-9]\d*$/.test(k) && isInt(Number(k),1,12) &&
+    (mode === 'pairs' ? Array.isArray(v) && v.length === 2 && v.every(okName) : okName(v)));
+}
 function checkConfig(c) {
   if (!c || !['singles','pairs'].includes(c.mode) || !validPlayers(c.players) || !isInt(c.courts,1,4) || c.players.length < c.courts*2 || !ROUND_OPTIONS.includes(c.totalRounds) || !['asc','desc'].includes(c.restOrder)) throw Error('人数・ペア数は2〜12、コート数は1〜4で、1コートにつき2番号が必要です。');
+  if (!validNames(c.names, c.mode)) throw Error('参加メンバーの名前の形式が正しくありません。');
   if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
   for (const [rn, ids] of Object.entries(c.forced)) {
     if (!/^[1-9]\d*$/.test(rn) || !isInt(Number(rn),1,c.totalRounds) || !Array.isArray(ids) || ids.length > 12 || ids.some(p => !isInt(p,1,12)) || new Set(ids).size !== ids.length) throw Error('休み指定の節番号・参加番号を確認してください。');
@@ -112,16 +174,33 @@ function checkForced(config, from=1) {
     if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
   }
 }
+// 休み指定。番号のほか名前でも書ける（名簿から選んだとき。シングルスは番号が作成時に決まるため）。
+// 名前はそのまま文字列で返し、resolveForcedNames で番号に直す
 function parseForced(text) {
   const forced = {};
   for (const line of text.split(/\r?\n/).filter(s => s.trim())) {
     const normalized = line.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/：/g,':').replace(/[、，]/g,',');
-    const m = normalized.match(/^\s*(\d+)\s*:\s*(\d+(?:\s*,\s*\d+)*)\s*$/);
-    if (!m) throw Error('休み指定は「3: 2,5」の形式で入力してください。');
+    const m = normalized.match(/^\s*(\d+)\s*:\s*(.+?)\s*$/);
+    const items = m ? m[2].split(',').map(s => s.trim()) : [];
+    if (!m || items.some(s => !s || (/^[\d.]+$/.test(s) && !/^\d+$/.test(s)))) throw Error('休み指定は「3: 2,5」の形式で入力してください。');
     const rn = Number(m[1]);
-    forced[rn] = [...new Set([...(forced[rn] || []), ...m[2].split(',').map(Number)])];
+    forced[rn] = [...new Set([...(forced[rn] || []), ...items.map(s => /^\d+$/.test(s) ? Number(s) : s)])];
   }
   return forced;
+}
+// 休み指定の名前を番号に直す（固定ペアはその人を含むペアの番号）
+function resolveForcedNames(forced, names, mode) {
+  const out = {};
+  for (const [rn, items] of Object.entries(forced)) {
+    out[rn] = [...new Set(items.map(item => {
+      if (typeof item === 'number') return item;
+      if (!names) throw Error(`休み指定の「${item}」は番号で入力してください（名前で書けるのは名簿からメンバーを選んだときです）。`);
+      const hit = Object.keys(names).find(k => mode === 'pairs' ? names[k].includes(item) : names[k] === item);
+      if (!hit) throw Error(`第${rn}節の休み指定の「${item}」は参加メンバーにいません。`);
+      return Number(hit);
+    }))];
+  }
+  return out;
 }
 function shuffled(list) {
   const out = list.slice();
@@ -618,12 +697,21 @@ function validSession(s) {
     return last.courts===s.courts && last.players.length===s.players.length && last.players.every(p => s.players.includes(p));
   } catch { return false; }
 }
-function encodeShare(s) { return btoa(JSON.stringify(s)); }
+// 名前（日本語）を含むので UTF-8 にしてから base64 にする（btoa は日本語をそのまま扱えない）。
+// 名前の無い従来のリンクは ASCII だけなので、同じ手順でそのまま読める
+function encodeShare(s) {
+  let bin = '';
+  for (const b of new TextEncoder().encode(JSON.stringify(s))) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+function fromBase64Utf8(data) {
+  return new TextDecoder().decode(Uint8Array.from(atob(data), c => c.charCodeAt(0)));
+}
 function decodeShare(data) {
   if (data.length>24000) throw Error('共有リンクが長すぎます。');
   // Links cut off by mail or chat apps, or with "=" percent-encoded, must not surface browser errors in English.
   let s;
-  try { s=JSON.parse(atob(decodeURIComponent(data))); }
+  try { s=JSON.parse(fromBase64Utf8(decodeURIComponent(data))); }
   catch { throw Error('共有リンクが途中で切れているか、壊れています。共有した人にリンクをもう一度送ってもらってください。'); }
   if (!validSession(s)) throw Error('共有リンクの対戦表が正しくありません。');
   return s;
@@ -634,16 +722,69 @@ function persist() {
   try { localStorage.setItem(STORAGE_KEY,JSON.stringify(session)); }
   catch { notify('対戦表は作成できましたが、このブラウザでは保存できません。画像または共有リンクを保存してください。'); }
 }
+// --- 名簿から選ぶ（シングルス: 番号は作成時にランダム／固定ペア: タップした順に2人ずつ） ---
+const maxPicks = mode => mode === 'pairs' ? 24 : 12;
+function renderRoster() {
+  const mode=$('mode').value, pairs=mode==='pairs';
+  $('rosterChips').replaceChildren(...ROSTER.map(nm => {
+    const b=document.createElement('button'); b.type='button'; b.dataset.name=nm;
+    const i=rosterPicks.indexOf(nm);
+    b.classList.toggle('selected',i>=0); b.setAttribute('aria-pressed',String(i>=0));
+    if (i>=0 && pairs) { const o=document.createElement('span'); o.className='order'; o.textContent=String(Math.floor(i/2)+1); b.append(o); }
+    b.append(nm); b.onclick=()=>toggleRosterPick(nm); return b;
+  }));
+  const n=rosterPicks.length;
+  $('playerCountRow').hidden=n>0;
+  $('rosterInfo').textContent=!n ? '未選択（番号のみで作成します）'
+    : pairs ? `選択中: ${n}人${n%2 ? `（あと1人でペアになります）` : `＝${n/2}ペア`}。タップした順に2人ずつペアになり、その順にペア番号が付きます。`
+    : `選択中: ${n}人。番号は作成時にランダムで決まります。`;
+  const list=$('pairPreview');
+  list.hidden=!(pairs && n);
+  list.replaceChildren();
+  if (pairs) for (let i=0;i<n;i+=2) {
+    const li=document.createElement('li');
+    li.textContent=`${i/2+1}番ペア：${rosterPicks[i]}・${rosterPicks[i+1] || '（あと1人）'}`;
+    if (!rosterPicks[i+1]) li.className='pending';
+    list.append(li);
+  }
+  updateInfo();
+}
+function toggleRosterPick(nm) {
+  const i=rosterPicks.indexOf(nm);
+  if (i>=0) rosterPicks.splice(i,1);
+  else if (rosterPicks.length>=maxPicks($('mode').value)) { notify(`名簿から選べるのは${$('mode').value==='pairs' ? '24人（12ペア）' : '12人'}までです。`); return; }
+  else rosterPicks.push(nm);
+  renderRoster();
+}
+// 名簿から選んでいるときの番号数（固定ペアで人数が奇数なら null＝まだ作れない）
+function rosterCount(mode) {
+  if (!rosterPicks.length) return undefined;
+  return mode==='pairs' ? (rosterPicks.length%2 ? null : rosterPicks.length/2) : rosterPicks.length;
+}
 function updateInfo() {
-  const mode=$('mode').value, n=Number($('playerCount').value), courts=Number($('courtCount').value);
+  const mode=$('mode').value, courts=Number($('courtCount').value), fromRoster=rosterCount(mode);
+  const n=fromRoster===undefined ? Number($('playerCount').value) : fromRoster;
   $('countLabel').textContent=mode==='pairs' ? '参加ペア数' : '参加人数';
   [...$('playerCount').options].forEach(o => o.textContent=`${o.value}${unit(mode)}`);
   const explanation=mode==='pairs' ? '1番号＝固定ペア1組。最大12ペア（24名）です。ペアの組み替えは行いません。' : '1番号＝1人。最大12名です。';
-  $('infoBox').textContent=explanation+(n<courts*2 ? ' 選んだコート数では人数・ペア数が不足しています。' : ` 毎節${courts*2}${unit(mode)}が対戦し、${n-courts*2}${unit(mode)}が休みます。`);
-  $('generateBtn').disabled=n<courts*2;
+  $('infoBox').textContent=explanation+(n===null ? ' ペアは2人ずつ選んでください。'
+    : n<2 ? ' 名簿から2番号以上になるように選んでください。'
+    : n>12 ? ` シングルスは12人までです（${n}人選択中）。`
+    : n<courts*2 ? ' 選んだコート数では人数・ペア数が不足しています。' : ` 毎節${courts*2}${unit(mode)}が対戦し、${n-courts*2}${unit(mode)}が休みます。`);
+  $('generateBtn').disabled=n===null || n<2 || n>12 || n<courts*2;
 }
 function inputConfig() {
-  return {mode:$('mode').value,players:sequence(Number($('playerCount').value)),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value,forced:parseForced($('forcedRests').value)};
+  const mode=$('mode').value, fromRoster=rosterCount(mode);
+  if (fromRoster===null) throw Error('固定ペアは2人ずつ選んでください（あと1人）。');
+  const config={mode,players:sequence(fromRoster===undefined ? Number($('playerCount').value) : fromRoster),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value};
+  if (fromRoster!==undefined) {
+    const names={};
+    if (mode==='pairs') config.players.forEach(p => names[p]=[rosterPicks[2*p-2],rosterPicks[2*p-1]]);
+    else shuffled(rosterPicks).forEach((nm,i) => names[i+1]=nm);
+    config.names=names;
+  }
+  config.forced=resolveForcedNames(parseForced($('forcedRests').value),config.names,mode);
+  return config;
 }
 function generate() {
   try {
@@ -665,7 +806,7 @@ function applyChange() {
   } catch(e) { notify(e.message); }
 }
 function speechText(r) {
-  return `第${r.round}節。`+r.matches.map((m,i)=>`${COURTS[i]}コート、${label(m[0],session.mode)} 対 ${label(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>label(p,session.mode)).join('、') : 'なし'}。`;
+  return `第${r.round}節。`+r.matches.map((m,i)=>`${COURTS[i]}コート、${speechLabel(m[0],session.mode)} 対 ${speechLabel(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>speechLabel(p,session.mode)).join('、') : 'なし'}。`;
 }
 function speak(r) {
   if (!('speechSynthesis' in window)) { notify('このブラウザは読み上げに対応していません。'); return; }
@@ -679,9 +820,27 @@ async function shareLink() {
     await navigator.clipboard.writeText(url.href); notify('共有リンクをコピーしました。');
   } catch(e) { if (e.name!=='AbortError') prompt('共有リンクをコピーしてください。',url.href); }
 }
+// 名前が入ると行が長くなるので、対戦は文字を縮めて1行に収め、休みは幅に合わせて折り返す
+function fitText(ctx, text, x, y, maxWidth, size, weight='') {
+  let px=size;
+  do { ctx.font=`${weight}${px}px sans-serif`; } while (ctx.measureText(text).width>maxWidth && --px>11);
+  ctx.fillText(text,x,y);
+}
+function wrapItems(ctx, head, items, maxWidth, sep) {
+  const lines=[]; let line=head;
+  items.forEach((item,i)=>{
+    const piece=(i ? sep : '')+item;
+    if (i && ctx.measureText(line+piece).width>maxWidth) { lines.push(line); line='　'+item; }
+    else line+=piece;
+  });
+  lines.push(line);
+  return lines;
+}
 function makeImage(start) {
   const rounds=session.rounds.slice(start,start+10), canvas=document.createElement('canvas');
-  const height=110+rounds.reduce((n,r)=>n+72+r.courts*46,0);
+  const measure=canvas.getContext('2d'); measure.font='18px sans-serif';
+  const restLines=rounds.map(r=>wrapItems(measure,'休み：',r.rest.length ? r.rest.map(p=>label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : '')) : ['なし'],740,restSeparator()));
+  const height=110+rounds.reduce((n,r,i)=>n+72+r.courts*46+(restLines[i].length-1)*24,0);
   canvas.width=800; canvas.height=height;
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
@@ -689,15 +848,17 @@ function makeImage(start) {
   ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
   ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'} ／ * は指定休み`,24,72);
   let y=100;
-  for (const r of rounds) {
+  rounds.forEach((r,ri)=>{
     ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
     for (let i=0;i<r.matches.length;i++) {
       ctx.fillStyle='white'; ctx.fillRect(16,y,768,46); ctx.fillStyle='#263c4c'; ctx.font='22px sans-serif';
-      ctx.fillText(`${COURTS[i]}コート`,30,y+31); ctx.fillText(`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,240,y+31); y+=46;
+      ctx.fillText(`${COURTS[i]}コート`,30,y+31);
+      fitText(ctx,`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,150,y+31,620,22); y+=46;
     }
-    ctx.fillStyle='#fff1e9'; ctx.fillRect(16,y,768,30); ctx.fillStyle='#804321'; ctx.font='18px sans-serif';
-    ctx.fillText('休み：'+(r.rest.map(p=>p+((session.forced[r.round] || []).includes(p) ? '*' : '')).join('・') || 'なし'),30,y+22); y+=36;
-  }
+    const lines=restLines[ri], restH=30+(lines.length-1)*24;
+    ctx.fillStyle='#fff1e9'; ctx.fillRect(16,y,768,restH); ctx.fillStyle='#804321'; ctx.font='18px sans-serif';
+    lines.forEach((line,k)=>ctx.fillText(line,30,y+22+k*24)); y+=restH+6;
+  });
   return canvas;
 }
 // iOS Safari ignores <a download> and only asks to open an external app, so iPhone users never got the image.
@@ -784,7 +945,11 @@ function render() {
     const rest=session.rounds.filter(r=>r.rest.includes(p)).length;
     const played=session.rounds.filter(r=>r.matches.flat().includes(p)).length;
     const cell=document.createElement('div'), name=document.createElement('strong'), playedText=document.createElement('span'), restText=document.createElement('span');
-    name.textContent=label(p,session.mode); playedText.textContent=`出場 ${played}回`; restText.textContent=`休み ${rest}回`; cell.append(name,playedText,restText); stats.append(cell);
+    // 名前は番号の下の行に出し、1人の名前の途中では折り返さない（狭い3列でも「濱／島」のように割れない）
+    const nm=namesOf(p);
+    name.textContent=nm ? `${p}番${session.mode==='pairs' ? 'ペア' : ''}` : label(p,session.mode); cell.append(name);
+    if (nm) { const names=document.createElement('span'); names.className='names'; [].concat(nm).forEach((n,i)=>{ if (i) names.append('・'); const e=document.createElement('span'); e.textContent=n; names.append(e); }); cell.append(names); }
+    playedText.textContent=`出場 ${played}回`; restText.textContent=`休み ${rest}回`; cell.append(playedText,restText); stats.append(cell);
   }
   $('summary').append(stats);
   const actions=document.createElement('div'); actions.className='actions';
@@ -803,7 +968,7 @@ function render() {
     $('changeCourts').value=String(session.courts);
     $('memberChips').replaceChildren();
     for (const p of sequence(12)) {
-      const l=document.createElement('label'), input=document.createElement('input'); input.type='checkbox'; input.value=p; input.checked=session.players.includes(p); l.append(input,`${p}番`); $('memberChips').append(l);
+      const l=document.createElement('label'), input=document.createElement('input'); input.type='checkbox'; input.value=p; input.checked=session.players.includes(p); l.append(input,namesOf(p) ? label(p,session.mode) : `${p}番`); $('memberChips').append(l);
     }
   }
   let previous=null;
@@ -815,15 +980,18 @@ function render() {
     const header=document.createElement('div'); header.className='round-header';
     const heading=document.createElement('h2'); heading.textContent=`第${r.round}節`; header.append(heading,button('🔊 読み上げ',()=>speak(r))); card.append(header);
     r.matches.forEach((m,i)=>{
+      // 名前は共有リンクで細工されうるので innerHTML は使わず textContent で入れる
       const row=document.createElement('div'); row.className='court-match';
-      // All interpolated values are validated numbers or fixed labels.
-      row.innerHTML=`<span class="court-label">${COURTS[i]}</span><div class="match"><span>${label(m[0],session.mode)}</span><span class="vs">vs</span><span>${label(m[1],session.mode)}</span></div>`; card.append(row);
+      const span=(cls,text)=>{ const e=document.createElement('span'); if (cls) e.className=cls; e.textContent=text; return e; };
+      const match=document.createElement('div'); match.className='match';
+      match.append(span('',label(m[0],session.mode)),span('vs','vs'),span('',label(m[1],session.mode)));
+      row.append(span('court-label',COURTS[i]),match); card.append(row);
     });
     const rest=document.createElement('div'); rest.className='rest';
     rest.textContent='休み：';
     if (!r.rest.length) rest.append('なし');
     r.rest.forEach((p,i)=>{
-      if (i) rest.append('・');
+      if (i) rest.append(restSeparator());
       const number=document.createElement('span'); number.className='rest-number'; number.textContent=label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : ''); rest.append(number);
     });
     card.append(rest); $('results').append(card); previous=r;
@@ -833,15 +1001,23 @@ function render() {
 function restoreInputs() {
   const first=session.rounds[0];
   $('mode').value=session.mode; $('courtCount').value=String(first.courts); $('playerCount').value=String(first.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
-  $('forcedRests').value=Object.entries(session.forced).map(([rn,ids])=>`${rn}: ${ids.join(',')}`).join('\n'); updateInfo();
+  // 名簿の選択も作成時のメンバーに戻す（固定ペアはペア番号順＝タップ順を再現。名簿から外れた人は戻せない）
+  rosterPicks=session.names ? first.players.flatMap(p => [].concat(own(session.names,p) || [])).filter(nm => ROSTER.includes(nm)) : [];
+  if (session.mode==='pairs' && rosterPicks.length%2) rosterPicks.pop();
+  // シングルスの番号は作り直すたびにランダムで変わるので、休み指定は名前で戻す
+  const forcedItem=p => session.mode==='singles' && typeof own(session.names,p)==='string' ? own(session.names,p) : p;
+  $('forcedRests').value=Object.entries(session.forced).map(([rn,ids])=>`${rn}: ${ids.map(forcedItem).join(',')}`).join('\n');
+  renderRoster();
   // Keep restored imposed rests visible so they are not reused unnoticed.
   $('forcedBox').open=!!$('forcedRests').value;
 }
 function init() {
   window.addEventListener('hashchange',()=>location.reload());
   $('playerCount').replaceChildren(...sequence(12).slice(1).map(n=>new Option(`${n}人`,n))); $('playerCount').value='12';
-  ['mode','courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));
-  $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; updateInfo();
+  ['courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));
+  $('mode').addEventListener('change',renderRoster);
+  $('rosterClear').onclick=()=>{ rosterPicks=[]; renderRoster(); };
+  $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; renderRoster();
   if (location.hash) {
     viewerMode=true; $('setup').hidden=true;
     try {

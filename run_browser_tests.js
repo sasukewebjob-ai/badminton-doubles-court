@@ -7,6 +7,7 @@ const path = require('path');
 const TESTS = [
   'test_singles_browser.js',
   'test_singles_ui_browser.js',
+  'test_singles_names_browser.js',
   'test_persistence.js',
   'test_share.js',
   'test_names.js',
