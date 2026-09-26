@@ -214,6 +214,114 @@ async function freshPage(browser, init) {
       check('S3: 保存が使えないことを案内する', st.includes('保存が使えません'), st);
       check('S3: ページエラーなし', errors.length === 0, errors.join(' / '));
     }
+    // ---------- S4 ----------
+    console.log('[S4] シングルス版: iPhoneで画像を保存できる');
+    {
+      const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+      const setup = async (page, courts = '4', players = '12', rounds = '30') => {
+        await page.goto(singlesUrl);
+        await page.evaluate(() => localStorage.clear());
+        await page.reload();
+        await page.selectOption('#courtCount', courts);
+        await page.selectOption('#playerCount', players);
+        await page.selectOption('#roundCount', rounds);
+        await page.click('#generateBtn');
+      };
+      const previewState = page => page.evaluate(() => {
+        const p = document.getElementById('imagePreview');
+        const img = p && p.querySelector('img');
+        return {
+          text: p ? p.textContent : null,
+          img: !!img, loaded: !!(img && img.complete && img.naturalWidth > 0), width: img ? img.naturalWidth : 0,
+          photo: !!(p && p.querySelector('.photo-button')),
+          guide: !!(p && p.querySelector('.preview-guide')),
+        };
+      });
+      const waitImg = page => page.waitForFunction(() => {
+        const img = document.querySelector('#imagePreview img');
+        return img && img.complete && img.naturalWidth > 0;
+      }, null, { timeout: 20000 });
+
+      // PC: 従来どおりダウンロード＋プレビュー
+      {
+        const { page, errors } = await freshPage(browser);
+        await setup(page);
+        const dl = page.waitForEvent('download');
+        await page.getByRole('button', { name: '画像保存 11〜20節', exact: true }).click();
+        const download = await dl;
+        await waitImg(page);
+        const st = await previewState(page);
+        check('S4: PCはダウンロードされる（ファイル名も従来どおり）', download.suggestedFilename() === 'singles-court-11-20.png', download.suggestedFilename());
+        check('S4: PCでもプレビューが出る（第11〜20節）', st.loaded && st.text.includes('第11〜20節') && st.width === 800, JSON.stringify(st));
+        check('S4: PCでは長押しの案内を出さない', !st.guide, JSON.stringify(st));
+        check('S4: PC ページエラーなし', errors.length === 0, errors.join(' / '));
+      }
+
+      // iPhone: ダウンロードを試みず、プレビュー長押し＋共有シート
+      {
+        const context = await browser.newContext({ viewport: { width: 390, height: 844 }, userAgent: IPHONE_UA, hasTouch: true, isMobile: true });
+        await context.addInitScript(() => {
+          window.__shared = [];
+          navigator.canShare = data => !!(data && data.files && data.files.length);
+          navigator.share = async data => { window.__shared.push(data.files.map(f => `${f.name}:${f.type}:${f.size}`)); };
+        });
+        const page = await context.newPage();
+        const errors = [];
+        let downloads = 0;
+        page.on('pageerror', e => errors.push(e.message));
+        page.on('dialog', d => d.accept());
+        page.on('download', () => downloads++);
+        await setup(page);
+        await page.getByRole('button', { name: '画像保存 1〜10節', exact: true }).click();
+        await waitImg(page);
+        const st = await previewState(page);
+        const status = await page.textContent('#status');
+        check('S4: iPhoneではダウンロード（外部アプリの確認）を起こさない', downloads === 0, `downloads=${downloads}`);
+        check('S4: iPhoneでは画像のプレビューが出る', st.loaded && st.text.includes('第1〜10節'), JSON.stringify(st));
+        check('S4: iPhoneでは長押しの案内と「写真に保存」ボタンが出る', st.guide && st.photo && st.text.includes('"写真"に追加'), JSON.stringify(st));
+        check('S4: 状態表示も長押しを案内する', status.includes('長押し'), status);
+        await page.click('#imagePreview .photo-button');
+        const shared = await page.evaluate(() => window.__shared);
+        check('S4: 「写真に保存」で共有シートにPNGが渡る', shared.length === 1 && /^singles-court-1-10\.png:image\/png:\d+$/.test(shared[0][0]), JSON.stringify(shared));
+        const inView = await page.locator('#imagePreview img').evaluate(img => img.getBoundingClientRect().width <= window.innerWidth);
+        check('S4: プレビューは画面幅に収まる', inView);
+        check('S4: iPhone ページエラーなし', errors.length === 0, errors.join(' / '));
+
+        // 共有できない端末: ボタンは出さず長押しだけ案内
+        await page.evaluate(() => { navigator.canShare = () => false; });
+        await page.getByRole('button', { name: '画像保存 21〜30節', exact: true }).click();
+        await page.waitForFunction(() => document.getElementById('imagePreview').textContent.includes('第21〜30節'));
+        await waitImg(page);
+        const noShare = await previewState(page);
+        check('S4: 共有できない端末はボタンなしで長押しを案内', noShare.loaded && !noShare.photo && noShare.guide, JSON.stringify(noShare));
+
+        // toBlob が null を返す端末: dataURLでプレビュー
+        await page.evaluate(() => { HTMLCanvasElement.prototype.toBlob = function (cb) { setTimeout(() => cb(null), 10); }; });
+        await page.getByRole('button', { name: '画像保存 1〜10節', exact: true }).click();
+        await page.waitForFunction(() => { const img = document.querySelector('#imagePreview img'); return img && img.src.startsWith('data:image/png') && img.naturalWidth > 0; }, null, { timeout: 20000 });
+        check('S4: toBlobがnullでもプレビューが出る', true);
+
+        // 画像を作っている途中に作り直した: 古い表の画像を出さない
+        await page.evaluate(() => { HTMLCanvasElement.prototype.toBlob = function (cb) { const c = this; setTimeout(() => c.toDataURL && cb(null), 1500); }; });
+        await page.getByRole('button', { name: '画像保存 1〜10節', exact: true }).click();
+        await page.click('#changePanel summary');
+        await page.selectOption('#consumedRound', '3');
+        await page.click('#changeBtn');
+        await page.waitForTimeout(2500);
+        const stale = await previewState(page);
+        check('S4: 作成中に作り直したら古い表の画像は出さない', !stale.img, JSON.stringify(stale));
+
+        // toBlob が応答しない端末: 15秒で見切ってプレビュー
+        await page.evaluate(() => { HTMLCanvasElement.prototype.toBlob = function () {}; });
+        const t0 = Date.now();
+        await page.getByRole('button', { name: '画像保存 1〜10節', exact: true }).click();
+        await page.waitForFunction(() => { const img = document.querySelector('#imagePreview img'); return img && img.naturalWidth > 0; }, null, { timeout: 25000 });
+        const sec = (Date.now() - t0) / 1000;
+        check('S4: toBlobが応答しなくても15秒後にプレビューが出る', sec >= 14 && sec < 25, `${sec.toFixed(1)}秒`);
+        check('S4: iPhone ページエラーなし（異常系のあと）', errors.length === 0, errors.join(' / '));
+        await context.close();
+      }
+    }
   } finally {
     await browser.close();
   }

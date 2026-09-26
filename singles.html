@@ -43,8 +43,13 @@ button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offse
 .stats strong,.stats span { display: block; white-space: nowrap; line-height: 1.6; }
 summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .change-note { border-left: 4px solid #ed9e28; padding: 8px 12px; margin: 16px 0 8px; background: #fff6df; }
+.image-preview { margin-top: 12px; text-align: center; }
+.image-preview img { max-width: 100%; border: 1px solid #ccd6dd; border-radius: 6px; }
+.image-preview .preview-label { font-weight: bold; margin: 4px 0; }
+.image-preview .preview-guide { margin: 8px 0; padding: 8px 10px; border: 1.5px solid #7fb6e0; border-radius: 8px; background: #e8f4fd; color: #1a5276; font-size: .87rem; line-height: 1.6; }
+.image-preview .photo-button { width: 100%; margin: 4px 0 8px; font-weight: bold; color: white; background: linear-gradient(135deg,#2381b7,#2e9bd6); }
 [hidden] { display: none !important; }
-@media print { body { max-width: none; background: white; } #setup,.actions,#changePanel,nav,#status,.round-header button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
+@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
 </style>
 </head>
 <body>
@@ -695,8 +700,64 @@ function makeImage(start) {
   }
   return canvas;
 }
+// iOS Safari ignores <a download> and only asks to open an external app, so iPhone users never got the image.
+// Like the doubles page: always show a preview for long-press saving, offer the share sheet when files can be
+// shared, and download directly only outside iOS.
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+}
+let lastImageUrl=null, lastImageFile=null;
 function saveImage(start) {
-  const a=document.createElement('a'); a.href=makeImage(start).toDataURL('image/png'); a.download=`${session.mode}-court-${start+1}-${Math.min(start+10,session.totalRounds)}.png`; a.click();
+  const owner=session, end=Math.min(start+10,session.totalRounds), fileName=`${session.mode}-court-${start+1}-${end}.png`;
+  let canvas;
+  try { canvas=makeImage(start); } catch { notify('画像を作成できませんでした。もう一度お試しください。'); return; }
+  notify('画像を作成しています…');
+  const show=(url,blob) => {
+    // The table was regenerated or cleared while encoding: never show or save the old table.
+    if (session!==owner) { if (blob) URL.revokeObjectURL(url); return; }
+    if (!isIOSDevice()) {
+      const a=document.createElement('a'); a.href=url; a.download=fileName; document.body.append(a);
+      try { a.click(); } catch { /* in-app browsers without downloads still get the preview */ }
+      a.remove();
+    }
+    lastImageFile=null;
+    if (blob && typeof File==='function' && navigator.canShare) {
+      try { const f=new File([blob],fileName,{type:'image/png'}); if (navigator.canShare({files:[f]})) lastImageFile=f; } catch { lastImageFile=null; }
+    }
+    const preview=$('imagePreview');
+    if (preview) {
+      const heading=document.createElement('div'); heading.className='preview-label'; heading.textContent=`画像（第${start+1}〜${end}節）`;
+      preview.replaceChildren(heading);
+      if (lastImageFile) { const b=button('📤 写真に保存 / 共有',sharePhoto); b.className='photo-button'; preview.append(b); }
+      if (isIOSDevice()) {
+        const guide=document.createElement('div'); guide.className='preview-guide';
+        guide.textContent=lastImageFile ? '上のボタン、または下の画像を長押しして「"写真"に追加」で保存できます。' : '下の画像を長押しして「"写真"に追加」で保存してください。';
+        preview.append(guide);
+      }
+      const img=document.createElement('img'); img.src=url; img.alt=`対戦表 第${start+1}〜${end}節`; preview.append(img);
+    }
+    // Keep this URL alive for a later long-press; release only the previous one.
+    if (lastImageUrl) URL.revokeObjectURL(lastImageUrl);
+    lastImageUrl=blob ? url : null;
+    notify(isIOSDevice() ? '画像を作成しました。下の画像を長押しして保存できます。' : '画像を保存しました。下にも表示しています。');
+  };
+  const fallback=() => { try { show(canvas.toDataURL('image/png'),null); } catch { notify('画像を作成できませんでした。もう一度お試しください。'); } };
+  // Some devices never call back from toBlob; give up after 15 seconds and use a data URL instead.
+  let settled=false;
+  const watchdog=setTimeout(() => { if (!settled) { settled=true; fallback(); } },15000);
+  try {
+    canvas.toBlob(blob => {
+      if (settled) return;
+      settled=true; clearTimeout(watchdog);
+      if (blob) { try { show(URL.createObjectURL(blob),blob); } catch { fallback(); } }
+      else fallback();
+    },'image/png');
+  } catch { settled=true; clearTimeout(watchdog); fallback(); }
+}
+async function sharePhoto() {
+  if (!lastImageFile) return;
+  try { await navigator.share({files:[lastImageFile]}); }
+  catch(e) { if (e && e.name!=='AbortError') notify('共有できませんでした。画像を長押しして保存してください。'); }
 }
 function clearSession() {
   if (!confirm('保存した対戦表を消して最初から始めますか？')) return;
@@ -733,6 +794,7 @@ function render() {
   if (!viewerMode) actions.append(button('消去して最初から',clearSession));
   else actions.append(button('自分の対戦表を作る',()=>{ location.hash=''; location.reload(); }));
   $('summary').append(actions);
+  const preview=document.createElement('div'); preview.id='imagePreview'; preview.className='image-preview'; $('summary').append(preview);
   if (!viewerMode) {
     $('consumedRound').replaceChildren(...sequence(session.totalRounds-1).map(n=>new Option(`第${n}節まで`,n)));
     // Older saved tables have no completedThrough; use their latest change boundary.
