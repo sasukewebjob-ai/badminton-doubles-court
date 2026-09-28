@@ -1570,7 +1570,8 @@ function strideLinearOrder(N, cycle, restCount) {
 //   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
 //   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
 // roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset) {
+// initialRestStreaks: 消化済みの最終節まで続いた休みの長さ（番号→連続節数）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset, initialRestStreaks) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
@@ -1645,7 +1646,10 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
     // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
     // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
     const streak = {};
-    allPlayers.forEach(p => streak[p] = prevSet.has(p) ? 1 : 0);
+    // 再生成でも消化済み節からの連続休みを引き継ぐ。直前の1節だけに戻すと、
+    // 2コート20人で第5節後に作り直した際、上限3節を超えて4節連続で休んでいた。
+    allPlayers.forEach(p => streak[p] = prevSet.has(p)
+      ? Math.max(1, (initialRestStreaks && initialRestStreaks[p]) || 0) : 0);
     const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
     for (let rIdx = 0; rIdx < numRounds; rIdx++) {
       const { forcedSet } = forcedAt(rIdx);
@@ -2439,6 +2443,12 @@ function applyMemberChange() {
 
   const restCount = newPlayers.length - newCourts * 4;
   const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
+  const initialRestStreaks = {};
+  for (const p of newPlayers) {
+    let streak = 0;
+    for (let i = kept.length - 1; i >= 0 && kept[i].resting.includes(p); i--) streak++;
+    initialRestStreaks[p] = streak;
+  }
   // コート数や人数が変わって休み枠が減ると、残り区間の指定を全部は反映できないことがある。
   // 黙って一部を捨てると気づけないので、どの節が入り切らないかを見せて確認する
   const overflow = [];
@@ -2456,7 +2466,7 @@ function applyMemberChange() {
   // 休み指定は絶対節番号で持っているので、これから作り直す区間（consumed以降）だけを渡す。
   // 離脱した人の指定は generateRestSchedule 側で在籍チェックにより無視される
   const forcedIdx = forcedByIndexOf(session.forcedRests, consumed);
-  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', deferredNew, forcedIdx, consumed);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', deferredNew, forcedIdx, consumed, initialRestStreaks);
 
   // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
   let genders = null;
@@ -2861,8 +2871,10 @@ function saveAsImage(chunkIndex) {
 let lastImageUrl = null;
 // 共有シート（写真に保存）用に、直近に作った画像を保持する
 let lastImageFile = null;
+let imageRequestId = 0;
 
 function saveAsImageImpl(chunkIndex) {
+  const requestId = ++imageRequestId;
   const chunks = imageChunks(lastRounds.length);
   const chunk = chunks[chunkIndex] || chunks[0];
   const rounds = lastRounds.slice(chunk.from, chunk.to);
@@ -3226,6 +3238,16 @@ function saveAsImageImpl(chunkIndex) {
       document.body.appendChild(a);
       try { a.click(); } catch (e) { /* ダウンロード非対応のアプリ内ブラウザでもプレビューは出す */ }
       document.body.removeChild(a);
+    }
+
+    // 複数枚を続けて保存した場合、古いPNGの処理が後から終わっても最新の
+    // プレビュー・写真共有用ファイルを上書きしない。PCの各ダウンロードは維持する。
+    if (requestId !== imageRequestId) {
+      if (isBlobUrl) {
+        if (onIOS) URL.revokeObjectURL(url);
+        else setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      return;
     }
 
     // 共有シート（「画像を保存」で写真アプリに入る）が使える端末はボタンを出す

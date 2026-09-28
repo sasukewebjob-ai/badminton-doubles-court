@@ -255,7 +255,8 @@ function strideLinearOrder(N, cycle, restCount) {
 //   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
 //   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
 // roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
-function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset) {
+// initialRestStreaks: 消化済みの最終節まで続いた休みの長さ（番号→連続節数）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset, initialRestStreaks) {
   if (restCount === 0) return Array.from({length: numRounds}, () => []);
 
   const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
@@ -330,7 +331,10 @@ function generateRestSchedule(players, restCount, numRounds, initialRestCounts, 
     // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
     // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
     const streak = {};
-    allPlayers.forEach(p => streak[p] = prevSet.has(p) ? 1 : 0);
+    // 再生成でも消化済み節からの連続休みを引き継ぐ。直前の1節だけに戻すと、
+    // 2コート20人で第5節後に作り直した際、上限3節を超えて4節連続で休んでいた。
+    allPlayers.forEach(p => streak[p] = prevSet.has(p)
+      ? Math.max(1, (initialRestStreaks && initialRestStreaks[p]) || 0) : 0);
     const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
     for (let rIdx = 0; rIdx < numRounds; rIdx++) {
       const { forcedSet } = forcedAt(rIdx);
@@ -873,7 +877,9 @@ function isIOSDevice() {
   return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 }
 let lastImageUrl=null, lastImageFile=null;
+let imageRequestId=0;
 function saveImage(start) {
+  const requestId=++imageRequestId;
   const owner=session, end=Math.min(start+10,session.totalRounds), fileName=`${session.mode}-court-${start+1}-${end}.png`;
   let canvas;
   try { canvas=makeImage(start); } catch { notify('画像を作成できませんでした。もう一度お試しください。'); return; }
@@ -885,6 +891,14 @@ function saveImage(start) {
       const a=document.createElement('a'); a.href=url; a.download=fileName; document.body.append(a);
       try { a.click(); } catch { /* in-app browsers without downloads still get the preview */ }
       a.remove();
+    }
+    // Keep every requested desktop download, but only the latest request owns the preview/share button.
+    if (requestId!==imageRequestId) {
+      if (blob) {
+        if (isIOSDevice()) URL.revokeObjectURL(url);
+        else setTimeout(() => URL.revokeObjectURL(url),60000);
+      }
+      return;
     }
     lastImageFile=null;
     if (blob && typeof File==='function' && navigator.canShare) {
