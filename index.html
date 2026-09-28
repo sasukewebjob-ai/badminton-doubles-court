@@ -41,7 +41,7 @@ h1 {
   font-size: 0.95em;
   min-width: 80px;
 }
-.input-row select {
+.input-row select, .input-row input[type="date"] {
   flex: 1;
   min-width: 0;
   padding: 10px;
@@ -84,6 +84,7 @@ h1 {
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   overflow: hidden;
 }
+.round-date { padding: 7px 14px; background: #eaf2f8; color: #245370; font-size: 0.85em; font-weight: bold; }
 .round-header {
   background: linear-gradient(135deg, #2c3e50, #34495e);
   color: #fff;
@@ -504,6 +505,10 @@ h1 {
 
 <div class="input-section">
   <div class="input-row">
+    <label for="practiceDate">練習日</label>
+    <input id="practiceDate" type="date" min="0001-01-01" max="9999-12-31">
+  </div>
+  <div class="input-row">
     <label>コート数</label>
     <select id="courtCount">
       <option value="2">2コート</option>
@@ -581,6 +586,31 @@ const SPEECH_KANA = {
 function escHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function todayPracticeDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function validPracticeDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  return y >= 1 && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+function practiceDateLabel(value) {
+  if (!validPracticeDate(value)) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  const day = new Date(value + 'T12:00:00').getDay();
+  return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
+}
+function changePracticeDate() {
+  const value = document.getElementById('practiceDate').value;
+  if (viewerMode || !session || (value && !validPracticeDate(value))) return;
+  session = { ...session, practiceDate: value };
+  saveSession();
+  renderResults();
 }
 // 名簿テーブル（GENDER・KANA等）の引き当て。共有リンクの名前は細工できるので、
 // 「toString」などが Object の組み込みプロパティに当たらないよう自前のキーだけを見る
@@ -756,6 +786,7 @@ function restoreSession() {
   lastRounds = s.rounds;
   TOTAL_ROUNDS = s.totalRounds;
   restoredAt = data.savedAt || null;
+  document.getElementById('practiceDate').value = s.practiceDate || '';
 
   // 入力欄は「作成したときの設定」に戻す（再読み込みしない画面と同じ状態）。
   // 途中変更後の人数・コート数に合わせていたため、番号のみモードで離脱者がいると
@@ -895,6 +926,7 @@ function keysWithin(obj, allowed) {
 function validateSharedSession(s) {
   const L = SHARE_LIMITS;
   if (!s || typeof s !== 'object') return false;
+  if (s.practiceDate !== undefined && s.practiceDate !== '' && !validPracticeDate(s.practiceDate)) return false;
 
   // 節数・コート数・番号の上限
   if (!Number.isInteger(s.totalRounds) || s.totalRounds < L.minRounds || s.totalRounds > L.maxRounds) return false;
@@ -1012,6 +1044,8 @@ function encodeShareData() {
   }
   if (s.genderMode) out += encodeNamesBlob({ n: s.names, g: s.guestGenders || {} });
   else if (s.names) out += encodeNamesBlob(s.names);
+  // 日付は既存のbase64urlで使わない「.」の後ろに付ける。日付のない旧リンクはそのまま読める。
+  if (s.practiceDate) out += '.' + s.practiceDate;
   return out;
 }
 
@@ -1019,6 +1053,10 @@ function encodeShareData() {
 function decodeShareData(str) {
   try {
     if (typeof str !== 'string' || (str[0] !== '1' && str[0] !== '2' && str[0] !== '3')) return null;
+    const parts = str.split('.');
+    if (parts.length > 2 || (parts.length === 2 && !validPracticeDate(parts[1]))) return null;
+    const practiceDate = parts[1];
+    str = parts[0];
     const version = str[0];
     let pos = 1;
     const ch = () => {
@@ -1039,6 +1077,7 @@ function decodeShareData(str) {
     let ts = 0;
     for (let i = 0; i < 5; i++) ts = ts * 64 + ch();
     const s = {};
+    if (practiceDate) s.practiceDate = practiceDate;
     s.totalRounds = readInt();
     s.initialCourts = readInt();
     s.restOrder = readInt() === 1 ? 'desc' : 'asc';
@@ -1156,6 +1195,9 @@ function exitViewerMode() {
 
 // --- UI初期化 ---
 function initUI() {
+  const dateInput = document.getElementById('practiceDate');
+  dateInput.value = todayPracticeDate();
+  dateInput.addEventListener('change', changePracticeDate);
   const courtSel = document.getElementById('courtCount');
   const playerSel = document.getElementById('playerCount');
 
@@ -2187,6 +2229,9 @@ function addHistory(hist, a, b) {
 function generate() {
   // 保存済みの状態を誤タップで失わないよう、既存セッションがあるときは確認する
   if (session && !confirm('現在のコート割を破棄して、新しく作成しますか？')) return;
+  const dateInput = document.getElementById('practiceDate');
+  const practiceDate = dateInput ? dateInput.value : '';
+  if (practiceDate && !validPracticeDate(practiceDate)) { alert('練習日を確認してください。'); return; }
 
   const totalRounds = parseInt(document.getElementById('roundCount').value);
   const courts = parseInt(document.getElementById('courtCount').value);
@@ -2287,6 +2332,7 @@ function generate() {
   }
 
   session = {
+    ...(practiceDate ? { practiceDate } : {}),
     totalRounds,
     initialCourts: courts,
     courts,
@@ -2588,6 +2634,7 @@ function renderResults() {
     }
 
     html += `<div class="round-card">`;
+    if (session.practiceDate) html += `<div class="round-date">${practiceDateLabel(session.practiceDate)}</div>`;
     html += `<div class="round-header">`;
     html += `<span class="round-title">第${round.round}節`;
     html += `<button class="btn-speak" data-round="${round.round}" onclick="speakRound(${round.round})" aria-label="この節を読み上げ">🔊</button></span>`;
@@ -2875,6 +2922,8 @@ let imageRequestId = 0;
 
 function saveAsImageImpl(chunkIndex) {
   const requestId = ++imageRequestId;
+  const sessionAtStart = session;
+  const dateLabel = practiceDateLabel(session && session.practiceDate);
   const chunks = imageChunks(lastRounds.length);
   const chunk = chunks[chunkIndex] || chunks[0];
   const rounds = lastRounds.slice(chunk.from, chunk.to);
@@ -2892,7 +2941,7 @@ function saveAsImageImpl(chunkIndex) {
   const CARD_R = 12 * SCALE;
   const HEADER_H = 44 * SCALE;
   const COURT_H = 38 * SCALE;
-  const TITLE_H = 56 * SCALE;
+  const TITLE_H = (dateLabel ? 80 : 56) * SCALE;
   const MARK_H = 34 * SCALE; // メンバー変更マーカー帯の高さ
   const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
 
@@ -2971,7 +3020,11 @@ function saveAsImageImpl(chunkIndex) {
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(title, W / 2, PAD + (TITLE_H - 8 * SCALE) / 2);
+    ctx.fillText(title, W / 2, PAD + 24 * SCALE);
+    if (dateLabel) {
+      ctx.font = `bold ${15 * SCALE}px ${FONT}`;
+      ctx.fillText(dateLabel, W / 2, PAD + 54 * SCALE);
+    }
 
     // 番号表カード
     let y = PAD + TITLE_H;
@@ -3219,7 +3272,7 @@ function saveAsImageImpl(chunkIndex) {
   // （新しい画面のプレビューに古い表が出て、そのまま保存されるのを防ぐ）
   const roundsAtStart = lastRounds;
   const finalize = (url, isBlobUrl, blob) => {
-    if (lastRounds !== roundsAtStart) {
+    if (lastRounds !== roundsAtStart || session !== sessionAtStart) {
       if (isBlobUrl) URL.revokeObjectURL(url);
       return;
     }

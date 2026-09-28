@@ -14,7 +14,7 @@ a { color: #17618c; }
 .panel,.round-card { background: white; border-radius: 12px; margin: 12px 0; padding: 16px; box-shadow: 0 2px 8px #0000000d; }
 .row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .row label { flex: 0 0 90px; font-weight: bold; }
-select,textarea { min-width: 0; width: 100%; padding: 10px; border: 2px solid #aed6f1; border-radius: 8px; background: white; color: #263c4c; font: inherit; }
+select,textarea,input[type="date"] { min-width: 0; width: 100%; padding: 10px; border: 2px solid #aed6f1; border-radius: 8px; background: white; color: #263c4c; font: inherit; }
 textarea { margin-top: 8px; }
 button { cursor: pointer; font: inherit; border: 0; border-radius: 8px; padding: 12px; background: #eaf2f8; color: #245370; }
 button:disabled { opacity: .5; cursor: default; }
@@ -26,6 +26,7 @@ button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offse
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .actions button { flex: 1 1 130px; }
 .round-card { padding: 0; overflow: hidden; }
+.round-date { padding: 7px 14px; background: #eaf2f8; color: #245370; font-size: .85rem; font-weight: bold; }
 .round-header { display: flex; align-items: center; justify-content: space-between; background: #2c4558; color: white; padding: 10px 14px; }
 .round-header h2 { margin: 0; }
 .round-header button { padding: 6px 10px; background: #ffffff22; color: white; }
@@ -70,6 +71,7 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 <nav><a href="index.html">通常のダブルス版へ</a></nav>
 <p id="status" role="status" aria-live="polite"></p>
 <section id="setup" class="panel">
+  <div class="row"><label for="practiceDate">練習日</label><input id="practiceDate" type="date" min="0001-01-01" max="9999-12-31"></div>
   <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
   <div class="row"><label for="courtCount">コート数</label><select id="courtCount"><option value="1">1コート</option><option value="2">2コート</option><option value="3">3コート</option><option value="4" selected>4コート</option></select></div>
   <div class="roster-box">
@@ -126,6 +128,29 @@ let viewerMode = false;
 // 名簿から選んだ順（固定ペアはこの順に2人ずつペアにする）
 let rosterPicks = [];
 const $ = id => document.getElementById(id);
+function todayPracticeDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function validPracticeDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  return y >= 1 && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+function practiceDateLabel(value) {
+  if (!validPracticeDate(value)) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  const day = new Date(value + 'T12:00:00').getDay();
+  return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
+}
+function changePracticeDate() {
+  const value = $('practiceDate').value;
+  if (viewerMode || !session || (value && !validPracticeDate(value))) return;
+  session = { ...session, practiceDate: value };
+  persist(); render();
+}
 const unit = mode => mode === 'pairs' ? 'ペア' : '人';
 const own = (table, k) => table && Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined;
 // 番号の名前（シングルス: '田中'、固定ペア: ['田中','鈴木']）。名簿を使っていなければ undefined
@@ -159,6 +184,7 @@ function validNames(names, mode) {
     (mode === 'pairs' ? Array.isArray(v) && v.length === 2 && v.every(okName) : okName(v)));
 }
 function checkConfig(c) {
+  if (c && c.practiceDate !== undefined && c.practiceDate !== '' && !validPracticeDate(c.practiceDate)) throw Error('練習日を確認してください。');
   if (!c || !['singles','pairs'].includes(c.mode) || !validPlayers(c.players) || !isInt(c.courts,1,4) || c.players.length < c.courts*2 || !ROUND_OPTIONS.includes(c.totalRounds) || !['asc','desc'].includes(c.restOrder)) throw Error('人数・ペア数は2〜12、コート数は1〜4で、1コートにつき2番号が必要です。');
   if (!validNames(c.names, c.mode)) throw Error('参加メンバーの名前の形式が正しくありません。');
   if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
@@ -782,6 +808,7 @@ function inputConfig() {
   const mode=$('mode').value, fromRoster=rosterCount(mode);
   if (fromRoster===null) throw Error('固定ペアは2人ずつ選んでください（あと1人）。');
   const config={mode,players:sequence(fromRoster===undefined ? Number($('playerCount').value) : fromRoster),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value};
+  if ($('practiceDate').value) config.practiceDate=$('practiceDate').value;
   if (fromRoster!==undefined) {
     const names={};
     if (mode==='pairs') config.players.forEach(p => names[p]=[rosterPicks[2*p-2],rosterPicks[2*p-1]]);
@@ -842,10 +869,11 @@ function wrapItems(ctx, head, items, maxWidth, sep) {
   return lines;
 }
 function makeImage(start) {
+  const dateLabel=practiceDateLabel(session.practiceDate), dateHeight=dateLabel ? 28 : 0;
   const rounds=session.rounds.slice(start,start+10), canvas=document.createElement('canvas');
   const measure=canvas.getContext('2d'); measure.font='18px sans-serif';
   const restLines=rounds.map(r=>wrapItems(measure,'休み：',r.rest.length ? r.rest.map(p=>label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : '')) : ['なし'],740,restSeparator()));
-  const height=110+rounds.reduce((n,r,i)=>n+72+r.courts*46+(restLines[i].length-1)*24,0);
+  const height=110+dateHeight+rounds.reduce((n,r,i)=>n+72+r.courts*46+(restLines[i].length-1)*24,0);
   // 2倍の解像度で描く（幅1600px。スマホで拡大しても文字がぼやけない）。
   // iOSのCanvas上限（約1,677万画素）に余裕を持たせ、超えそうなら倍率を下げる
   const scale=Math.min(2,Math.sqrt(15000000/(800*height)));
@@ -855,8 +883,9 @@ function makeImage(start) {
   ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
   ctx.fillStyle='#263c4c'; ctx.font='bold 25px sans-serif';
   ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
-  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}${hasForced ? ' ／ * は指定休み' : ''}`,24,72);
-  let y=100;
+  if (dateLabel) { ctx.font='bold 20px sans-serif'; ctx.fillText(dateLabel,24,72); }
+  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}${hasForced ? ' ／ * は指定休み' : ''}`,24,72+dateHeight);
+  let y=100+dateHeight;
   rounds.forEach((r,ri)=>{
     ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
     for (let i=0;i<r.matches.length;i++) {
@@ -996,6 +1025,7 @@ function render() {
       const note=document.createElement('p'); note.className='change-note'; note.textContent=`第${r.round}節から ${r.courts}コート・参加番号 ${r.players.join('、')}`; $('results').append(note);
     }
     const card=document.createElement('section'); card.className='round-card';
+    if (session.practiceDate) { const date=document.createElement('div'); date.className='round-date'; date.textContent=practiceDateLabel(session.practiceDate); card.append(date); }
     const header=document.createElement('div'); header.className='round-header';
     const heading=document.createElement('h2'); heading.textContent=`第${r.round}節`; header.append(heading,button('🔊 読み上げ',()=>speak(r))); card.append(header);
     r.matches.forEach((m,i)=>{
@@ -1018,6 +1048,7 @@ function render() {
 }
 // Restore the settings the table was created with (as before reloading), not those after later changes.
 function restoreInputs() {
+  $('practiceDate').value=session.practiceDate || '';
   const first=session.rounds[0];
   $('mode').value=session.mode; $('courtCount').value=String(first.courts); $('playerCount').value=String(first.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
   // 名簿の選択も作成時のメンバーに戻す（固定ペアはペア番号順＝タップ順を再現。名簿から外れた人は戻せない）
@@ -1031,6 +1062,8 @@ function restoreInputs() {
   $('forcedBox').open=!!$('forcedRests').value;
 }
 function init() {
+  $('practiceDate').value=todayPracticeDate();
+  $('practiceDate').addEventListener('change',changePracticeDate);
   window.addEventListener('hashchange',()=>location.reload());
   $('playerCount').replaceChildren(...sequence(12).slice(1).map(n=>new Option(`${n}人`,n))); $('playerCount').value='12';
   ['courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));

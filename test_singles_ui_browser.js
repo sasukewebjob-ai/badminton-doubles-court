@@ -42,7 +42,8 @@ function check(label, ok, detail) {
     const japanese = s => !/[A-Za-z]{4,}/.test(s.replace('自分の対戦表に戻る', ''));
     for (const [label, hash] of [
       ['途中で切れたリンク', good.slice(0, Math.floor(good.length / 2))],
-      ['末尾1文字欠け', good.slice(0, -1)],
+      // "=" is optional base64 padding, not payload. Remove a data character even when the JSON size changes.
+      ['末尾のデータ1文字欠け', good.replace(/=+$/, '').slice(0, -1)],
       ['base64として壊れたリンク', '#sp1=broken'],
     ]) {
       const r = await open(hash);
@@ -52,6 +53,8 @@ function check(label, ok, detail) {
     check('1: 「=」が「%3D」に変わったリンクも開ける', encoded.cards === 30 && encoded.status.includes('共有された対戦表'), encoded.status);
     const normal = await open(good);
     check('1: 正しいリンクは従来どおり開ける', normal.cards === 30, normal.status);
+    const unpadded = await open(good.replace(/=+$/, ''));
+    check('1: 末尾の補助文字「=」が省略されてもデータが完全なら開ける', unpadded.cards === 30, unpadded.status);
 
     // 2: 入力の誤りは確認より先に
     await page.click('#forcedBox summary');
