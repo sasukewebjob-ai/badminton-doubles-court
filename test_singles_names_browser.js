@@ -46,14 +46,14 @@ const TTS_STUB = () => {
     await tap('大野');
     check('途中の人を外すと後ろの人が繰り上がる', JSON.stringify(await preview()) === JSON.stringify(['1番ペア：上條・濱島', '2番ペア：田中・依田', '3番ペア：バレ・（あと1人）']), JSON.stringify(await preview()));
     await tap('大野');
-    for (const nm of ['春日', '原', '宮下', '根津']) await tap(nm);
+    for (const nm of ['酒井', '原', '宮下', '根津']) await tap(nm);
     check('5ペア・2コートで作成できる', !(await page.isDisabled('#generateBtn')) && (await page.textContent('#infoBox')).includes('毎節4ペアが対戦し、1ペアが休みます'), await page.textContent('#infoBox'));
     await page.click('#forcedBox summary');
     await page.fill('#forcedRests', '4: 濱島');
     await page.click('#generateBtn');
     const s1 = await page.evaluate(() => ({ names: session.names, forced: session.forced }));
     check('ペア番号はタップ順（1番ペア＝上條・濱島 … 5番ペア＝宮下・根津）',
-      JSON.stringify(s1.names) === JSON.stringify({ 1: ['上條', '濱島'], 2: ['田中', '依田'], 3: ['バレ', '大野'], 4: ['春日', '原'], 5: ['宮下', '根津'] }), JSON.stringify(s1.names));
+      JSON.stringify(s1.names) === JSON.stringify({ 1: ['上條', '濱島'], 2: ['田中', '依田'], 3: ['バレ', '大野'], 4: ['酒井', '原'], 5: ['宮下', '根津'] }), JSON.stringify(s1.names));
     check('名前での休み指定はその人のペア番号になる', JSON.stringify(s1.forced) === '{"4":[1]}', JSON.stringify(s1.forced));
     const round4 = await page.locator('.round-card').nth(3).textContent();
     check('対戦表に名前が出る／指定休みに * が付く', round4.includes('1 上條・濱島*') && /\d [^\s]+・[^\s]+vs/.test(round4), round4);
@@ -70,9 +70,9 @@ const TTS_STUB = () => {
     console.log('[2] 再読み込みで作成時のメンバーに戻る');
     await page.reload();
     const restored = await page.evaluate(() => ({ picks: rosterPicks.slice(), mode: document.getElementById('mode').value, forced: document.getElementById('forcedRests').value }));
-    check('固定ペアの選択順が戻る', JSON.stringify(restored.picks) === JSON.stringify(['上條', '濱島', '田中', '依田', 'バレ', '大野', '春日', '原', '宮下', '根津']) && restored.mode === 'pairs', JSON.stringify(restored));
+    check('固定ペアの選択順が戻る', JSON.stringify(restored.picks) === JSON.stringify(['上條', '濱島', '田中', '依田', 'バレ', '大野', '酒井', '原', '宮下', '根津']) && restored.mode === 'pairs', JSON.stringify(restored));
     check('休み指定は番号で戻る（固定ペアの番号は変わらない）', restored.forced === '4: 1', restored.forced);
-    check('再読み込み後もペア番号の表示が同じ', JSON.stringify(await preview()) === JSON.stringify(['1番ペア：上條・濱島', '2番ペア：田中・依田', '3番ペア：バレ・大野', '4番ペア：春日・原', '5番ペア：宮下・根津']), JSON.stringify(await preview()));
+    check('再読み込み後もペア番号の表示が同じ', JSON.stringify(await preview()) === JSON.stringify(['1番ペア：上條・濱島', '2番ペア：田中・依田', '3番ペア：バレ・大野', '4番ペア：酒井・原', '5番ペア：宮下・根津']), JSON.stringify(await preview()));
 
     console.log('[3] 共有リンク');
     const hash = await page.evaluate(() => '#sp1=' + encodeShare(session));

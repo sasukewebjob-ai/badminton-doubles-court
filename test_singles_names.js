@@ -48,7 +48,7 @@ test('名前の休み指定を番号に直す（シングルス: その人の番
 const namedSingles = () => ({ mode: 'singles', players: ids(6), courts: 2, totalRounds: 10, restOrder: 'desc', forced: { 3: [5] },
   names: { 1: '大野', 2: '濱島', 3: '田中', 4: '上條', 5: '依田', 6: 'バレ' } });
 const namedPairs = () => ({ mode: 'pairs', players: ids(5), courts: 2, totalRounds: 15, restOrder: 'asc', forced: {},
-  names: { 1: ['大野', '濱島'], 2: ['田中', '上條'], 3: ['依田', 'バレ'], 4: ['春日', '原'], 5: ['宮下', '根津'] } });
+  names: { 1: ['大野', '濱島'], 2: ['田中', '上條'], 3: ['依田', 'バレ'], 4: ['酒井', '原'], 5: ['宮下', '根津'] } });
 
 test('名前つきで作成・途中変更しても名前は保たれ、途中参加の番号は番号のまま', () => {
   const s = app.buildSession(namedSingles());

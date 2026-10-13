@@ -124,7 +124,7 @@ async function pickNames(page, names) {
   await page.selectOption('#courtCount', '4');
   await page.selectOption('#roundCount', '10');
   await pickNames(page, ['大野', '唐澤', '北原', '越野', '小林', '善志', '髙橋', '原',
-                         'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '春日', '黒河内']);
+                         'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '酒井', '黒河内']);
   check('18人選択で休み2人', (await page.locator('#infoBox').textContent()).includes('2人が休み'));
   await addRow(page, 4, 'n:濱島');
   dialogs = [];
@@ -451,19 +451,19 @@ async function pickNames(page, names) {
   // (b) 人がメンバーから外れたあと、別の操作をしても先頭の人に化けない
   await page.goto(URL);
   await pickNames(page, ['大野', '上條', '唐澤', '北原', '越野', '小林', '善志', '髙橋', '原',
-    'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '春日']);
-  await addRow(page, 3, 'n:春日');
-  check('名簿モードで第3節・春日を指定できる', await collected() === '[{"round":3,"who":"n:春日"}]');
-  await pickNames(page, ['春日']);    // 春日を参加から外す
+    'バレ', '根津', '細井', '松武', '宮澤輝', '渡辺', '濱島', '内田', '酒井']);
+  await addRow(page, 3, 'n:酒井');
+  check('名簿モードで第3節・酒井を指定できる', await collected() === '[{"round":3,"who":"n:酒井"}]');
+  await pickNames(page, ['酒井']);    // 酒井を参加から外す
   await pickNames(page, ['黒河内']);  // 別の人を追加（人数は18のまま）
-  check('外した本人が対象外表示になる', (await shown('.fr-player')).includes('春日'),
+  check('外した本人が対象外表示になる', (await shown('.fr-player')).includes('酒井'),
     await shown('.fr-player'));
   await page.selectOption('#roundCount', '15');
-  check('その後に節数を変えても大野に化けない', (await shown('.fr-player')).includes('春日'),
+  check('その後に節数を変えても大野に化けない', (await shown('.fr-player')).includes('酒井'),
     await shown('.fr-player'));
   check('対象外の人は生成に渡らない', await collected() === '[]', await collected());
-  await pickNames(page, ['春日']);    // 春日を戻す
-  check('春日を戻すと指定がよみがえる', await collected() === '[{"round":3,"who":"n:春日"}]',
+  await pickNames(page, ['酒井']);    // 酒井を戻す
+  check('酒井を戻すと指定がよみがえる', await collected() === '[{"round":3,"who":"n:酒井"}]',
     await collected());
 
   check('ページ例外が最後まで発生していない', pageErrors.length === 0, pageErrors.join(' / '));
