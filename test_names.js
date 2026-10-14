@@ -28,7 +28,7 @@ function check(name, cond) {
   console.log('[1] 名簿チップ選択');
   await page.goto(URL);
   const chipCount = await page.locator('#rosterChips .chip').count();
-  check('名簿チップが26人分ある', chipCount === 26);
+  check('名簿チップが27人分ある', chipCount === 27);
   check('未選択時は人数セレクト表示', await page.locator('#playerCountRow').isVisible());
 
   // 先頭から10人選択
@@ -118,7 +118,7 @@ function check(name, cond) {
   console.log('[6] メンバー変更');
   const removeChipText = await page.locator('#removeChips .chip').first().textContent();
   check('離脱チップに名前表示', /^1 .+/.test(removeChipText));
-  check('名簿から追加チップあり（未参加16人）', await page.locator('#addNameChips .chip').count() === 16);
+  check('名簿から追加チップあり（未参加17人）', await page.locator('#addNameChips .chip').count() === 17);
 
   await page.selectOption('#consumedRound', '3');
   await page.locator('#addNameChips .chip').first().click();
