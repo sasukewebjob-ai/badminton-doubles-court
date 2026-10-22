@@ -116,8 +116,10 @@ function check(name, cond) {
 
   // --- 6. メンバー変更（名簿から追加・名前付き離脱） ---
   console.log('[6] メンバー変更');
-  const removeChipText = await page.locator('#removeChips .chip').first().textContent();
-  check('離脱チップに名前表示', /^1 .+/.test(removeChipText));
+  // チップは名簿の並び（2026-10-22〜）なので先頭は1番とは限らない。全チップが「番号 名前」で、1番も含まれることを見る
+  const removeChipTexts = await page.locator('#removeChips .chip').allTextContents();
+  check('離脱チップに名前表示', removeChipTexts.length > 0
+    && removeChipTexts.every(t => /^\d+ .+/.test(t)) && removeChipTexts.some(t => /^1 .+/.test(t)));
   check('名簿から追加チップあり（未参加17人）', await page.locator('#addNameChips .chip').count() === 17);
 
   await page.selectOption('#consumedRound', '3');

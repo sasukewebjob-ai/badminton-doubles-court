@@ -145,11 +145,20 @@ function practiceDateLabel(value) {
   const day = new Date(value + 'T12:00:00').getDay();
   return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
 }
+// 練習日の入力欄を、今の表を作った（復元した）あとに手で変えたか（index.html と同じ考え方）
+let practiceDateTouched = false;
 function changePracticeDate() {
+  practiceDateTouched = true;
   const value = $('practiceDate').value;
   if (viewerMode || !session || (value && !validPracticeDate(value))) return;
   session = { ...session, practiceDate: value };
   persist(); render();
+}
+// 前回の表を復元すると入力欄も前回の練習日になる。触らずに別の日に作ると新しい表まで
+// 前回の日付になっていた（2026-10-22修正）。手で選んでいない過去の日付なら今日で作る
+function freshPracticeDate() {
+  const value = $('practiceDate').value;
+  return !practiceDateTouched && value && value < todayPracticeDate() ? todayPracticeDate() : value;
 }
 const unit = mode => mode === 'pairs' ? 'ペア' : '人';
 const own = (table, k) => table && Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined;
@@ -808,7 +817,8 @@ function inputConfig() {
   const mode=$('mode').value, fromRoster=rosterCount(mode);
   if (fromRoster===null) throw Error('固定ペアは2人ずつ選んでください（あと1人）。');
   const config={mode,players:sequence(fromRoster===undefined ? Number($('playerCount').value) : fromRoster),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value};
-  if ($('practiceDate').value) config.practiceDate=$('practiceDate').value;
+  const date=freshPracticeDate();
+  if (date) config.practiceDate=date;
   if (fromRoster!==undefined) {
     const names={};
     if (mode==='pairs') config.players.forEach(p => names[p]=[rosterPicks[2*p-2],rosterPicks[2*p-1]]);
@@ -824,7 +834,8 @@ function generate() {
     checkConfig(config); checkForced(config);
     if (session && !confirm('表示中の対戦表を作り直しますか？')) return;
     const next=buildSession(config);
-    session=next; notify('対戦表を作成しました。'); persist(); render();
+    session=next; if (next.practiceDate) $('practiceDate').value=next.practiceDate; practiceDateTouched=false;
+    notify('対戦表を作成しました。'); persist(); render();
   } catch(e) { notify(e.message); }
 }
 function applyChange() {
@@ -842,7 +853,10 @@ function speechText(r) {
 }
 function speak(r) {
   if (!('speechSynthesis' in window)) { notify('このブラウザは読み上げに対応していません。'); return; }
-  speechSynthesis.cancel(); const utterance=new SpeechSynthesisUtterance(speechText(r)); utterance.lang='ja-JP'; speechSynthesis.speak(utterance);
+  speechSynthesis.cancel(); const utterance=new SpeechSynthesisUtterance(speechText(r)); utterance.lang='ja-JP';
+  // 速度・音量はダブルス版（index.html の speakRound）に合わせる。体育館で聞き取りやすいよう調整した値（2026-10-22）
+  utterance.rate=0.89; utterance.volume=1.0;
+  speechSynthesis.speak(utterance);
 }
 async function shareLink() {
   if (!['https:','http:'].includes(location.protocol)) { notify('共有リンクはWeb公開したページで利用できます。今は画像保存を利用してください。'); return; }
@@ -973,7 +987,9 @@ function clearSession() {
   // Storage may be blocked (private mode, site data disabled); the table on screen must still clear.
   let removed=true;
   try { localStorage.removeItem(STORAGE_KEY); } catch { removed=false; }
-  session=null; render(); notify(removed ? '保存した対戦表を消去しました。' : '対戦表を消去しました（この端末では保存が使えません）。');
+  // 次に作る表は今日の練習のもの。前回の表の日付を入力欄に残さない（2026-10-22）
+  session=null; $('practiceDate').value=todayPracticeDate(); practiceDateTouched=false; render();
+  notify(removed ? '保存した対戦表を消去しました。' : '対戦表を消去しました（この端末では保存が使えません）。');
 }
 function button(text, handler) { const b=document.createElement('button'); b.textContent=text; b.onclick=handler; return b; }
 function render() {
@@ -1048,7 +1064,7 @@ function render() {
 }
 // Restore the settings the table was created with (as before reloading), not those after later changes.
 function restoreInputs() {
-  $('practiceDate').value=session.practiceDate || '';
+  $('practiceDate').value=session.practiceDate || ''; practiceDateTouched=false;
   const first=session.rounds[0];
   $('mode').value=session.mode; $('courtCount').value=String(first.courts); $('playerCount').value=String(first.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
   // 名簿の選択も作成時のメンバーに戻す（固定ペアはペア番号順＝タップ順を再現。名簿から外れた人は戻せない）

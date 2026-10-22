@@ -19,6 +19,7 @@ const TESTS = [
   'test_audit_2026_09_26_browser.js',
   'test_audit_2026_09_28_browser.js',
   'test_practice_date_browser.js',
+  'test_improve_2026_10_22_browser.js',
   'test_26players.js',
   'test_forced_rest.js',
   'test_image.js',

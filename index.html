@@ -166,7 +166,8 @@ h1 {
   font-weight: 500;
 }
 .vs { color: #e74c3c; font-weight: bold; margin: 0 4px; }
-.pair { color: #2c3e50; }
+/* 「18 北澤」の途中で改行しない。種目タグで幅が狭くなると「18／北澤」「9 下／平」に割れていた（2026-10-22） */
+.pair { color: #2c3e50; white-space: nowrap; }
 .pair-sep { color: #7f8c8d; margin: 0 2px; }
 
 .stats-section {
@@ -353,6 +354,8 @@ h1 {
 .btn-change {
   background: linear-gradient(135deg, #e67e22, #f39c12);
 }
+.btn-change:disabled { background: #bdc3c7; cursor: default; }
+.btn-change small { display: block; font-size: 0.8em; font-weight: normal; }
 .player-note {
   font-size: 0.78em;
   color: #999;
@@ -487,11 +490,72 @@ h1 {
   margin: 8px 0 4px;
 }
 .btn-photo:active { transform: scale(0.97); }
+.btn-preview-close {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: #ecf0f1;
+  color: #2c3e50;
+  border: 1px solid #ccd5db;
+  border-radius: 8px;
+  font-size: 0.9em;
+  cursor: pointer;
+  margin: 4px 0 8px;
+}
+/* 結果のいちばん上の操作ボタン。画像保存とメンバー変更は全節カードの下（4画面以上先）にあり、
+   体育館で何度も往復していたので、よく使う2つを上にも置く（2026-10-22） */
+.top-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.top-actions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.btn-top {
+  padding: 12px 8px;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.btn-top small { display: block; font-size: 0.75em; font-weight: normal; }
+.btn-top:active { transform: scale(0.97); }
+.btn-top-image { background: linear-gradient(135deg, #2980b9, #3498db); }
+.btn-top-change { background: linear-gradient(135deg, #e67e22, #f39c12); }
+.change-notice {
+  background: #eafaf1;
+  border: 1.5px solid #58c48b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.9em;
+  color: #1e6b43;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.change-notice button {
+  border: 1px solid #58c48b;
+  background: #fff;
+  color: #1e6b43;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.95em;
+  font-weight: bold;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 /* 印刷：対戦表と集計だけを出し、ボタン・入力欄・メンバー変更は隠す。節のカードはページの境目で切らない（2026-09-26） */
 @media print {
   body { max-width: none; padding: 0; background: #fff; }
   h1 + p, .input-section, .viewer-banner, .restore-banner, .btn-save, .btn-share, .save-hint,
-  #imagePreview, .change-section, .btn-speak { display: none !important; }
+  #imagePreview, .change-section, .btn-speak, .top-actions, .change-notice { display: none !important; }
   .round-card, .roster-map, .stats-section, .pair-stats-section { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
   .stats-table th { position: static; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -605,7 +669,11 @@ function practiceDateLabel(value) {
   const day = new Date(value + 'T12:00:00').getDay();
   return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
 }
+// 練習日の入力欄を、今の表を作った（復元した）あとに手で変えたか。変えていなければ、
+// 入力欄の日付は前回の表のもの（または開いた日のもの）なので、次に作る表には使わない（generate 参照）
+let practiceDateTouched = false;
 function changePracticeDate() {
+  practiceDateTouched = true;
   const value = document.getElementById('practiceDate').value;
   if (viewerMode || !session || (value && !validPracticeDate(value))) return;
   session = { ...session, practiceDate: value };
@@ -714,6 +782,7 @@ let session = null;
 // 体育館でタブが落ちても状態が残るよう、生成・メンバー変更のたびに保存する
 const STORAGE_KEY = 'badminton-court-session-v1';
 let restoredAt = null; // 復元直後のみ保存日時が入る（バナー表示用）
+let changeNotice = null; // メンバー変更で作り直した最初の節（結果の上に送り直しの案内を出す。保存はしない）
 
 function saveSession() {
   // 閲覧モードでは保存しない（共有を見た人自身のコート割を壊さない）
@@ -732,6 +801,10 @@ function clearSavedSession() {
   session = null;
   lastRounds = null;
   restoredAt = null;
+  changeNotice = null;
+  // 次に作る表は今日の練習のもの。前回の表の日付を入力欄に残さない（2026-10-22）
+  document.getElementById('practiceDate').value = todayPracticeDate();
+  practiceDateTouched = false;
   document.getElementById('results').replaceChildren();
   // 「表示中のコート割に反映するには…」の注意書きを消す（表が無くなったので）
   updateForcedRestNote();
@@ -787,6 +860,7 @@ function restoreSession() {
   TOTAL_ROUNDS = s.totalRounds;
   restoredAt = data.savedAt || null;
   document.getElementById('practiceDate').value = s.practiceDate || '';
+  practiceDateTouched = false;
 
   // 入力欄は「作成したときの設定」に戻す（再読み込みしない画面と同じ状態）。
   // 途中変更後の人数・コート数に合わせていたため、番号のみモードで離脱者がいると
@@ -2230,7 +2304,14 @@ function generate() {
   // 保存済みの状態を誤タップで失わないよう、既存セッションがあるときは確認する
   if (session && !confirm('現在のコート割を破棄して、新しく作成しますか？')) return;
   const dateInput = document.getElementById('practiceDate');
-  const practiceDate = dateInput ? dateInput.value : '';
+  let practiceDate = dateInput ? dateInput.value : '';
+  // 前回の表を復元すると入力欄も前回の練習日になる。触らずに別の日に作ると新しい表まで
+  // 前回の日付になっていた（2026-10-22修正）。手で選んでいない過去の日付なら今日で作る。
+  // 手で選んだ日付は過去でもそのまま使う（過去の練習の表を作り直す場合）
+  if (!practiceDateTouched && practiceDate && practiceDate < todayPracticeDate()) {
+    practiceDate = todayPracticeDate();
+    dateInput.value = practiceDate;
+  }
   if (practiceDate && !validPracticeDate(practiceDate)) { alert('練習日を確認してください。'); return; }
 
   const totalRounds = parseInt(document.getElementById('roundCount').value);
@@ -2350,6 +2431,8 @@ function generate() {
   TOTAL_ROUNDS = totalRounds;
   lastRounds = rounds;
   restoredAt = null;
+  changeNotice = null;
+  practiceDateTouched = false;
   saveSession();
   renderResults();
 }
@@ -2357,6 +2440,44 @@ function generate() {
 // --- メンバー変更（途中追加・離脱） ---
 function toggleChip(btn) {
   btn.classList.toggle('selected');
+}
+
+// 離脱・復帰のチップは名簿の並び（作成時にタップした並び）にする。番号順だと
+// その日ランダムに振った番号の順になり、名前で探しにくかった（2026-10-22）。
+// 名簿にない名前とゲストは後ろに番号順。番号のみモードは従来どおり番号順になる
+function rosterOrderOf(p) {
+  const nm = session && session.names ? ownValue(session.names, p) : undefined;
+  const i = typeof nm === 'string' ? ROSTER.indexOf(nm) : -1;
+  return i >= 0 ? i : ROSTER.length + p;
+}
+
+// 「消化済み」は初期値を置かず、選ぶまで作り直せないようにする。初期値（第1節まで終了）の
+// まま押すと、終わった節や進行中の節まで組み替わり、元に戻せなかった（2026-10-22）
+function updateChangeButton() {
+  const sel = document.getElementById('consumedRound');
+  const btn = document.getElementById('changeApplyBtn');
+  if (!sel || !btn || !session) return;
+  const k = parseInt(sel.value);
+  if (!Number.isInteger(k)) {
+    btn.disabled = true;
+    btn.textContent = '↑ 終わった節（消化済み）を選んでください';
+    return;
+  }
+  btn.disabled = false;
+  const keep = document.createElement('small');
+  keep.textContent = `（第${k}節まではそのまま）`;
+  btn.replaceChildren(`第${k + 1}〜${session.totalRounds}節を作り直す`, keep);
+}
+
+function jumpToChange() {
+  const sec = document.getElementById('changeSection');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 作り直した最初の節へ。変更の区切り（何が変わったかの帯）があればそこから見せる
+function jumpToRound(n) {
+  const el = document.getElementById('change-at-' + n) || document.getElementById('round-' + n);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function changeLabel(change, prevCourts) {
@@ -2402,6 +2523,10 @@ function applyMemberChange() {
   // 全節を消してしまわないよう、有効な節番号でなければ何もしない
   const consumedEl = document.getElementById('consumedRound');
   const consumed = consumedEl ? parseInt(consumedEl.value) : NaN;
+  if (consumedEl && consumedEl.value === '') {
+    alert('終わった節（消化済み）を選んでください。');
+    return;
+  }
   if (!Number.isInteger(consumed) || consumed < 1 || consumed >= session.totalRounds) {
     alert('これ以上作り直せる節がありません。');
     return;
@@ -2564,9 +2689,10 @@ function applyMemberChange() {
 
   lastRounds = session.rounds;
   restoredAt = null;
+  // 完了のalertは、プレーの合間に毎回OKを押す手間になるので、結果の上の案内に置き換えた（2026-10-22）
+  changeNotice = consumed + 1;
   saveSession();
   renderResults();
-  alert(`第${consumed + 1}節以降を作り直しました。`);
 }
 
 // --- 描画 ---
@@ -2614,6 +2740,29 @@ function renderResults() {
     html += `<button onclick="clearSavedSession()">消去して最初から</button></div>`;
   }
 
+  // 画像は縦に長くなりすぎて文字が読めなくなるので10節ごとに分ける（上と下のボタンで共通）
+  const imgChunks = imageChunks(lastRounds.length);
+
+  // 結果のいちばん上に、よく使う「画像で送る」「来た・帰る」を置く（2026-10-22）。
+  // どちらも全節カードの下にあり、作成直後とメンバー変更のたびに4画面以上スクロールしていた。
+  // 閲覧モードはメンバー変更ができず、表を見るだけなので出さない
+  if (!viewerMode) {
+    if (changeNotice) {
+      html += `<div class="change-notice"><span>✅ 第${changeNotice}節から組み直しました。画像を送り直してください</span>`;
+      html += `<button onclick="jumpToRound(${changeNotice})">第${changeNotice}節へ ↓</button></div>`;
+    }
+    html += `<div class="top-actions">`;
+    imgChunks.forEach((c, i) => {
+      const range = imgChunks.length > 1
+        ? `<small>${i + 1}枚目・第${lastRounds[c.from].round}〜${lastRounds[c.to - 1].round}節</small>`
+        : '';
+      html += `<button class="btn-top btn-top-image" onclick="saveAsImage(${i}, 'top')">📷 画像で送る${range}</button>`;
+    });
+    html += `<button class="btn-top btn-top-change" onclick="jumpToChange()">👥 来た・帰る</button>`;
+    html += `</div>`;
+    html += `<div id="imagePreviewTopSlot"></div>`;
+  }
+
   // 番号表（名簿モードのみ）：誰が何番かを最初に確認できるように
   if (session.names) {
     const activeSet = new Set(session.players);
@@ -2629,11 +2778,11 @@ function renderResults() {
   for (const round of rounds) {
     const change = session.changes.find(c => c.atRound === round.round);
     if (change) {
-      html += `<div class="change-divider">${escHtml(changeLabel(change, prevCourts))}</div>`;
+      html += `<div class="change-divider" id="change-at-${round.round}">${escHtml(changeLabel(change, prevCourts))}</div>`;
       prevCourts = change.courts;
     }
 
-    html += `<div class="round-card">`;
+    html += `<div class="round-card" id="round-${round.round}">`;
     if (session.practiceDate) html += `<div class="round-date">${practiceDateLabel(session.practiceDate)}</div>`;
     html += `<div class="round-header">`;
     html += `<span class="round-title">第${round.round}節`;
@@ -2681,8 +2830,7 @@ function renderResults() {
   html += `<button class="btn-share" onclick="shareLink()">🔗 対戦表のリンクを共有</button>`;
   html += `<div class="save-hint">リンクを開いた人のスマホにも同じ対戦表が表示されます</div>`;
 
-  // 画像保存ボタン（縦に長くなりすぎて文字が読めなくなるので10節ごとに分ける）
-  const imgChunks = imageChunks(lastRounds.length);
+  // 画像保存ボタン（10節ごとの分け方は上の「画像で送る」と共通の imgChunks）
   if (imgChunks.length === 1) {
     html += `<button class="btn-save" onclick="saveAsImage(0)">📷 対戦表を画像として保存</button>`;
   } else {
@@ -2694,14 +2842,15 @@ function renderResults() {
     });
   }
   html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
-  html += `<div id="imagePreview"></div>`;
+  // プレビューは1つだけで、押したボタンの近く（上か下の枠）へ移して出す
+  html += `<div id="imagePreviewBottomSlot"><div id="imagePreview"></div></div>`;
 
   // メンバー変更UI（閲覧モードでは出さない）
   if (!viewerMode) {
     const minConsumed = hasChanges
       ? session.changes[session.changes.length - 1].atRound
       : 1;
-    html += `<div class="change-section">`;
+    html += `<div class="change-section" id="changeSection">`;
     html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
     // 残り1節以下だと作り直せる節が無い。UIを出さず案内だけにする（空セレクトでの誤操作防止）
     const canChange = minConsumed <= session.totalRounds - 1;
@@ -2710,7 +2859,9 @@ function renderResults() {
       html += `</div>`;
     } else {
     html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
-    html += `<div class="input-row"><label>消化済み</label><select id="consumedRound">`;
+    // 初期値は置かない（選ぶまで作り直せない。updateChangeButton 参照）
+    html += `<div class="input-row"><label>消化済み</label><select id="consumedRound" onchange="updateChangeButton()">`;
+    html += `<option value="" selected disabled>選んでください</option>`;
     for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
       html += `<option value="${k}">第${k}節まで終了</option>`;
     }
@@ -2755,12 +2906,13 @@ function renderResults() {
     }
     html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
     html += `<div class="chips" id="removeChips">`;
-    for (const p of session.players) {
+    const byRoster = (a, b) => rosterOrderOf(a) - rosterOrderOf(b);
+    for (const p of session.players.slice().sort(byRoster)) {
       html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${escHtml(pname(p))}</button>`;
     }
     html += `</div>`;
     const currentPlayersSet = new Set(session.players);
-    const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p));
+    const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p)).sort(byRoster);
     if (departedNow.length > 0) {
       html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
       html += `<div class="chips" id="returnChips">`;
@@ -2774,7 +2926,7 @@ function renderResults() {
       html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
     }
     html += `</select></div>`;
-    html += `<button class="btn btn-change" onclick="applyMemberChange()">残りの節を作り直す</button>`;
+    html += `<button class="btn btn-change" id="changeApplyBtn" onclick="applyMemberChange()" disabled>↑ 終わった節（消化済み）を選んでください</button>`;
     html += `</div>`;
     }
   }
@@ -2904,14 +3056,31 @@ async function sharePhoto() {
   }
 }
 
-function saveAsImage(chunkIndex) {
+function saveAsImage(chunkIndex, where) {
   if (!lastRounds || lastRounds.length === 0) return;
+  placeImagePreview(where === 'top' ? 'imagePreviewTopSlot' : 'imagePreviewBottomSlot');
   // スマホ実機で途中失敗すると「何も起きない」ように見えるため、例外は必ず知らせる
   try {
     saveAsImageImpl(chunkIndex || 0);
   } catch (e) {
     alert('画像の作成に失敗しました。もう一度お試しください。\n(' + e.message + ')');
   }
+}
+
+// プレビューは押したボタンの近くに出す（上の「画像で送る」なら上、下の保存ボタンなら下。2026-10-22）。
+// 場所を移すときは別の場所の古いプレビューを消す。作成中の古い画像は imageRequestId で捨てられる
+function placeImagePreview(slotId) {
+  const preview = document.getElementById('imagePreview');
+  const slot = document.getElementById(slotId);
+  if (!preview || !slot || preview.parentNode === slot) return;
+  preview.replaceChildren();
+  slot.appendChild(preview);
+}
+
+// 上に出したプレビュー（縦に長い）が節カードを押し下げたままにならないよう閉じられるようにする
+function closeImagePreview() {
+  const preview = document.getElementById('imagePreview');
+  if (preview) preview.replaceChildren();
 }
 
 // プレビュー表示中のblob URL。次の保存まで解放しない（時間を置いた長押し保存を保証）
@@ -3316,6 +3485,11 @@ function saveAsImageImpl(chunkIndex) {
     const preview = document.getElementById('imagePreview');
     if (preview) {
       preview.textContent = '';
+      const close = document.createElement('button');
+      close.className = 'btn-preview-close';
+      close.textContent = '✕ プレビューを閉じる';
+      close.onclick = closeImagePreview;
+      preview.appendChild(close);
       if (split) {
         const label = document.createElement('div');
         label.className = 'preview-label';
@@ -3325,7 +3499,8 @@ function saveAsImageImpl(chunkIndex) {
       if (lastImageFile) {
         const btn = document.createElement('button');
         btn.className = 'btn-photo';
-        btn.textContent = '📤 写真に保存 / 共有';
+        // 共有シートでSlackやLINEを選べば、写真アプリを経由せずにそのまま投稿できる（2026-10-22 文言変更）
+        btn.textContent = '📤 Slackなどに送る / 写真に保存';
         btn.onclick = sharePhoto;
         preview.appendChild(btn);
       }
@@ -3333,7 +3508,7 @@ function saveAsImageImpl(chunkIndex) {
         const guide = document.createElement('div');
         guide.className = 'preview-guide';
         guide.textContent = lastImageFile
-          ? '上のボタン、または下の画像を長押しして「"写真"に追加」で保存できます。'
+          ? '上のボタンからSlackなどへそのまま送れます（「画像を保存」を選ぶと写真に入ります）。下の画像を長押しして「"写真"に追加」でも保存できます。'
           : '下の画像を長押しして「"写真"に追加」で保存してください。';
         preview.appendChild(guide);
       }
