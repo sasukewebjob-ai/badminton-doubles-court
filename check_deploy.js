@@ -12,11 +12,14 @@ const { chromium, launchOptions } = require('./pw');
   while (Date.now() < deadline) {
     await page.goto('https://sasukewebjob-ai.github.io/badminton-doubles-court/?v=' + Date.now());
     // 2026-07-22: 画像保存フォールバック（saveAsImageImplの * 0.9）と
-    // ミックス半々バランス（updateMixDiff）の両方の存在を新版の目印にする
+    // ミックス半々バランス（updateMixDiff）の両方の存在を新版の目印にする。
+    // 2026-10-22: 名簿の人数（旧 ROSTER.length === 26）は名簿の同期で変わり、27人になった10/14から
+    // 常にNGになっていたので人数では判定しない。最新版の目印に updateChangeButton（消化済みを選ぶまで作り直せない）を足す
     deployed = await page.evaluate(() =>
-      typeof ROSTER !== 'undefined' && Array.isArray(ROSTER) && ROSTER.length === 26 &&
+      typeof ROSTER !== 'undefined' && Array.isArray(ROSTER) && ROSTER.length > 0 &&
       typeof saveAsImageImpl === 'function' && saveAsImageImpl.toString().includes('16777216 * 0.9') &&
-      typeof updateMixDiff === 'function');
+      typeof updateMixDiff === 'function' &&
+      typeof updateChangeButton === 'function');
     if (deployed) break;
     await page.waitForTimeout(15000);
   }
