@@ -62,8 +62,31 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .image-preview .preview-label { font-weight: bold; margin: 4px 0; }
 .image-preview .preview-guide { margin: 8px 0; padding: 8px 10px; border: 1.5px solid #7fb6e0; border-radius: 8px; background: #e8f4fd; color: #1a5276; font-size: .87rem; line-height: 1.6; }
 .image-preview .photo-button { width: 100%; margin: 4px 0 8px; font-weight: bold; color: white; background: linear-gradient(135deg,#2381b7,#2e9bd6); }
+/* 大会練習の点数（2026-10-24追加） */
+.tour-box { margin: 0 0 10px; padding: 10px 12px; border: 1.5px solid #f3d27a; border-radius: 8px; background: #fff8e1; font-size: .87rem; line-height: 1.6; }
+.tour-box strong { display: block; }
+.tour-box ul { display: flex; flex-wrap: wrap; gap: 0 14px; margin: 2px 0 6px; padding: 0; list-style: none; }
+.tour-box li { white-space: nowrap; }
+.tour-box li.formed { color: #1e7a45; font-weight: bold; }
+.tour-box button { padding: 6px 10px; font-size: .85rem; margin-left: 6px; }
+.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; font-size: .9rem; line-height: 1.5; }
+.check-row input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: #218c50; }
+.pair-preview .kind { color: #536875; font-size: .82rem; }
+.score-bar { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #eef8f1; font-size: .87rem; line-height: 1.6; }
+.score-bar .check-row { margin: 0 0 4px; }
+.score-bar .bar-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.score-bar button { padding: 6px 10px; font-size: .85rem; }
+.score-bar .error { color: #98421b; }
+.court-match.has-score { border-bottom: 0; padding-bottom: 4px; }
+.score-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 14px 12px 58px; border-bottom: 1px solid #ecf0f1; }
+/* 16px未満だと iPhone で入力するときに画面が拡大される */
+.score-row input { width: 3.2em; padding: 6px 4px; border: 2px solid #aed6f1; border-radius: 6px; font-size: 16px; text-align: center; color: #263c4c; }
+.score-row button { padding: 7px 12px; font-size: .9rem; }
+.score-row button.save { background: #218c50; color: white; font-weight: bold; }
+.score-saved { margin-right: 4px; color: #1e7a45; font-size: 1.05rem; font-weight: bold; }
+.score-error { flex-basis: 100%; color: #98421b; font-size: .82rem; }
 [hidden] { display: none !important; }
-@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
+@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
 </style>
 </head>
 <body>
@@ -75,10 +98,12 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
   <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
   <div class="row"><label for="courtCount">コート数</label><select id="courtCount"><option value="1">1コート</option><option value="2">2コート</option><option value="3">3コート</option><option value="4" selected>4コート</option></select></div>
   <div class="roster-box">
+    <div class="tour-box" id="tourBox" role="status" hidden></div>
     <div class="roster-head"><strong>参加メンバー（名簿から・任意）</strong><button type="button" id="rosterClear">全解除</button></div>
     <div class="roster-chips" id="rosterChips"></div>
     <p class="muted" id="rosterInfo"></p>
     <ol class="pair-preview" id="pairPreview" hidden></ol>
+    <label class="check-row" id="scoringRow" hidden><input type="checkbox" id="scoring"><span>点数を記録する（各試合に点数欄を出し、スプシで大会ペアの勝率を集計します）</span></label>
   </div>
   <div class="row" id="playerCountRow"><label for="playerCount" id="countLabel">参加人数</label><select id="playerCount"></select></div>
   <div class="row"><label for="roundCount">節数</label><select id="roundCount"><option>10</option><option>15</option><option>20</option><option>25</option><option>30</option></select></div>
@@ -149,10 +174,14 @@ function practiceDateLabel(value) {
 let practiceDateTouched = false;
 function changePracticeDate() {
   practiceDateTouched = true;
+  // その日の大会（練習期間）で大会ペアと「点数を記録する」の初期値が変わる
+  scoringTouched = false; renderRoster(); loadTournaments();
   const value = $('practiceDate').value;
   if (viewerMode || !session || (value && !validPracticeDate(value))) return;
+  // 同じ日付で change が来ても（端末によっては欄を離れたときにも来る）スプシに送り直さない
+  if (value === (session.practiceDate || '')) return;
   session = { ...session, practiceDate: value };
-  persist(); render();
+  persist(); registerScores(); render();
 }
 // 前回の表を復元すると入力欄も前回の練習日になる。触らずに別の日に作ると新しい表まで
 // 前回の日付になっていた（2026-10-22修正）。手で選んでいない過去の日付なら今日で作る
@@ -196,6 +225,8 @@ function checkConfig(c) {
   if (c && c.practiceDate !== undefined && c.practiceDate !== '' && !validPracticeDate(c.practiceDate)) throw Error('練習日を確認してください。');
   if (!c || !['singles','pairs'].includes(c.mode) || !validPlayers(c.players) || !isInt(c.courts,1,4) || c.players.length < c.courts*2 || !ROUND_OPTIONS.includes(c.totalRounds) || !['asc','desc'].includes(c.restOrder)) throw Error('人数・ペア数は2〜12、コート数は1〜4で、1コートにつき2番号が必要です。');
   if (!validNames(c.names, c.mode)) throw Error('参加メンバーの名前の形式が正しくありません。');
+  if (c.scoring !== undefined && typeof c.scoring !== 'boolean') throw Error('点数の記録の設定が正しくありません。');
+  if (c.scoreId !== undefined && (typeof c.scoreId !== 'string' || !SCORE_ID_RE.test(c.scoreId))) throw Error('点数の表IDが正しくありません。');
   if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
   for (const [rn, ids] of Object.entries(c.forced)) {
     if (!/^[1-9]\d*$/.test(rn) || !isInt(Number(rn),1,c.totalRounds) || !Array.isArray(ids) || ids.length > 12 || ids.some(p => !isInt(p,1,12)) || new Set(ids).size !== ids.length) throw Error('休み指定の節番号・参加番号を確認してください。');
@@ -762,31 +793,318 @@ function persist() {
   try { localStorage.setItem(STORAGE_KEY,JSON.stringify(session)); }
   catch { notify('対戦表は作成できましたが、このブラウザでは保存できません。画像または共有リンクを保存してください。'); }
 }
-// --- 名簿から選ぶ（シングルス: 番号は作成時にランダム／固定ペア: タップした順に2人ずつ） ---
+// ===== 大会練習の点数（スプシ＋GAS。2026-10-24追加） =====
+// 固定ペア＋名簿のときだけ。練習日が大会の練習期間なら大会ペアを自動で組み、各試合の点数をスプシに送る。
+// 成績・勝率はスプシだけで見る（集計は gas/main.js）。「点数を記録する」がオフの表は何も送らない。
+// 表ID（scoreId）は共有リンクに入れて誰でも点数を入れられるようにし、作り直しの鍵（hostKey）は作った端末にだけ置く
+const SCORE_API = 'https://script.google.com/macros/s/AKfycbwwYPljkI-6oMhpUZkCY3oohtZFEM6uxlMrtZUEAoq3AJS0zq3e0Nj31ZyMQshIsKM2Zw/exec';
+const SCORE_KEYS = 'badminton-singles-score-keys-v1';
+const SCORE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
+const SCORE_POLL_MS = 30000;
+// 公開ページ以外（手元のファイル・テスト）では通信しない。テストは window.SCORE_API_URL で偽の窓口に向ける
+function scoreApi() {
+  if (typeof window==='undefined') return '';
+  if (typeof window.SCORE_API_URL==='string') return window.SCORE_API_URL;
+  return location.hostname==='sasukewebjob-ai.github.io' ? SCORE_API : '';
+}
+// スプシの名前と名簿の名前を同じ人とみなす比べ方（gas/core.js の canonicalName と同じ）
+const canonName = s => String(s).normalize('NFKC').replace(/\s+/g,'').replace(/[髙﨑]/g,c=>({'髙':'高','﨑':'崎'})[c]);
+const shortDate = v => validPracticeDate(v) ? `${Number(v.slice(5,7))}/${Number(v.slice(8,10))}` : '';
+function randomId(prefix) {
+  const bytes=new Uint8Array(16); crypto.getRandomValues(bytes);
+  return prefix+btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+// GAS の窓口を呼ぶ。GET は Google が一時的にエラーページを返すことがあるので1回だけやり直す（POST は二重に送らない）
+async function scoreRequest(method, body) {
+  const url=scoreApi();
+  if (!url) throw Error('このページでは点数を記録できません。');
+  for (let attempt=1;;attempt++) {
+    const ctrl=typeof AbortController==='function' ? new AbortController() : null;
+    const timer=ctrl ? setTimeout(()=>ctrl.abort(),20000) : 0;
+    let r=null;
+    try {
+      // GET の表IDは id（c・sid は Google の予約語で、URLに入れると400になる）。POST は本文なので sid のまま
+      const res=method==='GET' ? await fetch(url+'?'+new URLSearchParams(body),{cache:'no-store',signal:ctrl && ctrl.signal})
+        : await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body),signal:ctrl && ctrl.signal});
+      r=JSON.parse(await res.text());
+    } catch { r=null; }
+    finally { clearTimeout(timer); }
+    if (r && typeof r==='object') {
+      if (r.ok) return r;
+      const e=Error(typeof r.error==='string' ? r.error : 'エラーが起きました。'); e.code=r.code; throw e;
+    }
+    if (method!=='GET' || attempt>=2) { const e=Error('通信できませんでした。電波の良い所でもう一度お試しください。'); e.code='network'; throw e; }
+    await new Promise(done=>setTimeout(done,1500));
+  }
+}
+// --- 作成前：その日の大会と大会ペア（練習日ごとに1回読む） ---
+const tourCache={};
+let scoringTouched=false;
+function setupTours() { const t=own(tourCache,freshPracticeDate()); return t && t.status==='ok' ? t.list : []; }
+async function loadTournaments(force) {
+  const date=freshPracticeDate(), cached=own(tourCache,date);
+  if (!scoreApi() || viewerMode || $('mode').value!=='pairs' || !validPracticeDate(date)) return;
+  if (cached && (cached.status==='loading' || (cached.status==='ok' && !force))) return;
+  tourCache[date]={status:'loading',list:[]}; renderRoster();
+  try {
+    const r=await scoreRequest('GET',{action:'tournaments',date});
+    const list=(Array.isArray(r.tournaments) ? r.tournaments : []).filter(t=>t && typeof t.name==='string' && Array.isArray(t.pairs))
+      .map(t=>({...t,pairs:t.pairs.filter(p=>p && Array.isArray(p.names) && p.names.length===2 && p.names.every(x=>typeof x==='string' && x))}))
+      .sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    tourCache[date]={status:'ok',list};
+  } catch { tourCache[date]={status:'error',list:[]}; }
+  renderRoster();
+}
+function renderTourBox(slots) {
+  const box=$('tourBox'), t=own(tourCache,freshPracticeDate());
+  box.hidden=!(scoreApi() && $('mode').value==='pairs' && t && (t.status!=='ok' || t.list.length));
+  if (box.hidden) return;
+  if (t.status==='loading') { box.replaceChildren('大会ペアを確認しています…'); return; }
+  if (t.status==='error') { box.replaceChildren('大会ペアを読み込めませんでした（通信できません）。',button('もう一度読み込む',()=>loadTournaments(true))); return; }
+  const pairId=(tour,names)=>tour+'|'+names.map(canonName).sort().join('・');
+  const formed=new Set(slots.filter(s=>s.tournament).map(s=>pairId(s.tournament,s.names)));
+  box.replaceChildren(...t.list.flatMap(tour=>{
+    const head=document.createElement('strong'); head.textContent=`🏆 ${tour.name}の練習期間（${shortDate(tour.start)}〜${shortDate(tour.end)}）`;
+    const list=document.createElement('ul');
+    if (!tour.pairs.length) list.append('大会ペアはまだ登録されていません。');
+    tour.pairs.forEach(p=>{
+      const li=document.createElement('li'), done=formed.has(pairId(tour.name,p.names));
+      li.textContent=`${p.category ? p.category+' ' : ''}${p.names.join('・')}${done ? ' ✓' : ''}`; if (done) li.className='formed';
+      list.append(li);
+    });
+    return [head,list];
+  }),'大会ペアは2人とも選ぶと自動でペアになります（✓）。');
+}
+// --- 作成後：点数の登録・読み込み・入力 ---
+let scoreState={id:null};
+let scoreDrafts={}, scoreErrors={}, scoreEditing=new Set(), scoreSaving=new Set();
+let registerChain=Promise.resolve(), scoreTimer=null;
+const scoringOn = () => !!(session && session.scoring && session.mode==='pairs' && session.scoreId && scoreApi());
+// 表が替わったら（新しく作った・消した）点数の状態を捨てる
+function ensureScoreState() {
+  const id=session && session.scoreId || null;
+  if (scoreState.id===id) return;
+  scoreState={id,version:0,scores:{},loading:false,checkedAt:0,registering:0,registerMsg:'',syncMsg:'',healed:false};
+  scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set();
+}
+const sideNames = (s,p) => { const nm=own(s.names,p); return Array.isArray(nm) ? nm.slice() : [`${p}番ペア`]; };
+const scoreMatches = s => s.rounds.flatMap(r=>r.matches.map((m,i)=>({round:r.round,court:COURTS[i],a:sideNames(s,m[0]),b:sideNames(s,m[1])})));
+// 作り直しの鍵は作った端末にだけ置く（共有リンクには入れない）。古い表の鍵は30件まで
+const memoryKeys={};
+function hostKeyFor(id) {
+  let keys={};
+  try { keys=JSON.parse(localStorage.getItem(SCORE_KEYS) || '{}'); } catch { keys={}; }
+  if (!keys || typeof keys!=='object' || Array.isArray(keys)) keys={};
+  const known=own(keys,id) || own(memoryKeys,id);
+  if (typeof known==='string' && SCORE_ID_RE.test(known)) return known;
+  const k=randomId('K'); memoryKeys[id]=k; keys[id]=k;
+  const ids=Object.keys(keys); ids.slice(0,Math.max(0,ids.length-30)).forEach(x=>delete keys[x]);
+  try { localStorage.setItem(SCORE_KEYS,JSON.stringify(keys)); } catch { /* 保存できない端末は、この画面を開いている間だけ作り直せる */ }
+  return k;
+}
+// 表をスプシに登録する（作成・途中変更・練習日の変更・記録をオンにしたとき）。作った端末だけ。
+// force はオフにしたことを共有リンクの人に伝えるための最後の1回
+function registerScores(force) {
+  ensureScoreState();
+  if (viewerMode || !session || !session.scoreId || !(session.scoring || force) || !scoreApi()) return registerChain;
+  if (!validPracticeDate(session.practiceDate)) { scoreState.registerMsg='練習日を入れると点数を記録できます。'; paintScoreBar(); return registerChain; }
+  const owner=session, st=scoreState;
+  st.registering++; st.registerMsg='スプシに登録しています…'; paintScoreBar();
+  registerChain=registerChain.then(async()=>{
+    let ok=false;
+    try {
+      // 待っている間にさらに変わったら、あとから積んだ新しい方だけ送る
+      if (session!==owner) return;
+      const r=await scoreRequest('POST',{action:'register',sid:owner.scoreId,hostKey:hostKeyFor(owner.scoreId),date:owner.practiceDate,
+        data:encodeShare(owner),matches:scoreMatches(owner),roster:ROSTER.slice()});
+      st.version=Math.max(st.version,r.version); st.registerMsg=''; st.registerFailed=false; ok=true;
+    } catch(e) {
+      st.registerMsg=e.code==='forbidden' ? 'この表は別の端末で作られたため、この端末からは登録できません。' : `スプシに登録できませんでした。${e.message}`;
+      st.registerFailed=true;
+    } finally { st.registering--; if (scoreState===st) paintScoreBar(); }
+    if (ok && scoreState===st && !st.registering && scoringOn()) await syncScores();
+  });
+  return registerChain;
+}
+// 点数を読む（30秒ごと・🔄）。共有リンクの人は、幹事が作り直したら最新の表に切り替える
+async function syncScores() {
+  ensureScoreState();
+  const st=scoreState, id=st.id;
+  if (!scoringOn() || st.loading || st.registering) return;
+  st.loading=true; paintScoreBar();
+  try {
+    const r=await scoreRequest('GET',{action:'get',id,since:st.version});
+    if (scoreState!==st) return;
+    let replaced=false;
+    if (viewerMode && typeof r.data==='string') {
+      let next=null;
+      try { next=decodeShare(r.data); } catch { next=null; }
+      if (next && next.scoreId===id && encodeShare(next)!==encodeShare(session)) { session=next; replaced=true; }
+    }
+    if (!viewerMode || typeof r.data==='string') st.version=Math.max(st.version,r.version);
+    st.scores=Object.fromEntries((Array.isArray(r.matches) ? r.matches : []).map(m=>[m.round+m.court,[m.scoreA,m.scoreB]]));
+    st.checkedAt=Date.now(); st.syncMsg='';
+    if (replaced) { notify('幹事が対戦表を作り直したので、最新の表にしました。'); render(); }
+  } catch(e) {
+    if (scoreState!==st) return;
+    if (e.code==='not_found' && !viewerMode && !st.healed) { st.healed=true; st.loading=false; registerScores(); return; }
+    st.syncMsg=e.code==='not_found' ? 'この表はまだスプシに登録されていません（作った端末で登録されると点数を入れられます）。' : `点数を読み込めませんでした。${e.message}`;
+  } finally { st.loading=false; }
+  paintScoreBar(); paintScores();
+}
+function updateScoreSync() {
+  const on=scoringOn();
+  if (on && !scoreTimer) { scoreTimer=setInterval(()=>{ if (!document.hidden) syncScores(); },SCORE_POLL_MS); syncScores(); }
+  if (!on && scoreTimer) { clearInterval(scoreTimer); scoreTimer=null; }
+}
+// 幹事の端末で「点数を記録する」を切り替える（オンにしたときに登録。オフは共有リンクの人の点数欄も消える）
+function toggleScoring(on) {
+  if (!session || viewerMode) return;
+  const next={...session,scoring:on};
+  if (on && !next.scoreId) next.scoreId=randomId('T');
+  session=next; persist(); registerScores(!on); render();
+  notify(on ? '点数を記録します。各試合の下に点数欄が出ます。' : '点数の記録をやめました（入力済みの点数はスプシに残ります）。');
+}
+function scoreBar() {
+  const bar=document.createElement('div'); bar.className='score-bar';
+  if (!viewerMode) {
+    const l=document.createElement('label'); l.className='check-row';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.id='scoringNow'; cb.checked=!!session.scoring; cb.onchange=()=>toggleScoring(cb.checked);
+    const text=document.createElement('span'); text.textContent='点数を記録する（各試合に点数欄を出し、スプシで集計）';
+    l.append(cb,text); bar.append(l);
+  }
+  if (scoringOn()) {
+    const head=document.createElement('div'); head.className='bar-head';
+    const info=document.createElement('span'); info.id='scoreInfo';
+    head.append(info,button('🔄 最新の点数',()=>syncScores())); bar.append(head);
+  }
+  const status=document.createElement('div'); status.id='scoreStatus'; bar.append(status);
+  return bar;
+}
+function paintScoreBar() {
+  const info=$('scoreInfo'), status=$('scoreStatus');
+  if (info) {
+    const time=scoreState.checkedAt ? new Date(scoreState.checkedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}) : '';
+    info.textContent=scoreState.loading ? '点数を読み込んでいます…' : time ? `点数 ${Object.keys(scoreState.scores).length}試合入力済み（${time}更新）` : '';
+  }
+  if (!status) return;
+  status.replaceChildren();
+  [scoreState.registerMsg,scoreState.syncMsg].filter(Boolean).forEach(msg=>{
+    const p=document.createElement('div'); p.textContent=msg; if (!/しています…$/.test(msg)) p.className='error'; status.append(p);
+  });
+  if (scoreState.registerFailed && !scoreState.registering && !viewerMode) status.append(button('もう一度登録する',()=>registerScores()));
+}
+function paintScores(force) { document.querySelectorAll('.score-row').forEach(el=>paintScoreRow(el,force)); }
+function paintScoreRow(el, force) {
+  const k=el.dataset.key, saved=own(scoreState.scores,k), saving=scoreSaving.has(k);
+  // 入力中の欄は、ほかの人の点数が届いても書き換えない
+  if (!force && el.contains(document.activeElement) && own(scoreDrafts,k)) return;
+  el.replaceChildren();
+  if (saved && !scoreEditing.has(k)) {
+    const text=document.createElement('span'); text.className='score-saved'; text.textContent=`${saved[0]} - ${saved[1]} ✓`;
+    el.append(text,button('直す',()=>{ scoreEditing.add(k); scoreDrafts[k]={a:String(saved[0]),b:String(saved[1])}; delete scoreErrors[k]; paintScoreRow(el,true); el.querySelector('input').focus(); }));
+  } else {
+    const draft=own(scoreDrafts,k) || {a:'',b:''};
+    const [nameA,nameB]=[el.dataset.a,el.dataset.b];
+    const box=(value,who)=>{ const i=document.createElement('input'); i.type='text'; i.inputMode='numeric'; i.maxLength=2; i.autocomplete='off'; i.value=value; i.disabled=saving; i.setAttribute('aria-label',`第${el.dataset.round}節 ${el.dataset.court}コート ${who}の点数`); return i; };
+    const a=box(draft.a,nameA), b=box(draft.b,nameB);
+    const keep=()=>{ scoreDrafts[k]={a:a.value,b:b.value}; };
+    a.oninput=keep; b.oninput=keep;
+    b.onkeydown=e=>{ if (e.key==='Enter') saveScore(k); };
+    const save=button(saving ? '送信中…' : '保存',()=>saveScore(k)); save.className='save'; save.disabled=saving;
+    el.append(a,'-',b,save);
+    if (scoreEditing.has(k) && !saving) el.append(button('やめる',()=>{ scoreEditing.delete(k); delete scoreDrafts[k]; delete scoreErrors[k]; paintScoreRow(el,true); }));
+  }
+  const err=own(scoreErrors,k);
+  if (err) { const e=document.createElement('span'); e.className='score-error'; e.setAttribute('role','alert'); e.textContent=err; el.append(e); }
+}
+async function saveScore(k) {
+  const el=document.querySelector(`.score-row[data-key="${k}"]`);
+  if (!el || scoreSaving.has(k) || !scoringOn()) return;
+  const round=Number(el.dataset.round), ci=COURTS.indexOf(el.dataset.court), r=session.rounds[round-1], m=r && r.matches[ci];
+  if (!m) return;
+  const draft=own(scoreDrafts,k) || {a:'',b:''};
+  const half=s=>String(s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).trim();
+  const a=half(draft.a), b=half(draft.b);
+  // 両方空で保存すると、入っていた点数を消す
+  const problem=a==='' && b==='' ? (own(scoreState.scores,k) ? '' : '点数を入れてください。')
+    : !/^\d{1,2}$/.test(a) || !/^\d{1,2}$/.test(b) || Number(a)>30 || Number(b)>30 ? '点数は0〜30の数字で入れてください。'
+    : Number(a)===Number(b) ? '同点は保存できません。' : '';
+  if (problem) { scoreErrors[k]=problem; paintScoreRow(el,true); return; }
+  const st=scoreState, owner=session;
+  scoreSaving.add(k); delete scoreErrors[k]; paintScoreRow(el,true);
+  try {
+    const res=await scoreRequest('POST',{action:'score',sid:owner.scoreId,round,court:el.dataset.court,a:sideNames(owner,m[0]),b:sideNames(owner,m[1]),
+      scoreA:a==='' ? '' : Number(a),scoreB:b==='' ? '' : Number(b)});
+    if (scoreState!==st) return;
+    // 返ってくるのはこの表の点数すべて（ほかの人が入れた分も一緒に新しくなる）。版は読み込みのときだけ進める
+    st.scores=Object.fromEntries((Array.isArray(res.matches) ? res.matches : []).map(x=>[x.round+x.court,[x.scoreA,x.scoreB]]));
+    st.checkedAt=Date.now(); delete scoreDrafts[k]; scoreEditing.delete(k);
+  } catch(e) {
+    if (scoreState!==st) return;
+    scoreErrors[k]=e.code==='stale' ? '対戦表が作り直されています。最新の表で入れ直してください。'
+      : e.code==='network' ? '送信できませんでした。電波の良い所でもう一度「保存」を押してください。' : e.message;
+    if (e.code==='stale' || e.code==='not_found') syncScores();
+  } finally { scoreSaving.delete(k); }
+  const now=document.querySelector(`.score-row[data-key="${k}"]`);
+  if (now) paintScoreRow(now,true);
+  paintScoreBar(); paintScores();
+}
+// --- 名簿から選ぶ（シングルス: 番号は作成時にランダム／固定ペア: 大会ペアは自動、残りはタップした順に2人ずつ） ---
 const maxPicks = mode => mode === 'pairs' ? 24 : 12;
+// 固定ペアの組み方：選んだ順に見て、大会ペアは2人そろった時点でペアにし、残りはタップした順に2人ずつ（臨時ペア）。
+// 練習期間が重なる大会で相方が2人いるときは大会日の早い方。大会の情報がなければ従来どおりタップ順だけ
+function planPairs(picks, tours) {
+  const slots=[], used=new Set(); let open=null;
+  const partnerOf=nm => {
+    for (const t of tours) for (const p of t.pairs) {
+      const i=p.names.findIndex(x=>canonName(x)===canonName(nm));
+      if (i<0) continue;
+      const partner=picks.find(x=>x!==nm && !used.has(x) && canonName(x)===canonName(p.names[1-i]));
+      if (partner) return {names:i===0 ? [nm,partner] : [partner,nm],tournament:t.name,category:p.category};
+    }
+    return null;
+  };
+  for (const nm of picks) {
+    if (used.has(nm)) continue;
+    const hit=partnerOf(nm);
+    if (hit) { hit.names.forEach(x=>used.add(x)); slots.push(hit); continue; }
+    used.add(nm);
+    if (open) { open.names.push(nm); open=null; } else { open={names:[nm]}; slots.push(open); }
+  }
+  return slots;
+}
 function renderRoster() {
-  const mode=$('mode').value, pairs=mode==='pairs';
+  const mode=$('mode').value, pairs=mode==='pairs', tours=pairs ? setupTours() : [];
+  const slots=pairs ? planPairs(rosterPicks,tours) : [];
   $('rosterChips').replaceChildren(...ROSTER.map(nm => {
     const b=document.createElement('button'); b.type='button'; b.dataset.name=nm;
     const i=rosterPicks.indexOf(nm);
     b.classList.toggle('selected',i>=0); b.setAttribute('aria-pressed',String(i>=0));
-    if (i>=0 && pairs) { const o=document.createElement('span'); o.className='order'; o.textContent=String(Math.floor(i/2)+1); b.append(o); }
+    if (i>=0 && pairs) { const o=document.createElement('span'); o.className='order'; o.textContent=String(slots.findIndex(s=>s.names.includes(nm))+1); b.append(o); }
     b.append(nm); b.onclick=()=>toggleRosterPick(nm); return b;
   }));
-  const n=rosterPicks.length;
+  const n=rosterPicks.length, waiting=slots.some(s=>s.names.length<2);
   $('playerCountRow').hidden=n>0;
   $('rosterInfo').textContent=!n ? '未選択（番号のみで作成します）'
-    : pairs ? `選択中: ${n}人${n%2 ? `（あと1人でペアになります）` : `＝${n/2}ペア`}。タップした順に2人ずつペアになり、その順にペア番号が付きます。`
+    : pairs ? `選択中: ${n}人${waiting ? `（あと1人でペアになります）` : `＝${slots.length}ペア`}。${tours.length ? '大会ペアは2人そろうと自動でペアになります。ほかの人は' : ''}タップした順に2人ずつペアになり、その順にペア番号が付きます。`
     : `選択中: ${n}人。番号は作成時にランダムで決まります。`;
   const list=$('pairPreview');
   list.hidden=!(pairs && n);
-  list.replaceChildren();
-  if (pairs) for (let i=0;i<n;i+=2) {
+  list.replaceChildren(...slots.map((s,i)=>{
     const li=document.createElement('li');
-    li.textContent=`${i/2+1}番ペア：${rosterPicks[i]}・${rosterPicks[i+1] || '（あと1人）'}`;
-    if (!rosterPicks[i+1]) li.className='pending';
-    list.append(li);
-  }
+    li.textContent=`${i+1}番ペア：${s.names[0]}・${s.names[1] || '（あと1人）'}`;
+    if (s.names.length<2) li.className='pending';
+    else if (tours.length) {
+      const kind=document.createElement('span'); kind.className='kind';
+      kind.textContent=s.tournament ? `（🏆 ${tours.length>1 ? s.tournament+' ' : ''}${s.category || '大会ペア'}）` : '（臨時）';
+      li.append(' ',kind);
+    }
+    return li;
+  }));
+  renderTourBox(slots);
+  $('scoringRow').hidden=!(scoreApi() && pairs && n);
+  if (!scoringTouched) $('scoring').checked=tours.length>0;
   updateInfo();
 }
 function toggleRosterPick(nm) {
@@ -799,7 +1117,9 @@ function toggleRosterPick(nm) {
 // 名簿から選んでいるときの番号数（固定ペアで人数が奇数なら null＝まだ作れない）
 function rosterCount(mode) {
   if (!rosterPicks.length) return undefined;
-  return mode==='pairs' ? (rosterPicks.length%2 ? null : rosterPicks.length/2) : rosterPicks.length;
+  if (mode!=='pairs') return rosterPicks.length;
+  const slots=planPairs(rosterPicks,setupTours());
+  return slots.some(s=>s.names.length<2) ? null : slots.length;
 }
 function updateInfo() {
   const mode=$('mode').value, courts=Number($('courtCount').value), fromRoster=rosterCount(mode);
@@ -821,9 +1141,10 @@ function inputConfig() {
   if (date) config.practiceDate=date;
   if (fromRoster!==undefined) {
     const names={};
-    if (mode==='pairs') config.players.forEach(p => names[p]=[rosterPicks[2*p-2],rosterPicks[2*p-1]]);
+    if (mode==='pairs') planPairs(rosterPicks,setupTours()).forEach((s,i) => names[i+1]=s.names.slice());
     else shuffled(rosterPicks).forEach((nm,i) => names[i+1]=nm);
     config.names=names;
+    if (mode==='pairs' && scoreApi() && $('scoring').checked) config.scoring=true;
   }
   config.forced=resolveForcedNames(parseForced($('forcedRests').value),config.names,mode);
   return config;
@@ -833,9 +1154,11 @@ function generate() {
     const config=inputConfig();
     checkConfig(config); checkForced(config);
     if (session && !confirm('表示中の対戦表を作り直しますか？')) return;
+    // 点数を記録する表は新しい表IDでスプシに登録する（前の表と点数は混ざらない）
+    if (config.scoring) config.scoreId=randomId('T');
     const next=buildSession(config);
     session=next; if (next.practiceDate) $('practiceDate').value=next.practiceDate; practiceDateTouched=false;
-    notify('対戦表を作成しました。'); persist(); render();
+    notify('対戦表を作成しました。'); persist(); registerScores(); render();
   } catch(e) { notify(e.message); }
 }
 function applyChange() {
@@ -845,7 +1168,7 @@ function applyChange() {
     const players=[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value));
     const next=buildSession({...session,players,courts:Number($('changeCourts').value)},session.rounds.slice(0,consumed));
     if (!confirm(`第${consumed+1}節以降を作り直しますか？`)) return;
-    session=next; notify(`第${consumed}節までを残して更新しました。`); persist(); render();
+    session=next; notify(`第${consumed}節までを残して更新しました。`); persist(); registerScores(); render();
   } catch(e) { notify(e.message); }
 }
 function speechText(r) {
@@ -996,7 +1319,8 @@ function render() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   $('results').replaceChildren(); $('summary').replaceChildren();
   $('summary').hidden=!session; $('changePanel').hidden=!session || viewerMode; $('setup').hidden=viewerMode;
-  if (!session) return;
+  ensureScoreState();
+  if (!session) { updateScoreSync(); return; }
   const title=document.createElement('h2');
   title.textContent=`${session.mode==='pairs' ? '固定ペア番号' : 'シングルス'} ／ ${session.totalRounds}節${viewerMode ? '（閲覧用）' : ''}`;
   $('summary').append(title);
@@ -1023,6 +1347,8 @@ function render() {
   if (!viewerMode) actions.append(button('消去して最初から',clearSession));
   else actions.append(button('自分の対戦表を作る',()=>{ location.hash=''; location.reload(); }));
   $('summary').append(actions);
+  // 点数の記録（固定ペア＋名簿の表だけ。共有リンクの人には記録中のときだけ出す）
+  if (session.mode==='pairs' && session.names && scoreApi() && (!viewerMode || scoringOn())) $('summary').append(scoreBar());
   const preview=document.createElement('div'); preview.id='imagePreview'; preview.className='image-preview'; $('summary').append(preview);
   if (!viewerMode) {
     $('consumedRound').replaceChildren(...sequence(session.totalRounds-1).map(n=>new Option(`第${n}節まで`,n)));
@@ -1051,6 +1377,11 @@ function render() {
       const match=document.createElement('div'); match.className='match';
       match.append(span('',label(m[0],session.mode)),span('vs','vs'),span('',label(m[1],session.mode)));
       row.append(span('court-label',COURTS[i]),match); card.append(row);
+      if (scoringOn()) {
+        const score=document.createElement('div'); score.className='score-row'; row.classList.add('has-score');
+        Object.assign(score.dataset,{key:r.round+COURTS[i],round:r.round,court:COURTS[i],a:label(m[0],session.mode),b:label(m[1],session.mode)});
+        card.append(score); paintScoreRow(score,true);
+      }
     });
     const rest=document.createElement('div'); rest.className='rest';
     rest.textContent='休み：';
@@ -1061,6 +1392,7 @@ function render() {
     });
     card.append(rest); $('results').append(card); previous=r;
   }
+  paintScoreBar(); updateScoreSync();
 }
 // Restore the settings the table was created with (as before reloading), not those after later changes.
 function restoreInputs() {
@@ -1083,7 +1415,10 @@ function init() {
   window.addEventListener('hashchange',()=>location.reload());
   $('playerCount').replaceChildren(...sequence(12).slice(1).map(n=>new Option(`${n}人`,n))); $('playerCount').value='12';
   ['courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));
-  $('mode').addEventListener('change',renderRoster);
+  $('mode').addEventListener('change',()=>{ renderRoster(); loadTournaments(); });
+  $('scoring').onchange=()=>{ scoringTouched=true; };
+  // 画面に戻ってきたら、ほかの人が入れた点数をすぐ読む（隠れている間は読まない）
+  document.addEventListener('visibilitychange',()=>{ if (!document.hidden) syncScores(); });
   $('rosterClear').onclick=()=>{ rosterPicks=[]; renderRoster(); };
   $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; renderRoster();
   if (location.hash) {
@@ -1102,6 +1437,7 @@ function init() {
   try {
     if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); render(); notify('前回保存した対戦表を復元しました。'); }
   } catch { notify('前回のデータを復元できませんでした。新しい対戦表を作成できます。'); }
+  loadTournaments();
 }
 // Startup is kept separate so Node tests exercise the exact production functions.
 init();

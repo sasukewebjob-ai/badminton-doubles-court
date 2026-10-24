@@ -47,4 +47,26 @@ function launchOptions(extra) {
   return opts;
 }
 
+// テストが本番のスプシ（大会練習の点数・GAS）に書き込まないよう、Google の窓口への通信は止める（2026-10-24）。
+// 公開ページの固定ペア版は script.google.com に表を登録するため、本番URLで流すテストでも必ず止まるよう
+// ここで newContext / newPage を包む。点数のテストは window.SCORE_API_URL で偽の窓口（gas.test）を使う
+const GAS_URL_PATTERN = 'https://script.google.com/**';
+const realLaunch = chromium.launch.bind(chromium);
+chromium.launch = async (...args) => {
+  const browser = await realLaunch(...args);
+  const realNewContext = browser.newContext.bind(browser);
+  browser.newContext = async (...a) => {
+    const context = await realNewContext(...a);
+    await context.route(GAS_URL_PATTERN, route => route.abort());
+    return context;
+  };
+  browser.newPage = async (...a) => {
+    const context = await browser.newContext(...a);
+    const page = await context.newPage();
+    page.on('close', () => { context.close().catch(() => {}); });
+    return page;
+  };
+  return browser;
+};
+
 module.exports = { chromium, launchOptions };

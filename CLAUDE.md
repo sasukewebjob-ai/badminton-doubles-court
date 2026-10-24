@@ -55,6 +55,11 @@
 - `test_26players.js` … 26人対応のブラウザ検証（Playwright、375px幅・dpr3。上限セレクト・生成・公平性・画像保存・27人目拒否）
 - `test_forced_rest.js` … 休み指定のブラウザ検証（Playwright、375px幅。UI・名前→番号変換・バリデーション・復元・メンバー変更・画像・共有）
 - `test_improve_2026_10_22_browser.js` … 2026-10-22の改善のブラウザ検証（Playwright、375px幅。練習日の持ち越し・消化済みの初期値・来た帰る・作り直し後の案内・上の画像ボタン・iPhoneの共有・名前の改行・シングルス版の読み上げ速度。`AUDIT_BASE_URL` で本番も検証可）
+- `gas/` … 大会練習の成績のスプシ用 Google Apps Script（`core.js`＝計算、`main.js`＝Webアプリの窓口とシート、`appsscript.json`。`secret.js`＝管理用の鍵で git に入れない）。`.clasp.json` で teamkalidia のスクリプトに `clasp --user kalidia push`（2026-10-24追加）
+- `gas_admin.js` … 本番のスプシの準備と確認（`setup`・`pairs`＝大会ペアの入れ替え・`e2e`＝本番確認・`dump`）。Webアプリへの通信はユーザーが `! node gas_admin.js …` で実行する
+- `gas_mock.js` … GAS を Node で動かす簡易モック（`test_gas_main.js` と `test_singles_score_browser.js` が共用）
+- `test_gas_core.js` / `test_gas_main.js` … GAS の計算・窓口のテスト（`npm test`）
+- `test_singles_score.js` / `test_singles_score_browser.js` … 固定ペア版の点数のテスト（計算は `npm test`、画面はブラウザ一括。画面は本物の GAS のコードを偽の窓口として動かす。`AUDIT_BASE_URL` で本番のページも検証可）
 
 ## 公開URL
 - https://sasukewebjob-ai.github.io/badminton-doubles-court/
@@ -188,3 +193,14 @@
 - 検証：`test_improve_2026_10_22_browser.js` 63項目（練習日の持ち越し・手で選んだ日付・先の日付・消去・古いデータ／シングルス版の同じ確認と読み上げ速度／消化済みの初期値・ボタン文言・名簿順のチップ・alertなし・案内と移動・2回目の変更／番号のみモード／上の画像ボタンの位置・プレビューの位置・閉じる・15節の2枚・印刷・閲覧モード／iPhoneの共有シート／種目別と26人で途中改行0）。既存テストの直しは1件のみ：`test_names.js` が「帰る人のチップの先頭が1番」を前提にしていたため、全チップが「番号 名前」で1番を含むかの判定に変えた（並び順の仕様変更によるもので、アプリの欠陥ではない）。`npm test`・`npm run test:stress`・ブラウザ一括19ファイルはすべて合格。
 - 公開（commit `471c4f8`）：GitHub Actions の障害（Incident with Actions Results）で、Pages の公開処理が約11分順番待ちになったが、こちらの不具合ではない。公開後に本番で `AUDIT_BASE_URL` を指定して `test_improve_2026_10_22_browser.js` を流し65項目すべて合格（本番の index.html・singles.html がローカルと一致することを含む）。`test_practice_date_browser.js` も3種目とも合格。
 - `check_deploy.js` の新版判定を修正：`ROSTER.length === 26` を目印にしていたため、名簿が27人になった10/14以降はどの版でもNGになっていた（今回の変更とは無関係の古い判定）。名簿の人数では判定せず、最新版の目印に `updateChangeButton` を加えた。修正後、本番で6項目すべて合格。
+
+## 2026-10-24：大会練習の点数・成績集計（固定ペア版＋スプシ）
+
+大会前の練習（大会日の3週前の日曜〜前日、1大会3〜6回）で、大会ペアの勝率をスプシで比べたいという要望。参加回数がペアごとに違うので勝率で見る。勝敗表はアプリに出さず、スプシだけで見る（ユーザー回答）。
+
+- **スプシ**：teamkalidia の「KALIDIA 大会練習 成績」。シートは 成績（大会を選ぶと勝率順・最低試合数）／大会（大会日を入れると練習期間が自動）／ペア（大会ペア。名簿のプルダウン）／試合（アプリが書く。幹事が「除外」にすると数えない）／記録（入力・訂正の履歴）。隠しシートに ペア成績・対戦表・名簿。
+- **数え方**：「ペア＋日付」で判定する。練習期間内なら、別の表・別のコート・別の端末の試合もまとまる（コートを分けて回す日は、グループごとに別の表を作ればよい）。大会ペア同士は両方を数え、大会ペアと臨時ペアの試合は大会ペアの側だけ数え、臨時同士は数えない。途中変更で組み直した試合は「作り直し前」になる。点数が入っていれば実際の試合として数え、入っていなければ数えない。
+- **アプリ（singles.html 固定ペア番号＋名簿）**：練習日が大会の練習期間なら、名簿の上に大会と大会ペアを出す。大会ペアは2人とも選ぶと自動でペアになり、残りはタップ順に臨時ペアになる。練習期間が重なる大会で相方が2人いるときは、大会日の早い方を使う。「点数を記録する」は練習期間ならオンで始まる。オフの表はスプシに何も送らず、従来どおりの表になる。作った後でも幹事の端末で切り替えられる（ユーザー選択）。各試合の下に点数欄を常に出す。保存すると「21 - 18 ✓」［直す］になる。共有リンクを開いた人も入力できる。画面を開いている間は30秒ごと、または🔄で最新になり、幹事が作り直すと閲覧者の表も最新になる。画像と読み上げは変えていない。
+- **通信の仕組み**：表ID（`scoreId`）は共有リンクに入れ、作り直しの鍵（hostKey）は作った端末の localStorage（`badminton-singles-score-keys-v1`）にだけ置く。通信先は公開ページ（sasukewebjob-ai.github.io）のときだけ使う。手元のファイルでは通信しない。テストは `window.SCORE_API_URL` で偽の窓口を使う。`pw.js` はテスト中の `script.google.com` への通信を止めるので、本番URLでテストを流しても本物のスプシに書き込まない。
+- **GAS の注意**：GET の URL に `c`・`sid` は使えない。Google の予約語で、スクリプトに届く前に400「ファイルを開くことができません」になる（本番確認で発覚）。表IDは GET では `id`、POST の本文では `sid`。GAS を直したら `clasp --user kalidia push -f` → `create-version` → `update-deployment <デプロイID> -V <版>`。
+- 確認：`test_gas_core.js` 13項目、`test_gas_main.js` 17項目、`test_singles_score.js` 8項目、`test_singles_score_browser.js` 55項目、本番のスプシで `node gas_admin.js e2e` 20項目（成績シートの数式・並び順・練習期間の表示まで）。
