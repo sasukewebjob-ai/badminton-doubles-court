@@ -51,17 +51,19 @@ const http=require('http');
     await page.locator('#memberChips input[value="12"]').uncheck();
     await page.selectOption('#changeCourts','3'); await page.click('#changeBtn');
     const changed=await page.evaluate(()=>session);
-    check(await page.inputValue('#consumedRound')==='2','completed round retained after edit');
+    // 終了した節は毎回「選んでください」から（2026-10-24。ダブルス版と同じ。選ぶまで作り直せない）
+    check(await page.inputValue('#consumedRound')==='' && await page.isDisabled('#changeBtn'),'作り直したあとは終了した節を選び直す');
     check(JSON.stringify(changed.rounds.slice(0,2))===JSON.stringify(JSON.parse(valid).rounds.slice(0,2)),'終了節を維持');
     check(changed.rounds.slice(2).every(r=>r.courts===3 && !r.players.includes(12)),'途中変更反映');
     check(await page.locator('.change-note').count()===1,'変更位置表示');
     await page.reload(); check(await page.evaluate(()=>JSON.stringify(session))===JSON.stringify(changed),'途中変更後の復元');
-    check(await page.inputValue('#consumedRound')==='2','completed round retained after reload');
+    check(await page.inputValue('#consumedRound')==='' && await page.isDisabled('#changeBtn'),'再読み込みしても終了した節は「選んでください」');
     await page.locator('#changePanel summary').click(); await page.selectOption('#consumedRound','29');
+    check(!(await page.isDisabled('#changeBtn')),'終了した節を選ぶと作り直せる');
     await page.locator('#memberChips input[value="12"]').check(); await page.selectOption('#changeCourts','4'); await page.click('#changeBtn');
     check(await page.locator('.round-card').count()===30,'最終節変更で全節維持');
     check(await page.evaluate(()=>session.rounds[29].players.includes(12)),'復帰反映');
-    check(await page.inputValue('#consumedRound')==='29','completed round retained after repeated edit');
+    check(await page.inputValue('#consumedRound')==='','2回目の作り直しのあとも「選んでください」');
     for(const width of [320,375,600]) {
       await page.setViewportSize({width,height:812});
       check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${width}pxではみ出しなし`);
@@ -125,7 +127,7 @@ const http=require('http');
     await page.evaluate(data=>{const old=JSON.parse(data);delete old.completedThrough;localStorage.setItem(STORAGE_KEY,JSON.stringify(old));},stored);
     await page.reload();
     check(await page.locator('.round-card').count()===30,'legacy data restores');
-    check(await page.inputValue('#consumedRound')==='29','legacy data selects latest member-change boundary');
+    check(await page.inputValue('#consumedRound')==='','古いデータでも終了した節は「選んでください」から');
     // Storage quota errors retain the generated result and report failed saving.
     const savedBeforeFailure=await page.evaluate(()=>localStorage.getItem(STORAGE_KEY));
     await page.evaluate(()=>{Storage.prototype.setItem=function(){throw new DOMException('full','QuotaExceededError');};});
