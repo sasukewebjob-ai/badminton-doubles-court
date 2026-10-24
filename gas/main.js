@@ -189,7 +189,7 @@ function dump_(p) {
 // 確認用：成績シートの大会・最低試合数を切り替えて計算結果を返す
 function view_(p) {
   const sh = sheet_(SHEETS.view);
-  if (p.tournament !== undefined) sh.getRange(1, 2).setValue(p.tournament);
+  if (p.tournament !== undefined) sh.getRange(1, 2).setValue(CORE.cellText(p.tournament));
   if (p.min !== undefined) sh.getRange(1, 5).setValue(p.min);
   SpreadsheetApp.flush();
   const last = Math.max(sh.getLastRow(), 5);
@@ -211,14 +211,15 @@ function dropRows_(name, col, pred) {
 function deleteRows_(p) {
   const removed = {};
   const drop = (name, col, pred) => { removed[name] = dropRows_(name, col, pred); };
-  const sids = p.sids || [];
+  // 文字列を渡すと indexOf が部分一致になり関係ない行まで消えるので、配列の表IDだけを受け付ける
+  const sids = Array.isArray(p.sids) ? p.sids.filter(CORE.isId) : [];
   if (sids.length) {
     drop(SHEETS.matches, COL.sid, v => sids.indexOf(v) >= 0);
     drop(SHEETS.tables, 1, v => sids.indexOf(v) >= 0);
     drop(SHEETS.log, 2, v => sids.indexOf(v) >= 0);
     sids.forEach(invalidate_);
   }
-  const tours = p.tournaments || [];
+  const tours = Array.isArray(p.tournaments) ? p.tournaments.filter(t => typeof t === 'string' && t.trim()) : [];
   if (tours.length) {
     drop(SHEETS.tournaments, 1, v => tours.indexOf(v) >= 0);
     drop(SHEETS.pairs, 1, v => tours.indexOf(v) >= 0);
@@ -253,11 +254,10 @@ function setup_(p) {
   tours.getRange(1, 3).setNote('空欄なら「大会日の3週前の日曜日」が自動で入ります。日付を手で入れると、その日からになります。');
   tours.getRange(1, 4).setNote('空欄なら「大会の前日」が自動で入ります。');
   const matches = sheet_(SHEETS.matches);
-  matches.getRange(2, COL.date, matches.getMaxRows() - 1, 1).setNumberFormat('yyyy/mm/dd (ddd)');
-  matches.getRange(2, COL.at, matches.getMaxRows() - 1, 1).setNumberFormat('yyyy/mm/dd hh:mm');
+  applyFormats_(matches);
   matches.getRange(1, COL.state).setNote('アプリが自動で入れます。成績から外したい試合は「除外」にしてください。');
   matches.getRange(1, COL.table).setNote('「作り直し前」は途中変更で組み直された試合です。点数が入っていれば実際に試合した結果として成績に入ります。');
-  sheet_(SHEETS.log).getRange(2, 1, sheet_(SHEETS.log).getMaxRows() - 1, 1).setNumberFormat('yyyy/mm/dd hh:mm:ss');
+  applyFormats_(sheet_(SHEETS.log));
 
   if (p.roster) writeRoster_(CORE.mergeRoster(readRoster_(), p.roster));
   if (p.tournaments && sheet_(SHEETS.tournaments).getLastRow() < 2) addTournaments_(p.tournaments);
@@ -370,7 +370,7 @@ function recomputeStats_() {
   const view = book_().getSheetByName(SHEETS.view);
   if (view) {
     const current = String(view.getRange(1, 2).getValue()).trim();
-    if (!tours.some(t => t.name === current)) view.getRange(1, 2).setValue(CORE.defaultTournament(tours, todayYmd_()));
+    if (!tours.some(t => t.name === current)) view.getRange(1, 2).setValue(CORE.cellText(CORE.defaultTournament(tours, todayYmd_())));
   }
 }
 
@@ -383,8 +383,23 @@ function sheet_(name) {
   return sh;
 }
 
+// 新しいシートは1000行で、getRange は最大行を超えると例外になる（appendRow と違って行は自動で増えない）。
+// 足りなければまとめて増やす（2026-10-24。記録シートは点数を保存するたびに1行増え、練習20回前後で満杯になっていた）
 function appendRows_(sh, rows) {
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  const start = sh.getLastRow() + 1, short = start + rows.length - 1 - sh.getMaxRows();
+  if (short > 0) {
+    sh.insertRowsAfter(sh.getMaxRows(), short + 500);
+    applyFormats_(sh);
+  }
+  sh.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+// 日付の表示形式（準備のときと、行を増やしたときに付ける）
+function applyFormats_(sh) {
+  const name = sh.getName();
+  const formats = name === SHEETS.matches ? [[COL.date, 'yyyy/mm/dd (ddd)'], [COL.at, 'yyyy/mm/dd hh:mm']]
+    : name === SHEETS.log ? [[1, 'yyyy/mm/dd hh:mm:ss']] : [];
+  formats.forEach(([col, format]) => sh.getRange(2, col, sh.getMaxRows() - 1, 1).setNumberFormat(format));
 }
 
 function findRow_(sh, col, text) {
@@ -451,7 +466,8 @@ function snapshot_(sid, fresh) {
       version: Number(v[4]) || 0, date: ymd_(v[1]), data: String(v[6]),
       matches: sidMatches_(sheet_(SHEETS.matches), sid)
         .filter(m => m.table !== CORE.TABLE_PREV && m.scoreA !== null && m.scoreB !== null)
-        .map(m => ({ round: m.round, court: m.court, scoreA: m.scoreA, scoreB: m.scoreB })),
+        // 対戦の顔ぶれも返す。アプリは自分の表と同じ対戦の点数だけを出す（作り直しの登録が届く前の古い点数を別の対戦に出さない）
+        .map(m => ({ round: m.round, court: m.court, a: m.a, b: m.b, scoreA: m.scoreA, scoreB: m.scoreB })),
     };
   }
   try { cache.put('s:' + sid, JSON.stringify(snap), CACHE_SECONDS); } catch (e) { /* 大きすぎる表はキャッシュしないだけ */ }
@@ -518,21 +534,25 @@ function onOpen() {
     .addToUi();
 }
 
-function menuRecompute() { recomputeStats_(); }
-function menuSetup() { setup_({}); }
+// メニューや手での編集からの再計算も、アプリからの書き込みと同じロックの中で行う
+// （ロックの外だと、点数の保存と前後したときに古い内容で成績を上書きすることがある）
+function menuRecompute() { withLock_(() => recomputeStats_()); }
+function menuSetup() { withLock_(() => setup_({})); }
 
 // 大会・ペア・試合を手で直したら成績を計算し直す（シンプルトリガー）
 function onEdit(e) {
   const name = e && e.range ? e.range.getSheet().getName() : '';
   if ([SHEETS.tournaments, SHEETS.pairs, SHEETS.matches].indexOf(name) < 0) return;
   try {
-    if (name === SHEETS.tournaments) ensureTournamentFormulas_();
-    if (name === SHEETS.matches) {
-      const sh = e.range.getSheet();
-      const first = Math.max(e.range.getRow(), 2), last = e.range.getRow() + e.range.getNumRows() - 1;
-      if (last >= first) sh.getRange(first, COL.sid, last - first + 1, 1).getValues().forEach(v => invalidate_(String(v[0]).trim()));
-    }
-    recomputeStats_();
+    withLock_(() => {
+      if (name === SHEETS.tournaments) ensureTournamentFormulas_();
+      if (name === SHEETS.matches) {
+        const sh = e.range.getSheet();
+        const first = Math.max(e.range.getRow(), 2), last = e.range.getRow() + e.range.getNumRows() - 1;
+        if (last >= first) sh.getRange(first, COL.sid, last - first + 1, 1).getValues().forEach(v => invalidate_(String(v[0]).trim()));
+      }
+      recomputeStats_();
+    });
   } catch (err) {
     console.error(err && err.stack ? err.stack : err);
   }

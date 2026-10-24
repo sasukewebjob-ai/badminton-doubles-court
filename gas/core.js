@@ -86,7 +86,8 @@ const CORE = (() => {
     return !r.clear && !r.error;
   }
 
-  const validName = s => typeof s === 'string' && s.trim().length >= 1 && s.trim().length <= MAX_NAME;
+  // 長さは空白込みで見る（シートには送られたまま書くので、前後の空白で上限をすり抜けられないように）
+  const validName = s => typeof s === 'string' && s.trim().length >= 1 && s.length <= MAX_NAME;
   const validSide = side => Array.isArray(side) && (side.length === 1 || side.length === 2) && side.every(validName);
   const isId = s => typeof s === 'string' && ID_RE.test(s);
 

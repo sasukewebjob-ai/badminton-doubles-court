@@ -53,12 +53,13 @@ class Range {
 for (const m of ['setNumberFormat', 'setNote', 'setFontWeight', 'setBackground', 'setFontColor']) Range.prototype[m] = function () { return this; };
 
 class Sheet {
-  constructor(name) { this.name = name; this.cells = new Map(); this.validations = []; this.hidden = false; this.protections = []; }
+  constructor(name) { this.name = name; this.cells = new Map(); this.validations = []; this.hidden = false; this.protections = []; this.maxRows = 1000; }
   key(r, c) { return r + ',' + c; }
   value(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.v : ''; }
   formula(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.f : ''; }
   // 本物と同じく、= で始まる文字は数式、先頭の ' は「文字として扱う」印で値には残らない
   put(r, c, v) {
+    assert.ok(!(typeof v === 'string' && v.length > 50000), `${this.name} ${r}行${c}列: 1つのセルは5万字まで`);
     if (typeof v === 'string' && v.startsWith("'")) this.cells.set(this.key(r, c), { v: v.slice(1), f: '' });
     else if (typeof v === 'string' && v.startsWith('=')) this.cells.set(this.key(r, c), { v: '', f: v });
     else if (v === '' || v === null) this.cells.delete(this.key(r, c));
@@ -68,11 +69,24 @@ class Sheet {
   setName(n) { this.name = n; return this; }
   getLastRow() { let m = 0; for (const [k, cell] of this.cells) if (cell.v !== '' || cell.f) m = Math.max(m, Number(k.split(',')[0])); return m; }
   getLastColumn() { let m = 0; for (const [k, cell] of this.cells) if (cell.v !== '' || cell.f) m = Math.max(m, Number(k.split(',')[1])); return m; }
-  getMaxRows() { return 1000; }
+  // 本物と同じく、新しいシートは1000行。最大行を超える範囲は例外（appendRow と違って自動では増えない）。
+  // 行を消すと最大行も減り、insertRowsAfter で増える
+  getMaxRows() { return this.maxRows; }
   getRange(a, b, c, d) {
-    if (typeof a === 'string') { const m = a.match(/^([A-Z]+)(\d+):([A-Z]+)$/); return new Range(this, Number(m[2]), colOf(m[1]), 999, colOf(m[3]) - colOf(m[1]) + 1); }
+    if (typeof a === 'string') { const m = a.match(/^([A-Z]+)(\d+):([A-Z]+)$/); return new Range(this, Number(m[2]), colOf(m[1]), this.maxRows - Number(m[2]) + 1, colOf(m[3]) - colOf(m[1]) + 1); }
     assert.ok(a >= 1 && b >= 1 && (c === undefined || c >= 1) && (d === undefined || d >= 1), `getRange(${a},${b},${c},${d}) は範囲外`);
+    assert.ok(a + (c || 1) - 1 <= this.maxRows, `${this.name}: getRange(${a},${b},${c},${d}) は最大行${this.maxRows}を超える`);
     return new Range(this, a, b, c || 1, d || 1);
+  }
+  insertRowsAfter(after, n) {
+    const next = new Map();
+    for (const [k, cell] of this.cells) {
+      const [row, col] = k.split(',').map(Number);
+      next.set(row > after ? this.key(row + n, col) : k, cell);
+    }
+    this.cells = next;
+    this.maxRows += n;
+    return this;
   }
   deleteRow(r) {
     const next = new Map();
@@ -81,6 +95,7 @@ class Sheet {
       if (row < r) next.set(k, cell); else if (row > r) next.set(this.key(row - 1, col), cell);
     }
     this.cells = next;
+    this.maxRows--;
   }
   setFrozenRows() { return this; }
   setColumnWidth() { return this; }

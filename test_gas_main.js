@@ -90,7 +90,7 @@ test('対戦表の登録 → 取得（版・共有データ・点数なし）', 
 test('点数の入力 → 全員に返る・成績と記録に入る', () => {
   const r = score(1, 'A', OHARA, KOSHINO, 21, 18);
   assert.ok(r.ok, JSON.stringify(r));
-  assert.deepEqual(r.matches, [{ round: 1, court: 'A', scoreA: 21, scoreB: 18 }]);
+  assert.deepEqual(r.matches, [{ round: 1, court: 'A', a: OHARA, b: KOSHINO, scoreA: 21, scoreB: 18 }], '対戦の顔ぶれも返す（アプリが別の対戦の点数を出さないため）');
   assert.deepEqual(get({ action: 'get', id: SID }).matches, r.matches, '別の人の取得にも出る');
   score(1, 'B', KARA, TEMP, 21, 10); // 大会ペア vs 臨時ペア
   score(2, 'B', ['善志', '越野'], TEMP, 15, 21); // 名前の並び順が違っても同じ試合
@@ -138,7 +138,7 @@ test('途中変更の作り直し：同じ対戦は点数ごと残す・変わ�
   assert.deepEqual(r, { ok: true, version: 2 });
   const g = get({ action: 'get', id: SID, since: '1' });
   assert.equal(g.data, 'eyJ2IjoxfQ==', '版が上がったので共有データを送る');
-  assert.deepEqual(g.matches, [{ round: 1, court: 'A', scoreA: 21, scoreB: 18 }, { round: 1, court: 'B', scoreA: 10, scoreB: 21 }], '入れ替えた試合は点数も入れ替わる');
+  assert.deepEqual(g.matches, [{ round: 1, court: 'A', a: OHARA, b: KOSHINO, scoreA: 21, scoreB: 18 }, { round: 1, court: 'B', a: TEMP, b: KARA, scoreA: 10, scoreB: 21 }], '入れ替えた試合は点数も入れ替わる');
   const all = rows('試合');
   assert.equal(all.length, 6);
   assert.deepEqual(all.filter(x => x[11] === '作り直し前').map(x => x[2] + x[3]), ['2A', '2B']);
@@ -222,6 +222,58 @@ test('後片付け（テストの表・大会を消す）', () => {
   assert.ok(!rows('対戦表').some(x => x[0] === SID));
   assert.ok(!rows('大会').some(x => x[0] === '伊那市長杯'));
   assert.equal(get({ action: 'get', id: SID }).code, 'not_found', 'キャッシュも消える');
+});
+
+// 2026-10-24 再確認で見つかった不具合の回帰テスト（別の実行環境で、ほかのテストの状態に影響しないように）
+test('シートが1000行に達しても、点数の保存・登録が続けられる（行を自動で増やす）', () => {
+  const c = makeContext();
+  const p = body => JSON.parse(c.doPost({ postData: { contents: JSON.stringify(body) } }).content);
+  assert.ok(p({ action: 'admin', key: c.ADMIN_KEY, op: 'setup', tournaments: [{ name: '岡谷連盟杯', date: '2026-11-03' }] }).ok);
+  const log = c.book.getSheetByName('記録'), matches = c.book.getSheetByName('試合');
+  // 記録シートを最後の1行手前まで埋めておく（実際は点数を保存するたびに1行ずつ増える）
+  log.getRange(2, 1, 997, 6).setValues(Array.from({ length: 997 }, (_, i) => [new Date(), 'Old' + i, 1, 'A', '入力', '-']));
+  matches.getRange(2, 1, 998, 13).setValues(Array.from({ length: 998 }, (_, i) => ['', 'OldTable' + i, 1, 'A', '', '', '', '', '', '', '未入力', '', '']));
+  const sid = 'RowLimit0000000000000', key = 'RowLimitKey0000000000';
+  const reg = p({ action: 'register', sid, hostKey: key, date: '2026-10-25', data: 'eyJ2IjoxfQ==',
+    matches: [{ round: 1, court: 'A', a: OHARA, b: KOSHINO }, { round: 1, court: 'B', a: KARA, b: HOSOI }] });
+  assert.ok(reg.ok, JSON.stringify(reg));
+  assert.ok(matches.getMaxRows() > 1000, '試合シートの行が増える');
+  for (let i = 0; i < 5; i++) assert.ok(p({ action: 'score', sid, round: 1, court: 'A', a: OHARA, b: KOSHINO, scoreA: 21, scoreB: i }).ok);
+  assert.ok(log.getMaxRows() > 1000, '記録シートの行が増える');
+  assert.equal(log.getLastRow(), 1 + 997 + 1 + 5, '記録は登録1行＋保存5行');
+  assert.deepEqual(c.errors, []);
+});
+
+test('細かい入力の扱い（名前の長さ・大会名の数式・後片付けの指定）', () => {
+  const longName = ' '.repeat(40) + '原';
+  assert.match(score(1, 'A', [longName, '佐藤'], KOSHINO, 21, 18).error, /試合の指定/, '前後の空白で20字の上限をすり抜けない');
+  assert.match(post(table('2026-10-25', [{ round: 1, court: 'A', a: [longName], b: KOSHINO }])).error, /試合の一覧/);
+  const view = ctx.book.getSheetByName('成績');
+  admin('addTournaments', { tournaments: [{ name: '=1+1杯', date: '2027-01-10' }] });
+  admin('view', { tournament: '=1+1杯' });
+  assert.deepEqual([view.value(1, 2), view.formula(1, 2)], ['=1+1杯', ''], '大会名は数式にせず文字のまま');
+  admin('deleteRows', { tournaments: ['=1+1杯'] });
+  assert.ok(post(table('2026-10-25', firstMatches)).ok);
+  const before = rows('試合').length;
+  assert.ok(before > 0);
+  admin('deleteRows', { sids: 'a' });
+  admin('deleteRows', { sids: [''] });
+  assert.equal(rows('試合').length, before, '表IDを文字列や空で渡しても部分一致・空欄の行を消さない');
+  admin('deleteRows', { sids: [SID] });
+  assert.ok(!rows('試合').some(x => x[1] === SID));
+});
+
+test('手での編集・メニューからの再計算もロックの中で行う', () => {
+  const c = makeContext();
+  let locked = 0, held = false;
+  c.LockService.getScriptLock = () => ({ tryLock: () => { locked++; held = true; return true; }, releaseLock() { held = false; } });
+  assert.ok(JSON.parse(c.doPost({ postData: { contents: JSON.stringify({ action: 'admin', key: c.ADMIN_KEY, op: 'setup' }) } }).content).ok);
+  const sheet = c.book.getSheetByName('試合');
+  const before = locked;
+  c.onEdit({ range: sheet.getRange(2, 11) });
+  c.menuRecompute();
+  assert.equal(locked - before, 2);
+  assert.equal(held, false, '終わったらロックを放す');
 });
 
 test('サーバー側の想定外のエラーは中身を出さずに知らせる', () => {
