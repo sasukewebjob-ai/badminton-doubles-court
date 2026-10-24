@@ -117,17 +117,19 @@ async function e2e() {
     check((await s(SID1, 1, 'A', P.a, P.b, 21, 21)).error === '同点は保存できません。', '同点は拒否');
     const g = await call('GET', null, { action: 'get', id: SID1, since: 0 });
     check(g.ok && g.data === 'eyJlMmUiOjF9' && g.matches.length === 3, '表1の取得（共有データと点数3件）');
-    // 期待：A 3戦2勝(21-15,19-21,21-10) / C 2戦2勝(21-19,21-18) / B 2戦1勝(15-21,21-5)
+    // 期待：A 3戦2勝(21-15,19-21,21-10＝+6-2+11) / C 2戦2勝(21-19,21-18) / B 2戦1勝(15-21,21-5)
     const v = await admin('view', { tournament: T, min: 0 });
     const table = v.values.slice(4).filter(r => r[0] !== '');
     console.log(table.map(r => r.join(' | ')).join('\n'));
     check(table.length === 3, '成績シートに大会ペア3組（臨時ペアは出ない）');
     check(table[0][2] === '確認C1・確認C2' && table[0][3] === '2' && table[0][6] === '100.0%', '1位は勝率100%のC');
-    check(table[1][2] === '確認A1・確認A2' && table[1][3] === '3' && table[1][4] === '2' && table[1][6] === '66.7%' && table[1][9] === '17', '2位はA（3戦2勝・得失点+17）');
+    check(table[1][2] === '確認A1・確認A2' && table[1][3] === '3' && table[1][4] === '2' && table[1][6] === '66.7%' && table[1][9] === '15', '2位はA（3戦2勝・得失点+15）');
     check(table[2][2] === '確認B1・確認B2' && table[2][6] === '50.0%' && table[2][10] === '1', '3位はB（勝率50%・参加1日）');
     check(/練習期間 1\/9\(日\) 〜 1\/29\(土\)/.test(v.values[1][0]), '練習期間の表示: ' + v.values[1][0]);
     const v2 = await admin('view', { tournament: T, min: 3 });
-    check(v2.values[4][2] === '確認A1・確認A2' && v2.values[5][0] === '', '最低試合数3ならAだけ');
+    // 下の行は空だと返ってこないことがあるので、空でない行だけで比べる
+    const table2 = v2.values.slice(4).filter(r => r[0] !== '');
+    check(table2.length === 1 && table2[0][2] === '確認A1・確認A2', '最低試合数3ならAだけ: ' + table2.map(r => r[2]).join('、'));
   } finally {
     const r = await admin('deleteRows', { sids: [SID1, SID2], tournaments: [T] });
     await admin('view', { tournament: keepTournament, min: keepMin === '' ? 0 : Number(keepMin) });
