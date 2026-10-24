@@ -11,11 +11,21 @@ const path = require('path');
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwwYPljkI-6oMhpUZkCY3oohtZFEM6uxlMrtZUEAoq3AJS0zq3e0Nj31ZyMQshIsKM2Zw/exec';
 const ADMIN_KEY = fs.readFileSync(path.join(__dirname, 'gas/secret.js'), 'utf8').match(/ADMIN_KEY = '([^']+)'/)[1];
 
+// Googleが一時的にHTMLのエラーページを返すことがある。GETは3回まで試し、中身（状態・ページ名・本文）を出す
 async function call(method, body, params = {}) {
   const url = WEBAPP_URL + '?' + new URLSearchParams(params);
-  const res = await fetch(url, method === 'GET' ? {} : { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) });
-  const text = await res.text();
-  try { return JSON.parse(text); } catch (e) { throw new Error(`JSONでない応答（承認前の可能性）: ${text.slice(0, 200)}`); }
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(url, method === 'GET' ? {} : { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch (e) {
+      const title = (text.match(/<title>([^<]*)<\/title>/i) || [])[1] || '';
+      const plain = text.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const what = `JSONでない応答 ${res.status} ${new URL(res.url).host} ${method} ${params.action || body?.action}「${title}」${plain.slice(0, 300)}`;
+      if (method !== 'GET' || attempt >= 3) throw new Error(what);
+      console.log(`（${attempt}回目が失敗・再試行）${what}`);
+      await new Promise(r => setTimeout(r, 3000 * attempt));
+    }
+  }
 }
 const admin = (op, extra = {}) => call('POST', { action: 'admin', key: ADMIN_KEY, op, ...extra });
 
@@ -105,7 +115,7 @@ async function e2e() {
     const last = await s(SID2, 2, 'B', P.t, P.a, 10, 21);
     check(last.ok && last.matches.length === 2, '点数 表2の2B（返り値に表2の点数2件）');
     check((await s(SID1, 1, 'A', P.a, P.b, 21, 21)).error === '同点は保存できません。', '同点は拒否');
-    const g = await call('GET', null, { action: 'get', sid: SID1, since: 0 });
+    const g = await call('GET', null, { action: 'get', id: SID1, since: 0 });
     check(g.ok && g.data === 'eyJlMmUiOjF9' && g.matches.length === 3, '表1の取得（共有データと点数3件）');
     // 期待：A 3戦2勝(21-15,19-21,21-10) / C 2戦2勝(21-19,21-18) / B 2戦1勝(15-21,21-5)
     const v = await admin('view', { tournament: T, min: 0 });

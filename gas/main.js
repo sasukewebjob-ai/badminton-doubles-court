@@ -4,7 +4,8 @@
  *
  * 窓口（アプリの singles.html 固定ペア版から呼ぶ）
  *   GET  ?action=tournaments&date=YYYY-MM-DD … その日が練習期間の大会と大会ペア
- *   GET  ?action=get&sid=…&since=版          … 表の点数（版が新しければ共有データも）
+ *   GET  ?action=get&id=表ID&since=版        … 表の点数（版が新しければ共有データも）
+ *        ※ c・sid はGoogleの予約語でURLに使えない（400「ファイルを開くことができません」になる）
  *   POST {action:'register', …}               … 対戦表の登録・作り直し（作った端末の鍵が必要）
  *   POST {action:'score', …}                  … 点数の入力・消去（リンクを開いた人なら誰でも）
  *   POST {action:'admin', key, op, …}         … 準備・確認用（ADMIN_KEY は secret.js。git に入れない）
@@ -31,7 +32,7 @@ function doGet(e) {
   return respond_(() => {
     const p = (e && e.parameter) || {};
     if (p.action === 'tournaments') return apiTournaments_(p.date);
-    if (p.action === 'get') return apiGet_(p.sid, Number(p.since) || 0);
+    if (p.action === 'get') return apiGet_(p.id, Number(p.since) || 0);
     if (p.action === 'ping') return { ok: true };
     throw userError_('不明な操作です。');
   });

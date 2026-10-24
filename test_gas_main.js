@@ -140,7 +140,12 @@ function makeContext() {
 // ---------- 呼び出しの手伝い ----------
 const ctx = makeContext();
 const post = body => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).content);
-const get = params => JSON.parse(ctx.doGet({ parameter: params }).content);
+// 本物のGoogleは c・sid をURLに入れると、スクリプトに届く前に400を返す（2026-10-24の本番確認で発覚）
+const get = params => {
+  const reserved = ['c', 'sid'].filter(k => k in params);
+  if (reserved.length) throw new Error('Googleの予約語はURLに使えない: ' + reserved.join(','));
+  return JSON.parse(ctx.doGet({ parameter: params }).content);
+};
 const admin = (op, extra = {}) => post({ action: 'admin', key: ctx.ADMIN_KEY, op, ...extra });
 const rows = name => {
   const sh = ctx.book.getSheetByName(name), n = sh.getLastRow();
@@ -197,20 +202,20 @@ test('その日の大会と大会ペア（練習期間内だけ）', () => {
 test('対戦表の登録 → 取得（版・共有データ・点数なし）', () => {
   const r = post(table('2026-10-25', firstMatches, { roster: ['原', '佐藤', '新人'] }));
   assert.deepEqual(r, { ok: true, version: 1 });
-  const g = get({ action: 'get', sid: SID });
+  const g = get({ action: 'get', id: SID });
   assert.deepEqual([g.version, g.date, g.data, g.matches], [1, '2026-10-25', 'eyJ2IjoxfQ==', []]);
-  assert.equal(get({ action: 'get', sid: SID, since: '1' }).data, undefined, '版が同じなら共有データは送らない');
+  assert.equal(get({ action: 'get', id: SID, since: '1' }).data, undefined, '版が同じなら共有データは送らない');
   assert.equal(rows('試合').length, 4);
   assert.deepEqual(rows('試合')[1].slice(1, 11), [SID, 1, 'B', '唐澤', '渡辺', '大野', '北原', '', '', '未入力'].slice(0, 10));
   assert.ok(rows('名簿').some(r => r[0] === '新人'), '名簿に新しい名前が加わる');
-  assert.equal(get({ action: 'get', sid: 'Unknown0000000000000' }).code, 'not_found');
+  assert.equal(get({ action: 'get', id: 'Unknown0000000000000' }).code, 'not_found');
 });
 
 test('点数の入力 → 全員に返る・成績と記録に入る', () => {
   const r = score(1, 'A', OHARA, KOSHINO, 21, 18);
   assert.ok(r.ok, JSON.stringify(r));
   assert.deepEqual(r.matches, [{ round: 1, court: 'A', scoreA: 21, scoreB: 18 }]);
-  assert.deepEqual(get({ action: 'get', sid: SID }).matches, r.matches, '別の人の取得にも出る');
+  assert.deepEqual(get({ action: 'get', id: SID }).matches, r.matches, '別の人の取得にも出る');
   score(1, 'B', KARA, TEMP, 21, 10); // 大会ペア vs 臨時ペア
   score(2, 'B', ['善志', '越野'], TEMP, 15, 21); // 名前の並び順が違っても同じ試合
   const o = statsOf('岡谷連盟杯', '佐藤・原'), k = statsOf('岡谷連盟杯', '越野・善志'), w = statsOf('岡谷連盟杯', '唐澤・渡辺');
@@ -227,7 +232,7 @@ test('点数の訂正・消去', () => {
   score(1, 'A', OHARA, KOSHINO, '', '');
   assert.deepEqual(statsOf('岡谷連盟杯', '佐藤・原').slice(3, 5), [0, 0], '消すと成績から外れる');
   assert.equal(rows('試合')[0][10], '未入力');
-  assert.ok(!get({ action: 'get', sid: SID }).matches.some(m => m.round === 1 && m.court === 'A'));
+  assert.ok(!get({ action: 'get', id: SID }).matches.some(m => m.round === 1 && m.court === 'A'));
   score(1, 'A', OHARA, KOSHINO, 21, 18);
 });
 
@@ -255,7 +260,7 @@ test('途中変更の作り直し：同じ対戦は点数ごと残す・変わ�
     { round: 2, court: 'A', a: OHARA, b: HOSOI }, { round: 2, court: 'B', a: KARA, b: KOSHINO },
   ]));
   assert.deepEqual(r, { ok: true, version: 2 });
-  const g = get({ action: 'get', sid: SID, since: '1' });
+  const g = get({ action: 'get', id: SID, since: '1' });
   assert.equal(g.data, 'eyJ2IjoxfQ==', '版が上がったので共有データを送る');
   assert.deepEqual(g.matches, [{ round: 1, court: 'A', scoreA: 21, scoreB: 18 }, { round: 1, court: 'B', scoreA: 10, scoreB: 21 }], '入れ替えた試合は点数も入れ替わる');
   const all = rows('試合');
@@ -286,12 +291,12 @@ test('別の表（別のコート・別の端末）の試合もペアと日付�
 test('シートで「除外」にした試合は数えない（手で直したらキャッシュも捨てる）', () => {
   const sh = ctx.book.getSheetByName('試合');
   const r = rows('試合').findIndex(x => x[1] === SID && x[2] === 1 && x[3] === 'A') + 2;
-  get({ action: 'get', sid: SID }); // キャッシュに入れる
+  get({ action: 'get', id: SID }); // キャッシュに入れる
   sh.getRange(r, 11).setValue('除外');
   sh.getRange(r, 9).setValue(5);
   ctx.onEdit({ range: sh.getRange(r, 9, 1, 3) });
   assert.equal(statsOf('岡谷連盟杯', '佐藤・原')[3], 1, '1Aは除外');
-  assert.equal(get({ action: 'get', sid: SID }).matches.find(m => m.round === 1 && m.court === 'A').scoreA, 5, '手で直した点数がアプリに出る');
+  assert.equal(get({ action: 'get', id: SID }).matches.find(m => m.round === 1 && m.court === 'A').scoreA, 5, '手で直した点数がアプリに出る');
   assert.equal(score(1, 'A', OHARA, KOSHINO, 21, 18).ok, true);
   assert.equal(rows('試合')[r - 2][10], '除外', 'アプリから点数を直しても除外は外れない');
 });
@@ -304,7 +309,7 @@ test('名前やデータが数式にならない', () => {
   const t = ctx.book.getSheetByName('対戦表'), tr = t.getLastRow();
   assert.deepEqual([t.value(tr, 7), t.formula(tr, 7)], ['=HYPERLINK("x")', '']);
   assert.ok(score(1, 'A', ['=IMPORTXML(1)', '+1'], ['@x', '-y'], 21, 3, sid3).ok, '数式に見える名前でも照合できる');
-  assert.equal(get({ action: 'get', sid: sid3 }).data, '=HYPERLINK("x")');
+  assert.equal(get({ action: 'get', id: sid3 }).data, '=HYPERLINK("x")');
 });
 
 test('大会やペアを手で直したら成績が変わる・大会を消すと成績シートの大会も切り替わる', () => {
@@ -340,7 +345,7 @@ test('後片付け（テストの表・大会を消す）', () => {
   assert.ok(!rows('試合').some(x => x[1] === SID));
   assert.ok(!rows('対戦表').some(x => x[0] === SID));
   assert.ok(!rows('大会').some(x => x[0] === '伊那市長杯'));
-  assert.equal(get({ action: 'get', sid: SID }).code, 'not_found', 'キャッシュも消える');
+  assert.equal(get({ action: 'get', id: SID }).code, 'not_found', 'キャッシュも消える');
 });
 
 test('サーバー側の想定外のエラーは中身を出さずに知らせる', () => {
