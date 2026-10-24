@@ -57,6 +57,7 @@
 - `test_improve_2026_10_22_browser.js` … 2026-10-22の改善のブラウザ検証（Playwright、375px幅。練習日の持ち越し・消化済みの初期値・来た帰る・作り直し後の案内・上の画像ボタン・iPhoneの共有・名前の改行・シングルス版の読み上げ速度。`AUDIT_BASE_URL` で本番も検証可）
 - `gas/` … 大会練習の成績のスプシ用 Google Apps Script（`core.js`＝計算、`main.js`＝Webアプリの窓口とシート、`appsscript.json`。`secret.js`＝管理用の鍵で git に入れない）。`.clasp.json` で teamkalidia のスクリプトに `clasp --user kalidia push`（2026-10-24追加）
 - `gas_admin.js` … 本番のスプシの準備と確認（`setup`・`pairs`＝大会ペアの入れ替え・`e2e`＝本番確認・`dump`）。Webアプリへの通信はユーザーが `! node gas_admin.js …` で実行する
+- `check_score_live.js` … 本番の固定ペア版から本物のスプシまで、点数の登録・入力を通しで確認（架空の練習日 2000-01-15 で作って最後に消す。管理用の鍵を使うのでユーザーが `!` で実行）
 - `gas_mock.js` … GAS を Node で動かす簡易モック（`test_gas_main.js` と `test_singles_score_browser.js` が共用）
 - `test_gas_core.js` / `test_gas_main.js` … GAS の計算・窓口のテスト（`npm test`）
 - `test_singles_score.js` / `test_singles_score_browser.js` … 固定ペア版の点数のテスト（計算は `npm test`、画面はブラウザ一括。画面は本物の GAS のコードを偽の窓口として動かす。`AUDIT_BASE_URL` で本番のページも検証可）

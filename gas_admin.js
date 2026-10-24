@@ -138,6 +138,10 @@ async function e2e() {
   console.log(`本番確認 ${ok}項目 全合格`);
 }
 
-const [cmd, ...rest] = process.argv.slice(2);
-({ setup, pairs, e2e, dump: () => dump(rest) })[cmd]?.().catch(e => { console.error(e.message); process.exitCode = 1; })
-  ?? console.log('使い方: node gas_admin.js setup | pairs | e2e | dump [シート名…]');
+// check_score_live.js からも使う（require したときはコマンドを実行しない）
+module.exports = { call, admin, WEBAPP_URL };
+if (require.main === module) {
+  const [cmd, ...rest] = process.argv.slice(2);
+  ({ setup, pairs, e2e, dump: () => dump(rest) })[cmd]?.().catch(e => { console.error(e.message); process.exitCode = 1; })
+    ?? console.log('使い方: node gas_admin.js setup | pairs | e2e | dump [シート名…]');
+}
