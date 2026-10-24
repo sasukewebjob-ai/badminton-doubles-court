@@ -1,5 +1,6 @@
 // 大会練習の成績（GAS）の準備と本番確認（2026-10-24追加）
 //   node gas_admin.js setup   … シートを作り、名簿・2026年度の大会・岡谷連盟杯のペアを入れる（入っていれば増やさない）
+//   node gas_admin.js pairs   … PAIRS にある大会のペアをシートで丸ごと入れ替える（名前の訂正・ペア表の更新）
 //   node gas_admin.js e2e     … 本番のWebアプリで登録→点数→成績シートの数式まで確認し、テストデータを消す
 //   node gas_admin.js dump [シート名…]
 // 管理用の鍵は gas/secret.js（git に入れない）から読む
@@ -34,17 +35,26 @@ const TOURNAMENTS = [
   { name: '岡谷市バドミントン団体戦', date: '2027-02-11', content: '団体戦' },
   { name: '春季バドミントン大会', date: '2027-03-07', content: '男女1部〜8部でのD' },
 ];
-// 2026年度 大会ペア組み合わせ.xlsx の「岡谷連盟杯」シート（根津＝根津真、渡辺大＝渡辺。ユーザー確認 2026-10-24）
+// 2026年度 大会ペア組み合わせ.xlsx の「岡谷連盟杯」シート（佐藤＝バレ、根津＝根津真、渡辺大＝渡辺。ユーザー確認 2026-10-24）
 const PAIRS = [
-  ['男子A', '佐藤', '原'],
-  ['男子B', '越野', '善志'], ['男子B', '唐澤', '渡辺'], ['男子B', '細井', '宮澤輝'], ['男子B', '北原', '上條'],
-  ['女子A', '内田', '根津真'], ['女子A', '黒河内', '酒井'],
+  ['男子A', 'バレ', '原', 'ペア表では佐藤'],
+  ['男子B', '越野', '善志'], ['男子B', '唐澤', '渡辺', 'ペア表では渡辺大'], ['男子B', '細井', '宮澤輝'], ['男子B', '北原', '上條'],
+  ['女子A', '内田', '根津真', 'ペア表では根津'], ['女子A', '黒河内', '酒井'],
   ['女子B', '田中', '依田'],
-].map(([category, a, b]) => ({ tournament: '岡谷連盟杯', category, names: [a, b] }));
+].map(([category, a, b, memo]) => ({ tournament: '岡谷連盟杯', category, names: [a, b], memo }));
 
 async function setup() {
   const r = await admin('setup', { roster: roster(), tournaments: TOURNAMENTS, pairs: PAIRS });
   console.log(r);
+}
+
+// PAIRS にある大会のペアを、シートで丸ごと入れ替える（名前の訂正・ペア表の更新）
+async function pairs() {
+  for (const t of [...new Set(PAIRS.map(p => p.tournament))]) {
+    const r = await admin('setPairs', { tournament: t, pairs: PAIRS.filter(p => p.tournament === t) });
+    if (!r.ok) throw new Error(t + ': ' + JSON.stringify(r));
+    console.log(`${t}：${r.removed}組を消して${r.added}組を登録`);
+  }
 }
 
 async function dump(names) {
@@ -63,15 +73,23 @@ async function e2e() {
   const P = { a: ['確認A1', '確認A2'], b: ['確認B1', '確認B2'], c: ['確認C1', '確認C2'], t: ['臨時X', '臨時Y'] };
   const before = await admin('view', {});
   const keepTournament = before.values[0][1], keepMin = before.values[0][4];
+  // 途中で止めた前回の確認が残っていれば先に消す（表IDは E2eCheck で始まる）
+  const left = (await admin('dump', { sheets: ['対戦表', '試合'], limit: 5000 })).sheets;
+  const leftSids = [...new Set([...left['対戦表'].map(r => r[0]), ...left['試合'].map(r => r[1])].filter(s => /^E2eCheck/.test(s)))];
+  const pre = await admin('deleteRows', { sids: leftSids, tournaments: [T] });
+  if (Object.values(pre.removed || {}).some(n => n > 0)) console.log('前回の残りを消しました', JSON.stringify(pre.removed));
   let ok = 0;
   const check = (cond, label) => { assert.ok(cond, label); ok++; console.log('OK ' + label); };
   try {
     check((await call('GET', null, { action: 'ping' })).ok, 'Webアプリが応答する');
     check((await admin('addTournaments', { tournaments: [{ name: T, date: '2000-01-30', content: '自動確認' }] })).ok, '大会を追加');
     check((await admin('addPairs', { pairs: [['A', P.a], ['B', P.b], ['C', P.c]].map(([category, names]) => ({ tournament: T, category, names })) })).ok, 'ペアを追加');
+    const added = (await admin('dump', { sheets: ['大会', 'ペア'] })).sheets;
+    const nT = added['大会'].filter(r => r[0] === T).length, nP = added['ペア'].filter(r => r[0] === T).length;
+    check(nT === 1 && nP === 3, `1回の追加で1行ずつ増える（大会${nT}行・ペア${nP}行）`);
     const day = await call('GET', null, { action: 'tournaments', date: '2000-01-15' });
     check(day.ok && day.tournaments.length === 1 && day.tournaments[0].start === '2000-01-09' && day.tournaments[0].end === '2000-01-29' && day.tournaments[0].pairs.length === 3,
-      '練習期間（3週前の日曜〜前日）と大会ペアが返る: ' + JSON.stringify(day.tournaments.map(t => [t.name, t.start, t.end])));
+      '練習期間（3週前の日曜〜前日）と大会ペアが返る: ' + JSON.stringify(day.tournaments.map(t => [t.name, t.start, t.end, t.pairs.length])));
     // 表1（Aコートで3ペア）・表2（別の端末・別のコート）
     const reg1 = await call('POST', { action: 'register', sid: SID1, hostKey: KEY1, date: '2000-01-15', data: 'eyJlMmUiOjF9',
       matches: [{ round: 1, court: 'A', a: P.a, b: P.b }, { round: 2, court: 'A', a: P.a, b: P.c }, { round: 3, court: 'A', a: P.b, b: P.t }] });
@@ -109,5 +127,5 @@ async function e2e() {
 }
 
 const [cmd, ...rest] = process.argv.slice(2);
-({ setup, e2e, dump: () => dump(rest) })[cmd]?.().catch(e => { console.error(e.message); process.exitCode = 1; })
-  ?? console.log('使い方: node gas_admin.js setup | e2e | dump [シート名…]');
+({ setup, pairs, e2e, dump: () => dump(rest) })[cmd]?.().catch(e => { console.error(e.message); process.exitCode = 1; })
+  ?? console.log('使い方: node gas_admin.js setup | pairs | e2e | dump [シート名…]');

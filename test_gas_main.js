@@ -319,6 +319,21 @@ test('大会やペアを手で直したら成績が変わる・大会を消す�
   assert.ok(['岡谷連盟杯', '伊那市長杯'].includes(view.value(1, 2)), '存在しない大会は練習期間中・これからの大会に戻す（実行日で変わる）');
 });
 
+test('大会のペアを丸ごと入れ替える（名前の訂正。ほかの大会のペア・大会の並びはそのまま）', () => {
+  const others = rows('ペア').filter(x => x[0] !== '岡谷連盟杯').length;
+  const tours = rows('大会').map(x => x[0]);
+  const r = admin('setPairs', { tournament: '岡谷連盟杯', pairs: [
+    { category: '男子A', names: ['バレ', '原'], memo: 'ペア表では佐藤' }, { tournament: '別の大会', category: '男子B', names: KOSHINO },
+  ] });
+  assert.deepEqual([r.ok, r.removed, r.added], [true, 6, 2], JSON.stringify(r));
+  assert.deepEqual(rows('ペア').filter(x => x[0] === '岡谷連盟杯').map(x => x.slice(1, 5)), [['男子A', 'バレ', '原', 'ペア表では佐藤'], ['男子B', '越野', '善志', '']], '大会名は指定した大会にそろえる');
+  assert.equal(rows('ペア').filter(x => x[0] !== '岡谷連盟杯').length, others);
+  assert.deepEqual(rows('大会').map(x => x[0]), tours);
+  assert.ok(statsOf('岡谷連盟杯', 'バレ・原') && !statsOf('岡谷連盟杯', '佐藤・原'), '成績も入れ替わる');
+  assert.equal(admin('setPairs', { tournament: 'ない大会', pairs: [] }).error, '大会シートにない大会です。');
+  assert.equal(rows('ペア').filter(x => x[0] === '岡谷連盟杯').length, 2, 'エラーなら何も消さない');
+});
+
 test('後片付け（テストの表・大会を消す）', () => {
   const r = admin('deleteRows', { sids: [SID, 'Table0002cccccccccccc'], tournaments: ['伊那市長杯'] });
   assert.ok(r.ok);

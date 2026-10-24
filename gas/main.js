@@ -166,6 +166,7 @@ function apiAdmin_(p) {
   if (p.op === 'view') return withLock_(() => view_(p));
   if (p.op === 'addTournaments') return withLock_(() => { addTournaments_(p.tournaments || []); recomputeStats_(); return { ok: true }; });
   if (p.op === 'addPairs') return withLock_(() => { addPairs_(p.pairs || []); recomputeStats_(); return { ok: true }; });
+  if (p.op === 'setPairs') return withLock_(() => { const r = setPairs_(p); recomputeStats_(); return r; });
   if (p.op === 'deleteRows') return withLock_(() => deleteRows_(p));
   if (p.op === 'recompute') return withLock_(() => { recomputeStats_(); return { ok: true }; });
   throw userError_('不明な操作です。');
@@ -195,18 +196,20 @@ function view_(p) {
 }
 
 // テストデータの後片付け：表IDの行を試合・対戦表・記録から消す（大会名を渡すと大会とそのペアも）
+function dropRows_(name, col, pred) {
+  const sh = book_().getSheetByName(name);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  let n = 0;
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (pred(String(values[i][col - 1]).trim())) { sh.deleteRow(i + 2); n++; }
+  }
+  return n;
+}
+
 function deleteRows_(p) {
   const removed = {};
-  const drop = (name, col, pred) => {
-    const sh = book_().getSheetByName(name);
-    if (!sh || sh.getLastRow() < 2) return;
-    const values = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
-    let n = 0;
-    for (let i = values.length - 1; i >= 0; i--) {
-      if (pred(String(values[i][col - 1]).trim())) { sh.deleteRow(i + 2); n++; }
-    }
-    removed[name] = n;
-  };
+  const drop = (name, col, pred) => { removed[name] = dropRows_(name, col, pred); };
   const sids = p.sids || [];
   if (sids.length) {
     drop(SHEETS.matches, COL.sid, v => sids.indexOf(v) >= 0);
@@ -336,6 +339,16 @@ function addPairs_(list) {
   const rows = list.filter(p => p && typeof p.tournament === 'string' && Array.isArray(p.names) && p.names.length === 2)
     .map(p => [CORE.cellText(p.tournament.trim()), CORE.cellText(p.category || ''), CORE.cellText(p.names[0]), CORE.cellText(p.names[1]), CORE.cellText(p.memo || '')]);
   if (rows.length) appendRows_(sheet_(SHEETS.pairs), rows);
+}
+
+// 大会のペアを丸ごと入れ替える（名前の訂正・ペア表の更新。大会の行と並びはそのまま）
+function setPairs_(p) {
+  const t = typeof p.tournament === 'string' ? p.tournament.trim() : '';
+  if (!t || !readTournaments_().some(x => x.name === t)) throw userError_('大会シートにない大会です。');
+  const pairs = (p.pairs || []).map(x => ({ ...x, tournament: t }));
+  const removed = dropRows_(SHEETS.pairs, 1, v => v === t);
+  addPairs_(pairs);
+  return { ok: true, removed, added: readPairs_().filter(x => x.tournament === t).length };
 }
 
 // ---------- 成績の再計算 ----------
