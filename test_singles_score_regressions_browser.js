@@ -5,7 +5,8 @@ const { pathToFileURL } = require('url');
 const { chromium, launchOptions } = require('./pw');
 const { makeContext, webApp } = require('./gas_mock');
 const API = 'https://gas.test/exec';
-const url = pathToFileURL(path.join(__dirname, 'singles.html')).href;
+// AUDIT_BASE_URL を付けると本番のページで確かめる（通信先はどちらも偽の窓口。pw.js が本物の窓口を止める）
+const url = process.env.AUDIT_BASE_URL ? new URL('singles.html', process.env.AUDIT_BASE_URL).href : pathToFileURL(path.join(__dirname, 'singles.html')).href;
 const gas = makeContext(), serve = webApp(gas);
 const admin = body => serve({ method: 'POST', url: API, body: JSON.stringify({ action: 'admin', key: gas.ADMIN_KEY, ...body }) });
 admin({ op: 'setup' });
