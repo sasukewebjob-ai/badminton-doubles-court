@@ -799,6 +799,7 @@ function persist() {
 // 表ID（scoreId）は共有リンクに入れて誰でも点数を入れられるようにし、作り直しの鍵（hostKey）は作った端末にだけ置く
 const SCORE_API = 'https://script.google.com/macros/s/AKfycbwwYPljkI-6oMhpUZkCY3oohtZFEM6uxlMrtZUEAoq3AJS0zq3e0Nj31ZyMQshIsKM2Zw/exec';
 const SCORE_KEYS = 'badminton-singles-score-keys-v1';
+const SCORE_PENDING = 'badminton-singles-score-pending-v1';
 const SCORE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 const SCORE_POLL_MS = 30000;
 // 公開ページ以外（手元のファイル・テスト）では通信しない。テストは window.SCORE_API_URL で偽の窓口に向ける
@@ -880,15 +881,34 @@ let scoreState={id:null};
 let scoreDrafts={}, scoreErrors={}, scoreEditing=new Set(), scoreSaving=new Set();
 let registerChain=Promise.resolve(), scoreTimer=null;
 const scoringOn = () => !!(session && session.scoring && session.mode==='pairs' && session.scoreId && scoreApi());
+// 閲覧者は記録オフの間も表の変更を読む。幹事がオンに戻したときに自動で追従するため。
+const scoreSyncOn = () => !!(session && session.mode==='pairs' && session.scoreId && scoreApi() && (session.scoring || viewerMode));
 // 表が替わったら（新しく作った・消した）点数の状態を捨てる
 function ensureScoreState() {
   const id=session && session.scoreId || null;
-  if (scoreState.id===id) return;
-  scoreState={id,version:0,scores:{},loading:false,checkedAt:0,registering:0,registerMsg:'',syncMsg:'',healed:false};
-  scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set();
+  if (scoreState.id!==id) {
+    scoreState={id,version:0,scores:{},loading:false,checkedAt:0,registering:0,registerMsg:'',syncMsg:'',healed:false,readToken:0,scoreEpoch:0,matchKeys:{}};
+    scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set();
+  }
+  const st=scoreState;
+  if (st.owner===session) return;
+  const next={};
+  if (id) scoreMatches(session).forEach(m=>{ next[m.round+m.court]=JSON.stringify([m.a,m.b].map(side=>side.map(canonName).sort())); });
+  // 同じ節・コートでも対戦が替わったら、前の対戦の点数・入力途中の値を持ち越さない。
+  Object.keys(st.matchKeys || {}).forEach(k=>{
+    if (st.matchKeys[k]!==next[k]) { delete st.scores[k]; delete scoreDrafts[k]; delete scoreErrors[k]; scoreEditing.delete(k); }
+  });
+  st.owner=session; st.matchKeys=next; st.readToken=(st.readToken || 0)+1; st.loading=false;
+  scoreSaving=new Set();
 }
 const sideNames = (s,p) => { const nm=own(s.names,p); return Array.isArray(nm) ? nm.slice() : [`${p}番ペア`]; };
 const scoreMatches = s => s.rounds.flatMap(r=>r.matches.map((m,i)=>({round:r.round,court:COURTS[i],a:sideNames(s,m[0]),b:sideNames(s,m[1])})));
+function pendingScoreRegistration() {
+  try {
+    const p=JSON.parse(localStorage.getItem(SCORE_PENDING) || 'null');
+    return !!(session && p && p.id===session.scoreId && p.data===encodeShare(session));
+  } catch { return false; }
+}
 // 作り直しの鍵は作った端末にだけ置く（共有リンクには入れない）。古い表の鍵は30件まで
 const memoryKeys={};
 function hostKeyFor(id) {
@@ -908,7 +928,9 @@ function registerScores(force) {
   ensureScoreState();
   if (viewerMode || !session || !session.scoreId || !(session.scoring || force) || !scoreApi()) return registerChain;
   if (!validPracticeDate(session.practiceDate)) { scoreState.registerMsg='練習日を入れると点数を記録できます。'; paintScoreBar(); return registerChain; }
-  const owner=session, st=scoreState;
+  const owner=session, st=scoreState, data=encodeShare(owner);
+  // 送信に失敗したまま閉じても、保存した表を次回起動時に再送できるようにする。
+  try { localStorage.setItem(SCORE_PENDING,JSON.stringify({id:owner.scoreId,data})); } catch { /* 保存不可でも今回の送信は続ける */ }
   st.registering++; st.registerMsg='スプシに登録しています…'; paintScoreBar();
   registerChain=registerChain.then(async()=>{
     let ok=false;
@@ -916,7 +938,11 @@ function registerScores(force) {
       // 待っている間にさらに変わったら、あとから積んだ新しい方だけ送る
       if (session!==owner) return;
       const r=await scoreRequest('POST',{action:'register',sid:owner.scoreId,hostKey:hostKeyFor(owner.scoreId),date:owner.practiceDate,
-        data:encodeShare(owner),matches:scoreMatches(owner),roster:ROSTER.slice()});
+        data,matches:scoreMatches(owner),roster:ROSTER.slice()});
+      try {
+        const pending=JSON.parse(localStorage.getItem(SCORE_PENDING) || 'null');
+        if (pending && pending.id===owner.scoreId && pending.data===data) localStorage.removeItem(SCORE_PENDING);
+      } catch { /* 保存不可 */ }
       st.version=Math.max(st.version,r.version); st.registerMsg=''; st.registerFailed=false; ok=true;
     } catch(e) {
       st.registerMsg=e.code==='forbidden' ? 'この表は別の端末で作られたため、この端末からは登録できません。' : `スプシに登録できませんでした。${e.message}`;
@@ -930,30 +956,32 @@ function registerScores(force) {
 async function syncScores() {
   ensureScoreState();
   const st=scoreState, id=st.id;
-  if (!scoringOn() || st.loading || st.registering) return;
+  if (!scoreSyncOn() || st.loading || st.registering || scoreSaving.size) return;
+  if (!viewerMode && pendingScoreRegistration()) { registerScores(true); return; }
+  const owner=session, token=++st.readToken, epoch=st.scoreEpoch;
   st.loading=true; paintScoreBar();
   try {
     const r=await scoreRequest('GET',{action:'get',id,since:st.version});
-    if (scoreState!==st) return;
+    if (scoreState!==st || session!==owner || st.readToken!==token || st.scoreEpoch!==epoch) return;
     let replaced=false;
     if (viewerMode && typeof r.data==='string') {
       let next=null;
       try { next=decodeShare(r.data); } catch { next=null; }
-      if (next && next.scoreId===id && encodeShare(next)!==encodeShare(session)) { session=next; replaced=true; }
+      if (next && next.scoreId===id && encodeShare(next)!==encodeShare(session)) { session=next; ensureScoreState(); replaced=true; }
     }
     if (!viewerMode || typeof r.data==='string') st.version=Math.max(st.version,r.version);
     st.scores=Object.fromEntries((Array.isArray(r.matches) ? r.matches : []).map(m=>[m.round+m.court,[m.scoreA,m.scoreB]]));
     st.checkedAt=Date.now(); st.syncMsg='';
     if (replaced) { notify('幹事が対戦表を作り直したので、最新の表にしました。'); render(); }
   } catch(e) {
-    if (scoreState!==st) return;
+    if (scoreState!==st || session!==owner || st.readToken!==token) return;
     if (e.code==='not_found' && !viewerMode && !st.healed) { st.healed=true; st.loading=false; registerScores(); return; }
     st.syncMsg=e.code==='not_found' ? 'この表はまだスプシに登録されていません（作った端末で登録されると点数を入れられます）。' : `点数を読み込めませんでした。${e.message}`;
-  } finally { st.loading=false; }
+  } finally { if (st.readToken===token) { st.loading=false; if (scoreState===st) paintScoreBar(); } }
   paintScoreBar(); paintScores();
 }
 function updateScoreSync() {
-  const on=scoringOn();
+  const on=scoreSyncOn();
   if (on && !scoreTimer) { scoreTimer=setInterval(()=>{ if (!document.hidden) syncScores(); },SCORE_POLL_MS); syncScores(); }
   if (!on && scoreTimer) { clearInterval(scoreTimer); scoreTimer=null; }
 }
@@ -1031,21 +1059,24 @@ async function saveScore(k) {
     : !/^\d{1,2}$/.test(a) || !/^\d{1,2}$/.test(b) || Number(a)>30 || Number(b)>30 ? '点数は0〜30の数字で入れてください。'
     : Number(a)===Number(b) ? '同点は保存できません。' : '';
   if (problem) { scoreErrors[k]=problem; paintScoreRow(el,true); return; }
-  const st=scoreState, owner=session;
-  scoreSaving.add(k); delete scoreErrors[k]; paintScoreRow(el,true);
+  const st=scoreState, owner=session, saving=scoreSaving;
+  let needsSync=false;
+  st.scoreEpoch++; saving.add(k); delete scoreErrors[k]; paintScoreRow(el,true);
   try {
     const res=await scoreRequest('POST',{action:'score',sid:owner.scoreId,round,court:el.dataset.court,a:sideNames(owner,m[0]),b:sideNames(owner,m[1]),
       scoreA:a==='' ? '' : Number(a),scoreB:b==='' ? '' : Number(b)});
-    if (scoreState!==st) return;
-    // 返ってくるのはこの表の点数すべて（ほかの人が入れた分も一緒に新しくなる）。版は読み込みのときだけ進める
-    st.scores=Object.fromEntries((Array.isArray(res.matches) ? res.matches : []).map(x=>[x.round+x.court,[x.scoreA,x.scoreB]]));
+    if (scoreState!==st || session!==owner) return;
+    // 同時に別の試合も保存できるので、この返事では保存した試合だけを更新する。
+    const result=(Array.isArray(res.matches) ? res.matches : []).find(x=>x.round+x.court===k);
+    if (result) st.scores[k]=[result.scoreA,result.scoreB]; else delete st.scores[k];
     st.checkedAt=Date.now(); delete scoreDrafts[k]; scoreEditing.delete(k);
   } catch(e) {
-    if (scoreState!==st) return;
+    if (scoreState!==st || session!==owner) return;
     scoreErrors[k]=e.code==='stale' ? '対戦表が作り直されています。最新の表で入れ直してください。'
       : e.code==='network' ? '送信できませんでした。電波の良い所でもう一度「保存」を押してください。' : e.message;
-    if (e.code==='stale' || e.code==='not_found') syncScores();
-  } finally { scoreSaving.delete(k); }
+    needsSync=e.code==='stale' || e.code==='not_found';
+  } finally { saving.delete(k); st.scoreEpoch++; }
+  if (needsSync) await syncScores();
   const now=document.querySelector(`.score-row[data-key="${k}"]`);
   if (now) paintScoreRow(now,true);
   paintScoreBar(); paintScores();
@@ -1055,19 +1086,17 @@ const maxPicks = mode => mode === 'pairs' ? 24 : 12;
 // 固定ペアの組み方：選んだ順に見て、大会ペアは2人そろった時点でペアにし、残りはタップした順に2人ずつ（臨時ペア）。
 // 練習期間が重なる大会で相方が2人いるときは大会日の早い方。大会の情報がなければ従来どおりタップ順だけ
 function planPairs(picks, tours) {
-  const slots=[], used=new Set(); let open=null;
-  const partnerOf=nm => {
-    for (const t of tours) for (const p of t.pairs) {
-      const i=p.names.findIndex(x=>canonName(x)===canonName(nm));
-      if (i<0) continue;
-      const partner=picks.find(x=>x!==nm && !used.has(x) && canonName(x)===canonName(p.names[1-i]));
-      if (partner) return {names:i===0 ? [nm,partner] : [partner,nm],tournament:t.name,category:p.category};
-    }
-    return null;
-  };
+  const slots=[], used=new Set(), reserved=new Map(); let open=null;
+  // タップ順で番号を付ける前に、大会の優先順でペアを確保する。
+  for (const t of tours) for (const p of t.pairs) {
+    const names=p.names.map(n=>picks.find(x=>!reserved.has(x) && canonName(x)===canonName(n)));
+    if (names.some(n=>!n) || names[0]===names[1]) continue;
+    const hit={names,tournament:t.name,category:p.category};
+    names.forEach(n=>reserved.set(n,hit));
+  }
   for (const nm of picks) {
     if (used.has(nm)) continue;
-    const hit=partnerOf(nm);
+    const hit=reserved.get(nm);
     if (hit) { hit.names.forEach(x=>used.add(x)); slots.push(hit); continue; }
     used.add(nm);
     if (open) { open.names.push(nm); open=null; } else { open={names:[nm]}; slots.push(open); }
@@ -1435,7 +1464,7 @@ function init() {
   let saved=null;
   try { saved=localStorage.getItem(STORAGE_KEY); } catch {}
   try {
-    if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); render(); notify('前回保存した対戦表を復元しました。'); }
+    if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); if (pendingScoreRegistration()) registerScores(true); render(); notify('前回保存した対戦表を復元しました。'); }
   } catch { notify('前回のデータを復元できませんでした。新しい対戦表を作成できます。'); }
   loadTournaments();
 }

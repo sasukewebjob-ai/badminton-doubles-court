@@ -1989,7 +1989,7 @@ function genderAssign(shuffled, courts, genders, pairHistory, opponentHistory) {
 }
 
 // 種目別モード用のコート均等化: 同じ男女構成のコート同士だけを入れ替え、
-// 過去のコート登場回数（二乗ペナルティ）で並びを均す。
+// 未経験のコートへの登場を優先し、同数なら過去の登場回数（二乗ペナルティ）で並びを均す。
 // 例: 10男6女ではAとDが両方男子ダブルス → どちらに入るかを節ごとにローテーション。
 // 理想構成ではC・D（両方ミックス）が対象。構成が異なるコートは入れ替えない
 function balanceCourtsSameType(assignments, courtHistory, genders) {
@@ -2011,18 +2011,20 @@ function balanceCourtsSameType(assignments, courtHistory, genders) {
         permute(arr.slice(0, i).concat(arr.slice(i + 1)), cur.concat(arr[i]));
       }
     })(idxs, []);
-    let bestScore = Infinity;
+    let bestScore = Infinity, bestVisits = -1;
     let bestPerm = perms[0];
     for (const perm of perms) {
-      let score = 0;
+      let score = 0, visits = 0;
       perm.forEach((srcIdx, j) => {
         const courtIdx = idxs[j];
         for (const p of assignments[srcIdx].pair1.concat(assignments[srcIdx].pair2)) {
           const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+          if (cur === 0) visits++;
           score += (cur + 1) * (cur + 1);
         }
       });
-      if (score < bestScore) {
+      if (visits > bestVisits || (visits === bestVisits && score < bestScore)) {
+        bestVisits = visits;
         bestScore = score;
         bestPerm = perm;
       }

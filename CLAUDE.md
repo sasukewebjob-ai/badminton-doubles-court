@@ -205,3 +205,12 @@
 - **通信の仕組み**：表ID（`scoreId`）は共有リンクに入れ、作り直しの鍵（hostKey）は作った端末の localStorage（`badminton-singles-score-keys-v1`）にだけ置く。通信先は公開ページ（sasukewebjob-ai.github.io）のときだけ使う。手元のファイルでは通信しない。テストは `window.SCORE_API_URL` で偽の窓口を使う。`pw.js` はテスト中の `script.google.com` への通信を止めるので、本番URLでテストを流しても本物のスプシに書き込まない。
 - **GAS の注意**：GET の URL に `c`・`sid` は使えない。Google の予約語で、スクリプトに届く前に400「ファイルを開くことができません」になる（本番確認で発覚）。表IDは GET では `id`、POST の本文では `sid`。GAS を直したら `clasp --user kalidia push -f` → `create-version` → `update-deployment <デプロイID> -V <版>`。
 - 確認：`test_gas_core.js` 13項目、`test_gas_main.js` 17項目、`test_singles_score.js` 8項目、`test_singles_score_browser.js` 55項目、本番のスプシで `node gas_admin.js e2e` 20項目（成績シートの数式・並び順・練習期間の表示まで）。公開後、本番の固定ペア版から本物のスプシまでの通し確認 `node check_score_live.js` 6項目（登録・点数の保存・閲覧者への表示・試合シートの点数・後片付け）も全合格（ユーザー実行）。
+
+## 2026-10-24：追加機能のバグ確認・修正（未公開）
+
+- 詳細は `AUDIT_2026-10-24.md`。大会ペアの優先順位がタップ順で変わる問題、点数の同期・作り直し・遅れた応答による誤表示、登録失敗後の再読込を修正。
+- 未送信の登録は localStorage の `badminton-singles-score-pending-v1` に記録し、起動時に再送する。保存済みの登録は再送しない。閲覧者は記録オフの間も表の更新を読み、再開に追従する。
+- 通常版の男性4人・女性12人・10節で、まれに女性がB/C/Dの一部に一度も回らない問題も修正。同種目コートの並べ替えで未経験コートを優先する。同じ1,000通りで修正前5通りが失敗、修正後0通り。
+- `test_singles_score_regressions_browser.js`（7ケース）と `test_gender_court_rotation.js`（再現乱数5ケース）を通常のテスト実行に追加。
+- 計算スイート、ブラウザ全21ファイル、休み表1万ケース・男女比900節・途中変更900ケースが合格。最終修正後にアルゴリズム全10スイート・種目別画面42項目・点数同期の回帰も合格。
+- ローカル修正のみ。本番スプレッドシートへの書き込みとデプロイは実施していない。
