@@ -102,7 +102,8 @@ const tap = (page, nm) => page.click(`#rosterChips button[data-name="${nm}"]`);
     const r1a = rows('試合').find(r => r[2] === 1 && r[3] === 'A');
     check('スプシに点数と「入力済み」', r1a && r1a[8] === 21 && r1a[9] === 18 && r1a[10] === '入力済み', r1a && r1a.slice(8, 11));
     const m1a = await host.evaluate(() => session.rounds[0].matches[0].map(p => session.names[p].join('・')));
-    const stat = label => rows('ペア成績').find(r => r[0] === '岡谷連盟杯' && r[2] === label);
+    // 続けて保存すると成績の計算は後回しになる（2026-10-25）。確認（view）で計算待ちを片付けてから読む
+    const stat = label => { admin('view'); return rows('ペア成績').find(r => r[0] === '岡谷連盟杯' && r[2] === label); };
     const tourSide = m1a.find(l => l !== '大野・北原');
     check('大会ペアの成績に入る（臨時ペアは入らない）', stat(tourSide) && stat(tourSide)[3] === 1 && !stat('大野・北原'), m1a);
     const posts = count('score');

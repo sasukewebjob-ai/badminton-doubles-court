@@ -71,7 +71,7 @@ async function save(page, k, a, b) {
     }, [rowSel(k), `${a} - ${b} ✓`], { timeout: 90000, polling: 100 }).then(h => h.jsonValue(), () => ({ error: '90秒待っても結果が出ない' }));
     tries.push({ ms: Date.now() - t, error: r.error || '' });
     if (r.ok) return { ok: true, ms: Date.now() - start, tries };
-    if (!/混み合って|送信できませんでした/.test(r.error)) break;
+    if (!/混み合って|送信できませんでした|確かめられませんでした/.test(r.error)) break;
     await new Promise(done => setTimeout(done, 1000));
   }
   return { ok: false, ms: Date.now() - start, tries };
@@ -95,6 +95,17 @@ const refresh = async (page, count) => {
     const open = async hash => {
       const context = await browser.newContext({ viewport: { width: 375, height: 800 }, timezoneId: 'Asia/Tokyo' });
       await useApi(context);
+      // 窓口が返すサーバー側の時間（took）と、「そのままお待ちください」が出たかを記録する
+      await context.addInitScript(() => {
+        window.__took = []; window.__sawWait = false;
+        const real = window.fetch;
+        window.fetch = async (...args) => {
+          const res = await real(...args);
+          res.clone().text().then(t => { try { const j = JSON.parse(t); if (j && j.took) window.__took.push(j.took); } catch (e) { /* JSONでない */ } }, () => {});
+          return res;
+        };
+        setInterval(() => { if (document.querySelector('.score-wait')) window.__sawWait = true; }, 200);
+      });
       const page = await context.newPage();
       page.on('dialog', d => d.accept());
       page.on('pageerror', e => errors.push(e.message));
@@ -135,12 +146,18 @@ const refresh = async (page, count) => {
     const burst = viewers.map((page, i) => ({ page, round: 1 + Math.floor(i / 4), court: COURTS[i % 4], a: 21, b: 10 + i }))
       .map(x => ({ ...x, k: x.round + x.court }));
     for (const x of burst) await fillScore(x.page, x.k, x.a, x.b);
+    await Promise.all(viewers.map(v => v.evaluate(() => { window.__took = []; window.__sawWait = false; })));
     const t0 = Date.now();
     const results = await Promise.all(burst.map(x => save(x.page, x.k, x.a, x.b)));
     const total = Date.now() - t0;
-    results.forEach((r, i) => console.log(`      ${i + 1}人目 第${burst[i].round}節${burst[i].court}コート 21-${burst[i].b} … ${describe(r)}`));
+    const server = await Promise.all(viewers.map(v => v.evaluate(() => ({ took: window.__took, sawWait: window.__sawWait }))));
+    results.forEach((r, i) => {
+      const t = server[i].took.slice(-1)[0];
+      const detail = t ? `／サーバー：順番待ち ${sec(t.wait)}・処理 ${sec(t.work)}（成績を${t.stats ? '計算' : '後回し'}）` : '';
+      console.log(`      ${i + 1}人目 第${burst[i].round}節${burst[i].court}コート 21-${burst[i].b} … ${describe(r)}${detail}${server[i].sawWait ? '・「そのままお待ちください」が出た' : ''}`);
+    });
     const retried = results.filter(r => r.tries.length > 1).length;
-    console.log(`      → 全員の保存が終わるまで ${sec(total)}、押し直しが要った人 ${retried}人`);
+    console.log(`      → 全員の保存が終わるまで ${sec(total)}、押し直しが要った人 ${retried}人、「そのままお待ちください」が出た人 ${server.filter(s => s.sawWait).length}人`);
     check(`${PEOPLE}人とも画面で保存できた（押し直しを含む）`, results.every(r => r.ok));
 
     console.log('[3] 2人が同じ試合（第4節Aコート）に違う点数を同時に保存');

@@ -125,7 +125,10 @@ function makeContext() {
   const context = {
     console: { error: (...a) => { context.errors.push(a.join(' ')); }, log() {} },
     errors: [],
-    SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {}, newDataValidation: builder, ProtectionType: { SHEET: 'SHEET' } },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => book, flush() {}, newDataValidation: builder, ProtectionType: { SHEET: 'SHEET' },
+      getUi: () => { const menu = { addItem: () => menu, addToUi() {} }; return { createMenu: () => menu }; },
+    },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ content: s, setMimeType() { return this; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },

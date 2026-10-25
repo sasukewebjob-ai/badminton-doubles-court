@@ -27,7 +27,8 @@ const rows = name => {
   const sh = ctx.book.getSheetByName(name), n = sh.getLastRow();
   return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues();
 };
-const statsOf = (t, label) => rows('ペア成績').find(r => r[0] === t && r[2] === label);
+// 続けて保存すると成績の計算は後回しになる（2026-10-25）。確認（view）で計算待ちを片付けてから読む
+const statsOf = (t, label) => { admin('view', {}); return rows('ペア成績').find(r => r[0] === t && r[2] === label); };
 const SID = 'Table0001aaaaaaaaaaaa', KEY = 'HostKey0001bbbbbbbbbbbb';
 const OHARA = ['原', '佐藤'], KOSHINO = ['越野', '善志'], KARA = ['唐澤', '渡辺'], HOSOI = ['細井', '宮澤輝'], TEMP = ['大野', '北原'];
 const table = (date, matches, extra = {}) => ({ action: 'register', sid: SID, hostKey: KEY, date, data: 'eyJ2IjoxfQ==', matches, ...extra });
@@ -274,6 +275,79 @@ test('手での編集・メニューからの再計算もロックの中で行�
   c.menuRecompute();
   assert.equal(locked - before, 2);
   assert.equal(held, false, '終わったらロックを放す');
+});
+
+// 2026-10-25：8人が同時に保存すると最後の人が35秒待った（check_score_concurrent.js）ため、続けて保存したときの成績の計算を後回しにした
+test('続けて保存すると成績の計算は後回しになり、取得・確認・スプシを開いたときにまとめて計算する', () => {
+  const c = makeContext();
+  const p = body => JSON.parse(c.doPost({ postData: { contents: JSON.stringify(body) } }).content);
+  const g = params => JSON.parse(c.doGet({ parameter: params }).content);
+  assert.ok(p({ action: 'admin', key: c.ADMIN_KEY, op: 'setup', tournaments: [{ name: '岡谷連盟杯', date: '2026-11-03' }],
+    pairs: [{ tournament: '岡谷連盟杯', names: ['佐藤', '原'] }, { tournament: '岡谷連盟杯', names: KOSHINO }] }).ok);
+  const sid = 'Deferred000000000000', ms = [[1, 'A'], [1, 'B'], [2, 'A'], [2, 'B'], [3, 'A']].map(([round, court]) => ({ round, court, a: OHARA, b: KOSHINO }));
+  assert.ok(p({ action: 'register', sid, hostKey: 'DeferredKey000000000', date: '2026-10-25', data: 'eyJ2IjoxfQ==', matches: ms }).ok);
+  const s = (round, court, x, y) => p({ action: 'score', sid, round, court, a: OHARA, b: KOSHINO, scoreA: x, scoreB: y });
+  // 計算待ちを片付けずに、いまのペア成績を読む（試合数・得点）
+  const now = () => { const r = c.book.getSheetByName('ペア成績').getRange(2, 1, 2, 12).getValues().find(v => v[2] === '佐藤・原'); return [r[3], r[7]]; };
+  const state = () => JSON.parse(c.cache.get('stats'));
+  const later = () => { const st = state(); c.cache.set('stats', JSON.stringify({ ...st, at: st.at - 30000 })); }; // 前の計算から30秒たったことにする
+
+  const r1 = s(1, 'A', 21, 18); // 準備で計算した直後なので後回し
+  assert.ok(r1.ok, JSON.stringify(r1));
+  assert.equal(r1.took.stats, false, '計算しない');
+  assert.ok(typeof r1.took.wait === 'number' && typeof r1.took.work === 'number', '順番待ち・処理の時間を返す');
+  assert.deepEqual(r1.matches, [{ round: 1, court: 'A', a: OHARA, b: KOSHINO, scoreA: 21, scoreB: 18 }], '返事は読み直さずに作っても今の点数');
+  assert.deepEqual(now(), [0, 0]);
+  assert.equal(state().pending, true, '計算待ちの印');
+  assert.deepEqual(g({ action: 'get', id: sid }).matches, r1.matches, '点数はすぐ全員に見える');
+  assert.deepEqual(now(), [0, 0], '前の計算から間がなければ、取得のついでにも計算しない');
+
+  later();
+  assert.ok(g({ action: 'get', id: sid }).ok);
+  assert.deepEqual(now(), [1, 21], '間が空いたら、点数の取得のついでに計算する');
+  assert.equal(state().pending, false);
+
+  later();
+  const r2 = s(1, 'B', 21, 10);
+  assert.equal(r2.took.stats, true, '間が空いた保存は、その場で計算する（1人だけの保存は今までどおり）');
+  assert.deepEqual(now(), [2, 42]);
+
+  assert.equal(s(2, 'A', 21, 5).took.stats, false);
+  assert.deepEqual(now(), [2, 42]);
+  p({ action: 'admin', key: c.ADMIN_KEY, op: 'view' });
+  assert.deepEqual(now(), [3, 63], '管理用の確認の前には、間が空いていなくても計算する');
+
+  assert.equal(s(2, 'B', 15, 21).took.stats, false);
+  c.onOpen();
+  assert.deepEqual(now(), [4, 78], 'スプシを開いたときにも計算する');
+  assert.equal(state().pending, false);
+
+  assert.equal(s(3, 'A', 21, 3).took.stats, false);
+  later();
+  const real = c.LockService.getScriptLock;
+  c.LockService.getScriptLock = () => ({ tryLock: () => false, releaseLock() {} });
+  assert.ok(g({ action: 'get', id: sid }).ok, 'ロックが使用中でも点数は読める');
+  c.LockService.getScriptLock = real;
+  assert.deepEqual(now(), [4, 78], 'ほかの人の保存中は、取得のついでには計算しない（順番待ちに割り込まない）');
+  assert.ok(g({ action: 'get', id: sid }).ok);
+  assert.deepEqual(now(), [5, 99], '空いたら計算する');
+
+  c.cache.clear();
+  assert.equal(s(3, 'A', 21, 4).took.stats, true, '印が消えていたら（キャッシュの期限切れなど）その場で計算する');
+  assert.deepEqual(now(), [5, 99]);
+  assert.deepEqual(c.errors, []);
+});
+
+test('ロックを手放す前に書き込みを確定させる（次の人が古い内容を読まないように）', () => {
+  const c = makeContext(), order = [];
+  c.SpreadsheetApp.flush = () => order.push('flush');
+  c.LockService.getScriptLock = () => ({ tryLock: ms => { order.push('lock:' + ms); return true; }, releaseLock: () => order.push('release') });
+  assert.ok(JSON.parse(c.doPost({ postData: { contents: JSON.stringify({ action: 'admin', key: c.ADMIN_KEY, op: 'setup' }) } }).content).ok);
+  assert.deepEqual(order.slice(-2), ['flush', 'release']);
+  assert.equal(order[0], 'lock:45000', 'アプリからは45秒まで順番を待つ（アプリは60秒待つ）');
+  order.length = 0;
+  c.menuRecompute();
+  assert.deepEqual(order, ['lock:20000', 'flush', 'release'], 'スプシ上の操作は20秒まで（シンプルトリガーは30秒で止まる）');
 });
 
 test('サーバー側の想定外のエラーは中身を出さずに知らせる', () => {

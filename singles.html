@@ -85,6 +85,7 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .score-row button.save { background: #218c50; color: white; font-weight: bold; }
 .score-saved { margin-right: 4px; color: #1e7a45; font-size: 1.05rem; font-weight: bold; }
 .score-error { flex-basis: 100%; color: #98421b; font-size: .82rem; }
+.score-wait { flex-basis: 100%; color: #6b5300; font-size: .82rem; }
 [hidden] { display: none !important; }
 @media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
 </style>
@@ -813,6 +814,11 @@ const SCORE_KEYS = 'badminton-singles-score-keys-v1';
 const SCORE_PENDING = 'badminton-singles-score-pending-v1';
 const SCORE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/;
 const SCORE_POLL_MS = 30000;
+// 保存（POST）の返事はスプシ側の順番待ち（最大45秒）より長く待つ。20秒だと、8人が同時に保存したときに
+// 後ろの人が「送信できませんでした」になった（2026-10-25 check_score_concurrent.js で実測）。テストは window.SCORE_POST_TIMEOUT_MS で短くする
+const SCORE_GET_TIMEOUT_MS = 20000, SCORE_POST_TIMEOUT_MS = 60000;
+// 保存がこれより長くかかったら、押し直さずに待つよう知らせる
+const SCORE_SLOW_MS = 5000;
 // 公開ページ以外（手元のファイル・テスト）では通信しない。テストは window.SCORE_API_URL で偽の窓口に向ける
 function scoreApi() {
   if (typeof window==='undefined') return '';
@@ -830,9 +836,11 @@ function randomId(prefix) {
 async function scoreRequest(method, body) {
   const url=scoreApi();
   if (!url) throw Error('このページでは点数を記録できません。');
+  const limit=method==='GET' ? SCORE_GET_TIMEOUT_MS : typeof window.SCORE_POST_TIMEOUT_MS==='number' ? window.SCORE_POST_TIMEOUT_MS : SCORE_POST_TIMEOUT_MS;
   for (let attempt=1;;attempt++) {
     const ctrl=typeof AbortController==='function' ? new AbortController() : null;
-    const timer=ctrl ? setTimeout(()=>ctrl.abort(),20000) : 0;
+    let timedOut=false;
+    const timer=ctrl ? setTimeout(()=>{ timedOut=true; ctrl.abort(); },limit) : 0;
     let r=null;
     try {
       // GET の表IDは id（c・sid は Google の予約語で、URLに入れると400になる）。POST は本文なので sid のまま
@@ -845,7 +853,8 @@ async function scoreRequest(method, body) {
       if (r.ok) return r;
       const e=Error(typeof r.error==='string' ? r.error : 'エラーが起きました。'); e.code=r.code; throw e;
     }
-    if (method!=='GET' || attempt>=2) { const e=Error('通信できませんでした。電波の良い所でもう一度お試しください。'); e.code='network'; throw e; }
+    // timeout は返事を待ちきれなかった（混雑のことが多い）。network は届かなかった・読めなかった
+    if (method!=='GET' || attempt>=2) { const e=Error('通信できませんでした。電波の良い所でもう一度お試しください。'); e.code=timedOut ? 'timeout' : 'network'; throw e; }
     await new Promise(done=>setTimeout(done,1500));
   }
 }
@@ -892,7 +901,7 @@ function renderTourBox(slots) {
 }
 // --- 作成後：点数の登録・読み込み・入力 ---
 let scoreState={id:null};
-let scoreDrafts={}, scoreErrors={}, scoreEditing=new Set(), scoreSaving=new Set();
+let scoreDrafts={}, scoreErrors={}, scoreEditing=new Set(), scoreSaving=new Set(), scoreSlow=new Set();
 let registerChain=Promise.resolve(), scoreTimer=null;
 const scoringOn = () => !!(session && session.scoring && session.mode==='pairs' && session.scoreId && scoreApi());
 // 閲覧者は記録オフの間も表の変更を読む。幹事がオンに戻したときに自動で追従するため。
@@ -902,7 +911,7 @@ function ensureScoreState() {
   const id=session && session.scoreId || null;
   if (scoreState.id!==id) {
     scoreState={id,version:0,scores:{},loading:false,checkedAt:0,registering:0,registerMsg:'',syncMsg:'',healed:false,readToken:0,scoreEpoch:0,matchKeys:{}};
-    scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set();
+    scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set(); scoreSlow=new Set();
   }
   const st=scoreState;
   if (st.owner===session) return;
@@ -911,7 +920,7 @@ function ensureScoreState() {
   // 同じ節・コートでも対戦が替わったら、前の対戦の点数・入力途中の値を持ち越さない。
   // 対戦が同じ欄は送信中のまま（練習日の変更などで表が替わっても、二重に送れないように）
   Object.keys(st.matchKeys || {}).forEach(k=>{
-    if (st.matchKeys[k]!==next[k]) { delete st.scores[k]; delete scoreDrafts[k]; delete scoreErrors[k]; scoreEditing.delete(k); scoreSaving.delete(k); }
+    if (st.matchKeys[k]!==next[k]) { delete st.scores[k]; delete scoreDrafts[k]; delete scoreErrors[k]; scoreEditing.delete(k); scoreSaving.delete(k); scoreSlow.delete(k); }
   });
   st.owner=session; st.matchKeys=next; st.readToken=(st.readToken || 0)+1; st.loading=false;
 }
@@ -1083,9 +1092,19 @@ function paintScoreRow(el, force) {
     const save=button(saving ? '送信中…' : '保存',()=>saveScore(k)); save.className='save'; save.disabled=saving;
     el.append(a,'-',b,save);
     if (scoreEditing.has(k) && !saving) el.append(button('やめる',()=>{ scoreEditing.delete(k); delete scoreDrafts[k]; delete scoreErrors[k]; paintScoreRow(el,true); }));
+    if (saving && scoreSlow.has(k)) { const w=document.createElement('span'); w.className='score-wait'; w.setAttribute('role','status'); w.textContent='混み合っています。押し直さずに、そのままお待ちください…'; el.append(w); }
   }
   const err=own(scoreErrors,k);
   if (err) { const e=document.createElement('span'); e.className='score-error'; e.setAttribute('role','alert'); e.textContent=err; el.append(e); }
+}
+// 保存の返事が届かなかったとき、スプシにその点数が入ったかを読んで確かめる（確かめられなければ false）
+async function reachedServer(st, owner, k, want) {
+  try {
+    const r=await scoreRequest('GET',{action:'get',id:owner.scoreId,since:st.version});
+    if (scoreState!==st) return false;
+    const got=own(serverScores(r.matches),k);
+    return want ? !!got && Number(got[0])===want[0] && Number(got[1])===want[1] : !got;
+  } catch { return false; }
 }
 async function saveScore(k) {
   const el=document.querySelector(`.score-row[data-key="${k}"]`);
@@ -1100,27 +1119,45 @@ async function saveScore(k) {
     : !/^\d{1,2}$/.test(a) || !/^\d{1,2}$/.test(b) || Number(a)>30 || Number(b)>30 ? '点数は0〜30の数字で入れてください。'
     : Number(a)===Number(b) ? '同点は保存できません。' : '';
   if (problem) { scoreErrors[k]=problem; paintScoreRow(el,true); return; }
-  const st=scoreState, owner=session, saving=scoreSaving, sent=st.matchKeys[k];
+  const st=scoreState, owner=session, saving=scoreSaving, slow=scoreSlow, sent=st.matchKeys[k];
   // 返事を待つ間に表が替わっても、この欄の対戦が同じなら返事を使う（練習日の変更など）。対戦が替わったら使わない
   const current=()=>scoreState===st && st.matchKeys[k]===sent;
+  const want=a==='' ? null : [Number(a),Number(b)];
   let needsSync=false;
   st.scoreEpoch++; saving.add(k); delete scoreErrors[k]; paintScoreRow(el,true);
+  // 何人も同時に保存すると、スプシ側の順番待ちで時間がかかる。押し直さずに待つよう知らせる
+  const slowTimer=setTimeout(()=>{
+    if (!saving.has(k) || !current()) return;
+    slow.add(k); const now=document.querySelector(`.score-row[data-key="${k}"]`); if (now) paintScoreRow(now,true);
+  },SCORE_SLOW_MS);
   try {
-    const res=await scoreRequest('POST',{action:'score',sid:owner.scoreId,round,court:el.dataset.court,a:sideNames(owner,m[0]),b:sideNames(owner,m[1]),
-      scoreA:a==='' ? '' : Number(a),scoreB:b==='' ? '' : Number(b)});
+    const body={action:'score',sid:owner.scoreId,round,court:el.dataset.court,a:sideNames(owner,m[0]),b:sideNames(owner,m[1]),
+      scoreA:a==='' ? '' : Number(a),scoreB:b==='' ? '' : Number(b)};
+    let res=null;
+    for (let attempt=1;;attempt++) {
+      try { res=await scoreRequest('POST',body); break; }
+      catch(e) {
+        // 混み合っていたら、押し直してもらわずに1回だけ送り直す
+        if (e.code==='busy' && attempt===1 && current()) { await new Promise(done=>setTimeout(done,1500)); continue; }
+        // 返事が届かなくても、スプシには入っていることがある（混んでいて待ちきれなかった・返事だけ途中で切れた）
+        if ((e.code==='timeout' || e.code==='network') && current() && await reachedServer(st,owner,k,want)) break;
+        throw e;
+      }
+    }
     if (current()) {
       // 同時に別の試合も保存できるので、この返事では保存した試合だけを更新する。
-      const result=serverScores(res.matches);
+      const result=res ? serverScores(res.matches) : want ? {[k]:want} : {};
       if (own(result,k)) st.scores[k]=result[k]; else delete st.scores[k];
       st.checkedAt=Date.now(); delete scoreDrafts[k]; scoreEditing.delete(k);
     }
   } catch(e) {
     if (current()) {
       scoreErrors[k]=e.code==='stale' ? '対戦表が作り直されています。最新の表で入れ直してください。'
+        : e.code==='timeout' ? '混み合っていて、保存できたか確かめられませんでした。もう一度「保存」を押してください。'
         : e.code==='network' ? '送信できませんでした。電波の良い所でもう一度「保存」を押してください。' : e.message;
       needsSync=e.code==='stale' || e.code==='not_found';
     }
-  } finally { saving.delete(k); st.scoreEpoch++; }
+  } finally { clearTimeout(slowTimer); slow.delete(k); saving.delete(k); st.scoreEpoch++; }
   if (needsSync) await syncScores();
   const now=document.querySelector(`.score-row[data-key="${k}"]`);
   if (now) paintScoreRow(now,true);

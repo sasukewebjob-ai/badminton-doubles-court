@@ -14,10 +14,12 @@ let failures = 0;
 const errors = [];
 const paused = [];
 const blocked = new Set();
+const busy = new Set(); // ここに入れた操作は1回だけ「混み合っています」を返す
 const seen = []; // 窓口に届いた操作の順（登録を送り続けていないかの確認用）
-function pauseNext(action) {
+// 次のその操作の返事を止める。drop なら、スプシに届かないまま止まる（返事も来ない）
+function pauseNext(action, drop = false) {
   let release, ready;
-  const gate = { action, wait: new Promise(r => { release = r; }), ready: new Promise(r => { ready = r; }), release, arrive: () => ready() };
+  const gate = { action, drop, wait: new Promise(r => { release = r; }), ready: new Promise(r => { ready = r; }), release, arrive: () => ready() };
   paused.push(gate);
   return gate;
 }
@@ -29,10 +31,18 @@ async function open(browser, hash = '') {
     const action = req.method() === 'GET' ? new URL(req.url()).searchParams.get('action') : JSON.parse(body).action;
     seen.push(action);
     if (blocked.has(action)) return route.abort();
-    const res = serve({ method: req.method(), url: req.url(), body });
+    if (busy.has(action)) {
+      busy.delete(action);
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ ok: false, code: 'busy', error: '混み合っています。少し待ってからもう一度試してください。' }) });
+    }
     const at = paused.findIndex(g => g.action === action);
-    if (at >= 0) { const gate = paused.splice(at, 1)[0]; gate.arrive(); await gate.wait; }
-    await route.fulfill({ status: res.status, contentType: res.contentType, body: res.body, headers: { 'Access-Control-Allow-Origin': '*' } });
+    const gate = at >= 0 ? paused.splice(at, 1)[0] : null;
+    if (gate && gate.drop) { gate.arrive(); await gate.wait; return route.abort().catch(() => {}); }
+    const res = serve({ method: req.method(), url: req.url(), body });
+    if (gate) { gate.arrive(); await gate.wait; }
+    // アプリが待ちきれずに打ち切ったあとは返せない
+    await route.fulfill({ status: res.status, contentType: res.contentType, body: res.body, headers: { 'Access-Control-Allow-Origin': '*' } }).catch(() => {});
   });
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(e.message));
@@ -70,7 +80,7 @@ const remoteOf = id => JSON.parse(serve({ method: 'GET', url: API + '?action=get
 async function test(label, fn) {
   try { await fn(); console.log('OK ' + label); }
   catch (e) { failures++; console.error('FAIL ' + label + ': ' + e.message); }
-  finally { blocked.clear(); } // 途中で失敗しても、次のテストに通信の止めを持ち越さない
+  finally { blocked.clear(); busy.clear(); } // 途中で失敗しても、次のテストに通信の止めを持ち越さない
 }
 (async () => {
   const browser = await chromium.launch(launchOptions());
@@ -246,6 +256,64 @@ async function test(label, fn) {
       await h.waitForFunction(() => !document.querySelector('#generateBtn').disabled);
       await h.click('#generateBtn');
       assert.deepEqual(await h.evaluate(() => [session.names[1], session.names[2], session.scoring]), [['バレ', '原'], ['越野', '善志'], true]);
+      await h.context().close();
+    });
+    // 2026-10-25：8人が同時に保存すると、後ろの人に20秒で「送信できませんでした。電波の良い所で…」が出た（実際は混雑。check_score_concurrent.js）
+    const typeScore = async (h, a, b, key = '3A') => {
+      await row(h, key).locator('input').nth(0).fill(String(a)); await row(h, key).locator('input').nth(1).fill(String(b));
+      await row(h, key).locator('button.save').click();
+    };
+    const remoteScore = (h, key = '3A') => h.evaluate(() => session.scoreId).then(id => {
+      const m = remoteOf(id).matches.find(x => x.round + x.court === key);
+      return m ? [m.scoreA, m.scoreB] : null;
+    });
+    await test('保存に時間がかかると「そのままお待ちください」と出し、終われば ✓ になる', async () => {
+      const h = await host(browser), gate = pauseNext('score');
+      await typeScore(h, 21, 18); await gate.ready;
+      assert.equal(await row(h).locator('.score-wait').count(), 0, 'すぐには出さない');
+      await h.waitForSelector('.score-row[data-key="3A"] .score-wait', { timeout: 8000 });
+      assert.match(await row(h).textContent(), /押し直さずに、そのままお待ちください/);
+      gate.release();
+      await h.waitForFunction(() => document.querySelector('.score-row[data-key="3A"] .score-saved')?.textContent === '21 - 18 ✓');
+      assert.equal(await row(h).locator('.score-wait').count(), 0, '終わったら消す');
+      await h.context().close();
+    });
+    await test('「混み合っています」が返ったら自動でもう一度送り、押し直さなくても保存できる', async () => {
+      const h = await host(browser), before = seen.filter(a => a === 'score').length;
+      busy.add('score');
+      await save(h, 21, 18);
+      assert.equal(seen.filter(a => a === 'score').length - before, 2, '2回送る');
+      assert.equal(await row(h).locator('.score-error').count(), 0, 'エラーは出さない');
+      assert.deepEqual(await remoteScore(h), [21, 18]);
+      await h.context().close();
+    });
+    await test('返事を待ちきれなくても、スプシに入っていれば ✓ にする（「送信できませんでした」と出さない）', async () => {
+      const h = await host(browser);
+      await h.evaluate(() => { window.SCORE_POST_TIMEOUT_MS = 800; });
+      const gate = pauseNext('score'); // スプシには書くが、返事を止める
+      await typeScore(h, 21, 18); await gate.ready;
+      await h.waitForFunction(() => scoreSaving.size === 0, null, { timeout: 10000 });
+      assert.equal(await row(h).locator('.score-saved').textContent(), '21 - 18 ✓');
+      assert.equal(await row(h).locator('.score-error').count(), 0);
+      gate.release();
+      await h.context().close();
+    });
+    await test('待ちきれず、スプシにも入っていなければ押し直しを案内し、押し直せば保存できる', async () => {
+      const h = await host(browser);
+      await h.evaluate(() => { window.SCORE_POST_TIMEOUT_MS = 800; });
+      const gate = pauseNext('score', true); // スプシに届かないまま止まる
+      await typeScore(h, 21, 18); await gate.ready;
+      await h.waitForFunction(() => scoreSaving.size === 0, null, { timeout: 10000 });
+      const text = await row(h).textContent();
+      assert.match(text, /混み合っていて、保存できたか確かめられませんでした。もう一度「保存」を押してください。/);
+      assert.doesNotMatch(text, /電波/, '電波のせいにしない');
+      assert.equal(await row(h).locator('input').first().inputValue(), '21', '入れた点数は欄に残る');
+      assert.equal(await remoteScore(h), null);
+      gate.release();
+      await h.evaluate(() => { window.SCORE_POST_TIMEOUT_MS = 60000; });
+      await row(h).locator('button.save').click();
+      await h.waitForFunction(() => document.querySelector('.score-row[data-key="3A"] .score-saved')?.textContent === '21 - 18 ✓');
+      assert.deepEqual(await remoteScore(h), [21, 18]);
       await h.context().close();
     });
     assert.deepEqual(errors, [], 'ページの実行時エラー');

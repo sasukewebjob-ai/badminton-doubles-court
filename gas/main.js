@@ -26,6 +26,11 @@ const LOG_HEADERS = ['日時', '表ID', '節', 'コート', '操作', '内容'];
 const ROSTER_HEADERS = ['名前'];
 // 書き込んだ側がすぐ新しい内容を入れ直すが、読み込みと書き込みが重なると古い内容が入りうるので短めにする
 const CACHE_SECONDS = 20;
+// 順番待ちの上限。アプリは保存の返事を60秒待つので、その内に「混み合っています」を返せる長さにする
+// （20秒だと、8人が同時に保存したときに後ろの人が待ちきれなかった。2026-10-25 check_score_concurrent.js で実測）
+const LOCK_WAIT_MS = 45000;
+// スプレッドシート上の操作（シンプルトリガーは30秒で止まる）
+const LOCK_WAIT_SHEET_MS = 20000;
 
 // ---------- 窓口 ----------
 function doGet(e) {
@@ -68,10 +73,13 @@ function userError_(message, code) {
   return e;
 }
 
-function withLock_(fn) {
+// 書き込みは手放す前に確定させる（確定前に手放すと、次の人が古い内容を読むことがある）
+function withLock_(fn, waitMs) {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) throw userError_('混み合っています。少し待ってからもう一度試してください。', 'busy');
-  try { return fn(); } finally { lock.releaseLock(); }
+  if (!lock.tryLock(waitMs || LOCK_WAIT_MS)) throw userError_('混み合っています。少し待ってからもう一度試してください。', 'busy');
+  try { return fn(); } finally {
+    try { SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
+  }
 }
 
 function apiTournaments_(date) {
@@ -81,6 +89,7 @@ function apiTournaments_(date) {
 
 function apiGet_(sid, since) {
   if (!CORE.isId(sid)) throw userError_('表IDが正しくありません。');
+  flushStatsIfIdle_();
   const snap = snapshot_(sid);
   if (!snap.version) throw userError_('この対戦表はまだ登録されていません。', 'not_found');
   const out = { ok: true, version: snap.version, date: snap.date, matches: snap.matches };
@@ -141,7 +150,9 @@ function apiScore_(p) {
   const err = CORE.checkScore(p);
   if (err) throw userError_(err);
   const score = CORE.parseScore(p.scoreA, p.scoreB);
+  const asked = Date.now();
   return withLock_(() => {
+    const began = Date.now();
     const sh = sheet_(SHEETS.matches);
     const rows = sidMatches_(sh, p.sid);
     if (!rows.length) throw userError_('この対戦表はまだ登録されていません。', 'not_found');
@@ -153,9 +164,12 @@ function apiScore_(p) {
     sh.getRange(m.row, COL.scoreA, 1, 5).setValues([[score.clear ? '' : score.a, score.clear ? '' : score.b, state, m.table, new Date()]]);
     const before = m.scoreA === null ? '未入力' : m.scoreA + '-' + m.scoreB;
     log_(p.sid, p.round, p.court, score.clear ? '消去' : '入力', before + ' → ' + (score.clear ? '未入力' : score.a + '-' + score.b));
-    const snap = snapshot_(p.sid, true);
-    recomputeStats_();
-    return { ok: true, version: snap.version, matches: snap.matches };
+    // 返事は、さっき読んだ行に今の点数を入れて作る（試合シートを読み直すと、そのぶん順番待ちが長くなる）
+    m.scoreA = score.clear ? null : score.a; m.scoreB = score.clear ? null : score.b; m.state = state;
+    const snap = snapshot_(p.sid, true, rows);
+    const stats = statsAfterWrite_();
+    // took はサーバー側の時間（順番待ち・処理）。check_score_concurrent.js が表示する
+    return { ok: true, version: snap.version, matches: snap.matches, took: { wait: began - asked, work: Date.now() - began, stats } };
   });
 }
 
@@ -163,8 +177,9 @@ function apiScore_(p) {
 function apiAdmin_(p) {
   if (typeof ADMIN_KEY !== 'string' || ADMIN_KEY.length < 20 || p.key !== ADMIN_KEY) throw userError_('権限がありません。', 'forbidden');
   if (p.op === 'setup') return withLock_(() => setup_(p));
-  if (p.op === 'dump') return dump_(p);
-  if (p.op === 'view') return withLock_(() => view_(p));
+  // 確認の前に、後回しにした成績の計算を片付ける（e2e などが見るのは計算済みの成績）
+  if (p.op === 'dump') { withLock_(() => flushStats_(true)); return dump_(p); }
+  if (p.op === 'view') return withLock_(() => { flushStats_(true); return view_(p); });
   if (p.op === 'addTournaments') return withLock_(() => { addTournaments_(p.tournaments || []); recomputeStats_(); return { ok: true }; });
   if (p.op === 'addPairs') return withLock_(() => { addPairs_(p.pairs || []); recomputeStats_(); return { ok: true }; });
   if (p.op === 'setPairs') return withLock_(() => { const r = setPairs_(p); recomputeStats_(); return r; });
@@ -372,6 +387,59 @@ function recomputeStats_() {
     const current = String(view.getRange(1, 2).getValue()).trim();
     if (!tours.some(t => t.name === current)) view.getRange(1, 2).setValue(CORE.cellText(CORE.defaultTournament(tours, todayYmd_())));
   }
+  setStatsState_({ at: Date.now(), pending: false });
+}
+
+// ---------- 成績の計算の後回し（2026-10-25） ----------
+// 保存のたびに全試合を読んで成績を計算し直すと、その間ほかの人の保存が順番待ちになる
+// （1件約4秒・8人が同時に保存すると最後の人は35秒。check_score_concurrent.js で実測）。
+// 前の計算から STATS_QUIET_MS 以内の保存は「計算待ち」の印だけ付け、あとでまとめて1回計算する。
+// 計算待ちを片付けるのは、次の保存（間が空いていれば）・点数の取得（30秒ごと。ロックが空いているときだけ）・
+// スプシを開いたとき・管理用の確認（view・dump）の前。1人だけの保存は、今までどおりその場で計算する。
+// 印は CacheService に置く（PropertiesService などを使うと権限の追加が要り、公開中の窓口が止まるため）
+const STATS_QUIET_MS = 20000;
+const STATS_KEY = 'stats';
+
+function statsState_() {
+  try {
+    const v = JSON.parse(CacheService.getScriptCache().get(STATS_KEY) || 'null');
+    if (v && typeof v.at === 'number') return v;
+  } catch (e) { /* 読めなければ「前の計算は無い」扱い＝次の保存で計算する */ }
+  return { at: 0, pending: false };
+}
+
+function setStatsState_(s) {
+  try { CacheService.getScriptCache().put(STATS_KEY, JSON.stringify(s), 21600); } catch (e) { /* 使えなければ毎回計算するだけ */ }
+}
+
+// 点数を書いたあと（ロックの中）。計算したら true
+function statsAfterWrite_() {
+  const s = statsState_();
+  if (Date.now() - s.at < STATS_QUIET_MS) {
+    if (!s.pending) setStatsState_({ at: s.at, pending: true });
+    return false;
+  }
+  recomputeStats_();
+  return true;
+}
+
+// 計算待ちがあれば計算する（ロックの中）。now が真なら間が空いていなくても計算する
+function flushStats_(now) {
+  const s = statsState_();
+  if (s.pending && (now || Date.now() - s.at >= STATS_QUIET_MS)) recomputeStats_();
+}
+
+// 点数の取得のついで。保存の順番待ちに割り込まないよう、ロックが空いているときだけ
+function flushStatsIfIdle_() {
+  const s = statsState_();
+  if (!s.pending || Date.now() - s.at < STATS_QUIET_MS) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) return;
+  try { flushStats_(false); } catch (e) {
+    console.error(e && e.stack ? e.stack : e); // 計算に失敗しても点数の取得は続ける
+  } finally {
+    try { SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
+  }
 }
 
 // ---------- シートの読み書き ----------
@@ -454,7 +522,8 @@ function sidMatches_(sh, sid) {
 }
 
 // アプリに返す内容（点数の入った現在の試合と、共有データ）。30秒ごとに読まれるのでキャッシュする
-function snapshot_(sid, fresh) {
+// rows を渡すと、試合シートを読み直さずにそれを使う（点数を書いた直後。この表の行すべて）
+function snapshot_(sid, fresh, rows) {
   const cache = CacheService.getScriptCache();
   const hit = fresh ? null : cache.get('s:' + sid);
   if (hit) return JSON.parse(hit);
@@ -464,7 +533,7 @@ function snapshot_(sid, fresh) {
     const v = tables.getRange(row, 1, 1, TABLE_HEADERS.length).getValues()[0];
     snap = {
       version: Number(v[4]) || 0, date: ymd_(v[1]), data: String(v[6]),
-      matches: sidMatches_(sheet_(SHEETS.matches), sid)
+      matches: (rows || sidMatches_(sheet_(SHEETS.matches), sid))
         .filter(m => m.table !== CORE.TABLE_PREV && m.scoreA !== null && m.scoreB !== null)
         // 対戦の顔ぶれも返す。アプリは自分の表と同じ対戦の点数だけを出す（作り直しの登録が届く前の古い点数を別の対戦に出さない）
         .map(m => ({ round: m.round, court: m.court, a: m.a, b: m.b, scoreA: m.scoreA, scoreB: m.scoreB })),
@@ -532,12 +601,18 @@ function onOpen() {
     .addItem('成績を再計算', 'menuRecompute')
     .addItem('シートを整える', 'menuSetup')
     .addToUi();
+  // アプリの保存で後回しにした成績の計算を、開いた人が見る前に片付ける
+  try {
+    if (statsState_().pending) withLock_(() => flushStats_(true), LOCK_WAIT_SHEET_MS);
+  } catch (err) {
+    console.error(err && err.stack ? err.stack : err);
+  }
 }
 
 // メニューや手での編集からの再計算も、アプリからの書き込みと同じロックの中で行う
 // （ロックの外だと、点数の保存と前後したときに古い内容で成績を上書きすることがある）
-function menuRecompute() { withLock_(() => recomputeStats_()); }
-function menuSetup() { withLock_(() => setup_({})); }
+function menuRecompute() { withLock_(() => recomputeStats_(), LOCK_WAIT_SHEET_MS); }
+function menuSetup() { withLock_(() => setup_({}), LOCK_WAIT_SHEET_MS); }
 
 // 大会・ペア・試合を手で直したら成績を計算し直す（シンプルトリガー）
 function onEdit(e) {
@@ -552,7 +627,7 @@ function onEdit(e) {
         if (last >= first) sh.getRange(first, COL.sid, last - first + 1, 1).getValues().forEach(v => invalidate_(String(v[0]).trim()));
       }
       recomputeStats_();
-    });
+    }, LOCK_WAIT_SHEET_MS);
   } catch (err) {
     console.error(err && err.stack ? err.stack : err);
   }
