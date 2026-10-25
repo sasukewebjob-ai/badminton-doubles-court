@@ -1,5 +1,5 @@
 /**
- * 大会練習の成績：Webアプリの窓口とシートの読み書き。
+ * 大会練習の成績と練習日ごとの記録：Webアプリの窓口とシートの読み書き。
  * 計算は core.js（CORE）に任せ、ここではシートとの受け渡しだけをする。
  *
  * 窓口（アプリの singles.html 固定ペア版から呼ぶ）
@@ -11,7 +11,7 @@
  *   POST {action:'admin', key, op, …}         … 準備・確認用（ADMIN_KEY は secret.js。git に入れない）
  */
 const SHEETS = {
-  view: '成績', tournaments: '大会', pairs: 'ペア', matches: '試合', log: '記録',
+  view: '成績', day: '練習日', tournaments: '大会', pairs: 'ペア', matches: '試合', log: '記録',
   stats: 'ペア成績', tables: '対戦表', roster: '名簿',
 };
 const TZ = 'Asia/Tokyo';
@@ -180,6 +180,7 @@ function apiAdmin_(p) {
   // 確認の前に、後回しにした成績の計算を片付ける（e2e などが見るのは計算済みの成績）
   if (p.op === 'dump') { withLock_(() => flushStats_(true)); return dump_(p); }
   if (p.op === 'view') return withLock_(() => { flushStats_(true); return view_(p); });
+  if (p.op === 'day') return withLock_(() => { flushStats_(true); return day_(p); });
   if (p.op === 'addTournaments') return withLock_(() => { addTournaments_(p.tournaments || []); recomputeStats_(); return { ok: true }; });
   if (p.op === 'addPairs') return withLock_(() => { addPairs_(p.pairs || []); recomputeStats_(); return { ok: true }; });
   if (p.op === 'setPairs') return withLock_(() => { const r = setPairs_(p); recomputeStats_(); return r; });
@@ -209,6 +210,18 @@ function view_(p) {
   SpreadsheetApp.flush();
   const last = Math.max(sh.getLastRow(), 5);
   return { ok: true, values: sh.getRange(1, 1, last, VIEW_HEADERS.length).getDisplayValues() };
+}
+
+// 確認用：練習日シートの日付を選んで（date: 'YYYY-MM-DD' か表示の文字。'' なら自動）中身を返す
+function day_(p) {
+  const sh = daySheet_();
+  if (p.date !== undefined) {
+    const text = String(p.date);
+    sh.getRange(1, 2).setValue(CORE.cellText(CORE.dayNumber(text) !== null ? CORE.dayLabel(text) : text));
+  }
+  renderDay_(readMatches_(), p.date !== undefined && p.date !== '');
+  SpreadsheetApp.flush();
+  return { ok: true, values: sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), DAY_COLS).getDisplayValues() };
 }
 
 // テストデータの後片付け：表IDの行を試合・対戦表・記録から消す（大会名を渡すと大会とそのペアも）
@@ -253,8 +266,9 @@ function setup_(p) {
     const first = ss.getSheets().find(s => /^(シート|Sheet)1$/.test(s.getName()) && s.getLastRow() === 0);
     if (first) first.setName(SHEETS.view);
   }
-  const order = [SHEETS.view, SHEETS.tournaments, SHEETS.pairs, SHEETS.matches, SHEETS.log, SHEETS.stats, SHEETS.tables, SHEETS.roster];
+  const order = [SHEETS.view, SHEETS.day, SHEETS.tournaments, SHEETS.pairs, SHEETS.matches, SHEETS.log, SHEETS.stats, SHEETS.tables, SHEETS.roster];
   order.forEach(name => { if (!ss.getSheetByName(name)) ss.insertSheet(name); });
+  setupDay_(sheet_(SHEETS.day));
 
   header_(SHEETS.tournaments, TOUR_HEADERS, [160, 120, 120, 120, 200, 200]);
   header_(SHEETS.pairs, PAIR_HEADERS, [160, 110, 90, 90, 200]);
@@ -369,8 +383,8 @@ function setPairs_(p) {
 
 // ---------- 成績の再計算 ----------
 function recomputeStats_() {
-  const tours = readTournaments_();
-  const rows = CORE.computeStats(tours, readPairs_(), readMatches_().map(m => ({
+  const tours = readTournaments_(), matches = readMatches_();
+  const rows = CORE.computeStats(tours, readPairs_(), matches.map(m => ({
     date: m.date, a: m.a, b: m.b, scoreA: m.scoreA, scoreB: m.scoreB, excluded: m.state === CORE.STATE_EXCLUDED,
   })));
   const sh = sheet_(SHEETS.stats), old = sh.getLastRow() - 1;
@@ -387,7 +401,101 @@ function recomputeStats_() {
     const current = String(view.getRange(1, 2).getValue()).trim();
     if (!tours.some(t => t.name === current)) view.getRange(1, 2).setValue(CORE.cellText(CORE.defaultTournament(tours, todayYmd_())));
   }
+  // 練習日シートも同じ試合の一覧から作り直す（失敗しても成績と点数の保存は止めない）
+  try { renderDay_(matches); } catch (e) { console.error(e && e.stack ? e.stack : e); }
   setStatsState_({ at: Date.now(), pending: false });
+}
+
+// ---------- 練習日シート（2026-10-25 ユーザー要望：体育館のノートの代わり） ----------
+// B1 で練習日を選ぶと、その日1日分（出席者と成績・ペアごとの成績・対戦表と点数）が出る。
+// 中身は成績を計算し直すとき（点数の保存のあと）と、B1 を選び直したときに作り直す。
+// 新しい練習日の点数が入ったら、その日に切り替える
+const DAY_COLS = 8;
+const DAY_LIST_MAX = 400; // プルダウンに出す練習日（新しい順）
+const DAY_KEY = 'day';
+
+// 無ければ作る（公開中のスプシに「シートを整える」をしなくても、最初の計算で出てくる）
+function daySheet_() {
+  const ss = book_();
+  let sh = ss.getSheetByName(SHEETS.day);
+  if (sh) return sh;
+  const view = ss.getSheetByName(SHEETS.view);
+  sh = ss.insertSheet(SHEETS.day, view ? view.getIndex() : 0);
+  setupDay_(sh);
+  try { CacheService.getScriptCache().remove(DAY_KEY); } catch (e) { /* 次は必ず書く */ }
+  return sh;
+}
+
+function setupDay_(sh) {
+  sh.getRange(1, 1).setValue('練習日').setFontWeight('bold');
+  // プルダウンの「2026/10/25 (日)」を日付に変えずに文字のまま持つ
+  sh.getRange(1, 2).setNumberFormat('@').setBackground('#fff8e1').setFontWeight('bold')
+    .setNote('練習日を選ぶと、その日の出席者・成績・対戦表と点数が出ます。新しい練習の点数が入ると、その日に切り替わります。');
+  [130, 120, 45, 45, 130, 70, 45, 55].forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  sh.setFrozenRows(1);
+}
+
+// matches は readMatches_() の結果。picked は B1 を人が選んだとき（記録の無い日でもその日のままにする）
+function renderDay_(matches, picked) {
+  const sh = daySheet_(), cell = sh.getRange(1, 2);
+  const days = CORE.practiceDays(matches), labels = days.slice(0, DAY_LIST_MAX).map(CORE.dayLabel);
+  const rule = cell.getDataValidation(), before = rule ? (rule.getCriteriaValues()[0] || []) : [];
+  if (before.join('\n') !== labels.join('\n')) {
+    cell.setDataValidation(labels.length ? SpreadsheetApp.newDataValidation().requireValueInList(labels, true)
+      .setAllowInvalid(true).setHelpText('一覧から練習日を選んでください。').build() : null);
+  }
+  // 選んでいる日の記録が無い（初めて・消えた）か、新しい練習日が増えたら、いちばん新しい日にする
+  const typed = ymd_(cell.getValue()), grew = labels.length && before.length && before.indexOf(labels[0]) < 0;
+  const date = picked ? typed : days.indexOf(typed) < 0 || grew ? days[0] || '' : typed;
+  if (date && String(cell.getValue()) !== CORE.dayLabel(date)) cell.setValue(CORE.dayLabel(date));
+  if (!picked && !date && cell.getValue() !== '') cell.setValue('');
+
+  const out = [], styles = [];
+  const line = (style, cells) => {
+    const v = cells.map(x => (typeof x === 'string' ? CORE.cellText(x) : x));
+    while (v.length < DAY_COLS) v.push('');
+    out.push(v); styles.push(style);
+  };
+  const r = date && days.indexOf(date) >= 0 ? CORE.dayReport(matches, date) : null;
+  if (!r) {
+    line('note', [!days.length ? 'まだ記録がありません（アプリで点数を入れた練習日がここに出ます）。'
+      : date ? 'この日の記録はありません（点数を入れた練習日は B1 の一覧から選べます）。' : 'B1 の一覧から練習日を選んでください。']);
+  } else {
+    line('summary', ['出席 ' + r.people.length + '人' + (r.unnamed ? '＋名前のないペア ' + r.unnamed + '組' : '') + '・試合 ' + r.games +
+      '（点数あり ' + r.scored + '）' + (r.tables > 1 ? '・対戦表 ' + r.tables + 'つ' : '')]);
+    line('note', ['点数が1試合でも入った対戦表だけを出します。点数が入った最後の節より後は、やらなかった節として出しません。']);
+    const block = (title, head, items) => {
+      line('', []);
+      line('section', [title]);
+      line('head', head);
+      items.forEach(x => line('', x));
+    };
+    const stat = x => [x.label, x.rounds, x.games, x.wins, x.losses, x.pf, x.pa, x.diff];
+    block('■ 出席者と成績（' + r.people.length + '人）', ['名前', '出た節', '試合', '勝', '敗', '得点', '失点', '得失点'], r.people.map(stat));
+    block('■ ペアごとの成績（' + r.pairs.length + '組）', ['ペア', '出た節', '試合', '勝', '敗', '得点', '失点', '得失点'], r.pairs.map(stat));
+    block('■ 対戦表と点数（' + r.games + '試合）', ['節・コート', 'ペア', '点', '点', 'ペア', 'メモ'], r.list.map(m => [
+      (r.tables > 1 ? '表' + m.table + '・' : '') + '第' + m.round + '節 ' + m.court, m.a,
+      m.scoreA === null ? '' : m.scoreA, m.scoreB === null ? '' : m.scoreB, m.b, m.note,
+    ]));
+  }
+
+  // 同じ内容なら書き直さない（成績の計算は点数の保存のたびに走るので、そのぶん短くする）
+  const sig = digest_(JSON.stringify([CORE.dayLabel(date), out]));
+  const cache = CacheService.getScriptCache();
+  try { if (cache.get(DAY_KEY) === sig) return; } catch (e) { /* 読めなければ書く */ }
+  const old = sh.getLastRow();
+  if (old >= 2) {
+    const range = sh.getRange(2, 1, old - 1, Math.max(DAY_COLS, sh.getLastColumn()));
+    range.clearContent(); range.clearFormat();
+  }
+  if (out.length + 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), out.length + 1 - sh.getMaxRows() + 100);
+  const range = sh.getRange(2, 1, out.length, DAY_COLS);
+  const fill = fn => styles.map(s => Array(DAY_COLS).fill(fn(s)));
+  range.setValues(out);
+  range.setFontWeights(fill(s => (s === 'note' || s === '' ? 'normal' : 'bold')));
+  range.setBackgrounds(fill(s => (s === 'section' ? '#d7ecf9' : s === 'head' ? '#e6f4ea' : null)));
+  range.setFontColors(fill(s => (s === 'note' ? '#666666' : null)));
+  try { cache.put(DAY_KEY, sig, 600); } catch (e) { /* 次も書くだけ */ }
 }
 
 // ---------- 成績の計算の後回し（2026-10-25） ----------
@@ -617,6 +725,17 @@ function menuSetup() { withLock_(() => setup_({}), LOCK_WAIT_SHEET_MS); }
 // 大会・ペア・試合を手で直したら成績を計算し直す（シンプルトリガー）
 function onEdit(e) {
   const name = e && e.range ? e.range.getSheet().getName() : '';
+  // 練習日シートの B1（練習日）を選び直したら、その日の中身にする
+  if (name === SHEETS.day) {
+    const r = e.range;
+    if (r.getRow() !== 1 || r.getColumn() > 2 || r.getColumn() + r.getNumColumns() - 1 < 2) return;
+    try {
+      withLock_(() => renderDay_(readMatches_(), true), LOCK_WAIT_SHEET_MS);
+    } catch (err) {
+      console.error(err && err.stack ? err.stack : err);
+    }
+    return;
+  }
   if ([SHEETS.tournaments, SHEETS.pairs, SHEETS.matches].indexOf(name) < 0) return;
   try {
     withLock_(() => {

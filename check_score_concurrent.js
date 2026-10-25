@@ -124,13 +124,15 @@ const refresh = async (page, count) => {
     await host.selectOption('#roundCount', '10');
     const names = (await host.evaluate(() => [...document.querySelectorAll('#rosterChips button[data-name]')].map(b => b.dataset.name))).slice(0, 16);
     for (const nm of names) await host.click(`#rosterChips button[data-name="${nm}"]`);
-    await host.check('#scoring');
+    check('「点数を記録する」は最初からオン', await host.isChecked('#scoring'));
     await host.click('#generateBtn');
     check('点数欄が出る（4コート×10節＝40試合）', await wait(host, () => document.querySelectorAll('.score-row').length === 40));
     sid = await host.evaluate(() => session.scoreId);
     check('スプシに登録できる', await wait(host, () => /点数 0試合入力済み/.test(document.querySelector('.score-bar').textContent)),
       await host.textContent('.score-bar'));
-    const hash = await host.evaluate(() => SHARE_PREFIX + encodeShare(session));
+    // 実際に送るのと同じ短い共有リンク（#t=表ID。2026-10-25から。表はスプシから読む）
+    check('共有リンクは短い（#t=表ID）', await host.evaluate(() => shortLinkReady()));
+    const hash = await host.evaluate(() => SHORT_PREFIX + session.scoreId);
     const viewers = await Promise.all(Array.from({ length: PEOPLE }, () => open(hash)));
     const ready = await Promise.all(viewers.map(v => wait(v, () => document.querySelectorAll('.score-row').length === 40 &&
       /点数 \d+試合入力済み/.test((document.querySelector('.score-bar') || {}).textContent || ''))));

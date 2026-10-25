@@ -203,5 +203,72 @@ test('シートに書く文字は数式にならない', () => {
   assert.equal(CORE.cellText('原'), '原');
 });
 
+// ---------- 練習日ごとの記録（2026-10-25） ----------
+const T1 = 'DayTable1aaaaaaaaaaa', T2 = 'DayTable2bbbbbbbbbbb', T3 = 'DayTable3cccccccccc';
+const BH = ['バレ', '原'], KZ = ['越野', '善志'], UN = ['内田', '根津真'], OK = ['大野', '北原'];
+let rowNo = 2;
+const dm = (sid, round, court, a, b, scoreA = null, scoreB = null, extra = {}) =>
+  ({ row: rowNo++, date: '2026-10-25', sid, round, court, a, b, scoreA, scoreB, state: scoreA === null ? '未入力' : '入力済み', table: '', ...extra });
+const day = [
+  dm(T1, 1, 'A', BH, KZ, 21, 15), dm(T1, 1, 'B', UN, OK, 18, 21),
+  dm(T1, 2, 'A', BH, UN, 21, 19), dm(T1, 2, 'B', KZ, OK), // 2B は点数の入れ忘れ
+  dm(T1, 3, 'A', BH, OK), dm(T1, 3, 'B', KZ, UN), // 第3節はやらなかった（点数なし）
+  dm(T1, 2, 'B', KZ, ['9番ペア'], 21, 3, { table: '作り直し前' }), // 組み直す前に実際にやった試合
+  dm(T1, 1, 'A', BH, OK, null, null, { table: '作り直し前' }), // 組み直す前の、やっていない試合
+  dm(T2, 1, 'A', ['田中', '依田'], ['宮下', '後藤']), // 作り直して使わなかった表（点数なし）
+  dm(T1, 1, 'A', BH, KZ, 21, 1, { date: '2026-10-18' }), // 別の日
+];
+
+test('練習日の一覧は、点数が入った日だけ（新しい順）', () => {
+  assert.deepEqual(CORE.practiceDays(day.concat([dm(T3, 1, 'A', BH, KZ, null, null, { date: '2026-11-01' })])), ['2026-10-25', '2026-10-18']);
+  assert.equal(CORE.dayLabel('2026-10-25'), '2026/10/25 (日)');
+  assert.equal(CORE.dayLabel('2027-01-01'), '2027/01/01 (金)');
+  assert.equal(CORE.dayLabel('2026-02-30'), '');
+});
+
+test('1日分の試合：点数が入った表だけ・点数が入った最後の節まで・作り直し前は点数のあるものだけ', () => {
+  const r = CORE.dayReport(day, '2026-10-25');
+  assert.equal(r.tables, 1, '点数のない表（作り直して使わなかった）は出さない');
+  assert.deepEqual(r.list.map(x => [x.round + x.court, x.a, x.scoreA, x.scoreB, x.b, x.note]), [
+    ['1A', 'バレ・原', 21, 15, '越野・善志', ''], ['1B', '内田・根津真', 18, 21, '大野・北原', ''],
+    ['2A', 'バレ・原', 21, 19, '内田・根津真', ''],
+    ['2B', '越野・善志', 21, 3, '9番ペア', '作り直し前'], ['2B', '越野・善志', null, null, '大野・北原', '未入力'],
+  ]);
+  assert.deepEqual([r.games, r.scored, r.unnamed], [5, 4, 1]);
+});
+
+test('1日分の成績：人ごと（出席者）・ペアごと、勝ち数→得失点の順', () => {
+  const r = CORE.dayReport(day, '2026-10-25');
+  const row = x => [x.label, x.rounds, x.games, x.wins, x.losses, x.pf, x.pa, x.diff];
+  assert.deepEqual(r.people.map(row), [
+    ['バレ', '第1〜2節', 2, 2, 0, 42, 34, 8], ['原', '第1〜2節', 2, 2, 0, 42, 34, 8],
+    ['北原', '第1〜2節', 1, 1, 0, 21, 18, 3], ['大野', '第1〜2節', 1, 1, 0, 21, 18, 3],
+    ['善志', '第1〜2節', 2, 1, 1, 36, 24, 12], ['越野', '第1〜2節', 2, 1, 1, 36, 24, 12],
+    ['内田', '第1〜2節', 2, 0, 2, 37, 42, -5], ['根津真', '第1〜2節', 2, 0, 2, 37, 42, -5],
+  ].sort((x, y) => y[3] - x[3] || y[7] - x[7] || y[2] - x[2] || (x[0] < y[0] ? -1 : 1)));
+  assert.deepEqual(r.pairs.map(row), [
+    ['バレ・原', '第1〜2節', 2, 2, 0, 42, 34, 8], ['越野・善志', '第1〜2節', 2, 1, 1, 36, 24, 12],
+    ['大野・北原', '第1〜2節', 1, 1, 0, 21, 18, 3], ['内田・根津真', '第1〜2節', 2, 0, 2, 37, 42, -5],
+    ['9番ペア', '第2節', 1, 0, 1, 3, 21, -18],
+  ]);
+});
+
+test('1日分：除外は一覧に出すが数えない・表が2つなら表ごと・名前の書き方の違いは同じ人', () => {
+  const two = [
+    dm(T1, 1, 'A', BH, KZ, 21, 15), dm(T1, 2, 'A', BH, KZ, 21, 10, { state: '除外' }),
+    dm(T3, 1, 'A', ['髙橋', '大野'], UN, 21, 8), dm(T3, 2, 'A', ['高橋 ', '大野'], BH, 15, 21),
+  ];
+  const r = CORE.dayReport(two, '2026-10-25');
+  assert.equal(r.tables, 2);
+  assert.deepEqual(r.list.map(x => [x.table, x.round, x.note]), [[1, 1, ''], [1, 2, '除外'], [2, 1, ''], [2, 2, '']]);
+  assert.equal(r.scored, 3, '除外は点数ありに数えない');
+  const bh = r.pairs.find(x => x.label === 'バレ・原');
+  assert.deepEqual([bh.rounds, bh.games, bh.wins], ['第1〜2節／第2節', 2, 2], '表ごとに出た節を区切る。除外の試合は数えない');
+  const t = r.people.filter(x => x.label === '髙橋' || x.label === '高橋 ');
+  assert.equal(t.length, 1, 'はしごだか・空白の違いは同じ人');
+  assert.deepEqual([t[0].games, t[0].wins], [2, 1]);
+  assert.deepEqual(CORE.dayReport(two, '2026-10-24'), { date: '2026-10-24', tables: 0, games: 0, scored: 0, people: [], pairs: [], list: [], unnamed: 0 });
+});
+
 if (failed) process.exitCode = 1;
 else console.log('大会練習の成績（計算）のテスト 全合格');

@@ -1,4 +1,5 @@
 // 本番の固定ペア版（GitHub Pages）→ 本物のスプシ（GAS）まで、点数の登録・入力を通しで確かめる（2026-10-24追加）
+// 2026-10-25：短い共有リンク（#t=表ID）で開く・練習日シートに出る、も確かめる
 // 本物のスプシに書き込むので、架空の練習日（2000-01-15・どの大会の練習期間でもない）で表を作り、最後に消す。
 // 片付けに管理用の鍵（gas/secret.js）を使うため、ユーザーが `! node check_score_live.js` で実行する
 const { chromium, launchOptions } = require('./pw');
@@ -14,7 +15,7 @@ const check = (label, pass, detail) => {
 
 (async () => {
   const browser = await chromium.launch(launchOptions());
-  let sid = null;
+  let sid = null, keepDay = null;
   try {
     const open = async () => {
       const context = await browser.newContext({ viewport: { width: 375, height: 800 }, timezoneId: 'Asia/Tokyo' });
@@ -32,8 +33,8 @@ const check = (label, pass, detail) => {
     await host.fill('#practiceDate', DATE); await host.dispatchEvent('#practiceDate', 'change');
     await host.selectOption('#courtCount', '1');
     for (const nm of ['大野', '北原', '越野', '善志']) await host.click(`#rosterChips button[data-name="${nm}"]`);
-    check('練習期間でない日なので「点数を記録する」はオフで始まる', !(await host.isChecked('#scoring')));
-    await host.check('#scoring');
+    // 練習日ごとの記録を残すため、練習期間でない日も最初からオン（2026-10-25）
+    check('練習期間でない日も「点数を記録する」はオンで始まる', await host.isChecked('#scoring'));
     await host.click('#generateBtn');
     check('点数欄が出る（1コート×10節）', await wait(host, () => document.querySelectorAll('.score-row').length === 10));
     sid = await host.evaluate(() => session.scoreId);
@@ -44,20 +45,24 @@ const check = (label, pass, detail) => {
     await row.locator('button.save').click();
     check('点数を保存できる（21 - 15 ✓）', await wait(host, () => /21 - 15 ✓/.test(document.querySelector('.score-row[data-key="1A"]').textContent)),
       await row.textContent());
-    const hash = await host.evaluate(() => SHARE_PREFIX + encodeShare(session));
+    check('共有リンクは短い（#t=表ID）', await host.evaluate(() => shortLinkReady()));
     const viewer = await open();
-    await viewer.goto(PAGE + '?v=' + Date.now() + hash);
-    check('共有リンクを開いた人にも本物のスプシの点数が出る', await wait(viewer, () => /21 - 15 ✓/.test((document.querySelector('.score-row[data-key="1A"]') || {}).textContent || '')));
+    await viewer.goto(PAGE + '?v=' + Date.now() + '#t=' + sid);
+    check('短い共有リンクを開いた人にも、本物のスプシから表と点数が出る', await wait(viewer, () => /21 - 15 ✓/.test((document.querySelector('.score-row[data-key="1A"]') || {}).textContent || '')));
     const sheet = await admin('dump', { sheets: ['試合'], limit: 5000 });
     const mine = sheet.sheets['試合'].filter(r => r[1] === sid);
     const first = mine.find(r => r[2] === '1' && r[3] === 'A');
     check('スプシの試合シートに10試合と点数（21-15・入力済み）', mine.length === 10 && first && first[8] === '21' && first[9] === '15' && first[10] === '入力済み', first);
+    keepDay = (await admin('day', {})).values[0][1];
+    const day = (await admin('day', { date: DATE })).values.map(r => r.join('|').replace(/\|+$/, ''));
+    check('練習日シートにその日の出席者・対戦表と点数', day[1] === '出席 4人・試合 1（点数あり 1）' && day.some(l => /^第1節 A\|大野・北原\|21\|15\|越野・善志/.test(l)), day.slice(0, 3));
   } catch (e) {
     ng++; console.log('  NG  例外: ' + (e.stack || e.message));
   } finally {
     if (sid) {
       const r = await admin('deleteRows', { sids: [sid] });
       console.log('後片付け', JSON.stringify(r.removed));
+      if (keepDay !== null) await admin('day', { date: keepDay }); // 練習日シートで選んでいた日に戻す
     }
     await browser.close();
   }

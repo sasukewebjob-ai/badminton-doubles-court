@@ -197,7 +197,9 @@ const tap = (page, nm) => page.click(`#rosterChips button[data-name="${nm}"]`);
     check('練習期間でない日は大会の欄を出さない', await waitFor(other, () => document.querySelector('#tourBox').hidden));
     await other.selectOption('#courtCount', '1');
     for (const nm of ['バレ', '原', '越野', '善志']) await tap(other, nm);
-    check('練習期間でない日は「点数を記録する」が最初はオフ', await other.isVisible('#scoringRow') && !(await other.isChecked('#scoring')));
+    // 練習日ごとの記録を残すため、練習期間でない日も最初からオン（2026-10-25）
+    check('練習期間でない日も「点数を記録する」は最初からオン', await other.isVisible('#scoringRow') && await other.isChecked('#scoring'));
+    await other.uncheck('#scoring');
     const regs3 = count('register');
     await other.click('#generateBtn');
     await other.waitForSelector('.round-card');

@@ -1,7 +1,7 @@
 // 大会練習の成績（GAS）の準備と本番確認（2026-10-24追加）
 //   node gas_admin.js setup   … シートを作り、名簿・2026年度の大会・岡谷連盟杯のペアを入れる（入っていれば増やさない）
 //   node gas_admin.js pairs   … PAIRS にある大会のペアをシートで丸ごと入れ替える（名前の訂正・ペア表の更新）
-//   node gas_admin.js e2e     … 本番のWebアプリで登録→点数→成績シートの数式まで確認し、テストデータを消す
+//   node gas_admin.js e2e     … 本番のWebアプリで登録→点数→成績シートの数式・練習日シートまで確認し、テストデータを消す
 //   node gas_admin.js dump [シート名…]
 // 管理用の鍵は gas/secret.js（git に入れない）から読む
 const assert = require('assert/strict');
@@ -83,6 +83,7 @@ async function e2e() {
   const P = { a: ['確認A1', '確認A2'], b: ['確認B1', '確認B2'], c: ['確認C1', '確認C2'], t: ['臨時X', '臨時Y'] };
   const before = await admin('view', {});
   const keepTournament = before.values[0][1], keepMin = before.values[0][4];
+  const keepDay = (await admin('day', {})).values[0][1]; // 練習日シートで選んでいた日（最後に戻す）
   // 途中で止めた前回の確認が残っていれば先に消す（表IDは E2eCheck で始まる）
   const left = (await admin('dump', { sheets: ['対戦表', '試合'], limit: 5000 })).sheets;
   const leftSids = [...new Set([...left['対戦表'].map(r => r[0]), ...left['試合'].map(r => r[1])].filter(s => /^E2eCheck/.test(s)))];
@@ -130,9 +131,16 @@ async function e2e() {
     // 下の行は空だと返ってこないことがあるので、空でない行だけで比べる
     const table2 = v2.values.slice(4).filter(r => r[0] !== '');
     check(table2.length === 1 && table2[0][2] === '確認A1・確認A2', '最低試合数3ならAだけ: ' + table2.map(r => r[2]).join('、'));
+    // 練習日シート（2026-10-25）：表1の日を選ぶと、その日の出席者・成績・対戦表と点数が出る
+    const d = (await admin('day', { date: '2000-01-15' })).values.map(r => r.join('|').replace(/\|+$/, ''));
+    console.log(d.join('\n'));
+    check(d[0] === '練習日|2000/01/15 (土)' && d[1] === '出席 8人・試合 3（点数あり 3）', '練習日シートに選んだ日の概要: ' + d.slice(0, 2).join(' / '));
+    check(d.includes('確認A1|第1〜2節|2|1|1|40|36|4') && d.includes('確認B1・確認B2|第1〜3節|2|1|1|36|26|10'), '練習日シートに人ごと・ペアごとの成績');
+    check(d.includes('第3節 A|確認B1・確認B2|21|5|臨時X・臨時Y'), '練習日シートに対戦表と点数');
   } finally {
     const r = await admin('deleteRows', { sids: [SID1, SID2], tournaments: [T] });
     await admin('view', { tournament: keepTournament, min: keepMin === '' ? 0 : Number(keepMin) });
+    await admin('day', { date: keepDay });
     console.log('後片付け', JSON.stringify(r.removed));
   }
   console.log(`本番確認 ${ok}項目 全合格`);

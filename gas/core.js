@@ -215,6 +215,84 @@ const CORE = (() => {
     return now.name;
   }
 
+  // ---------- 練習日ごとの記録（2026-10-25 ユーザー要望：体育館のノートの代わり） ----------
+  // 点数が1試合でも入った表だけを、その日の記録にする（作り直して使わなかった表を混ぜない）。
+  // 表の中で点数が入った最後の節より後は、時間切れなどでやらなかった節として出さない。
+  // 作り直し前の試合は、点数が入っていれば実際にやった試合なので出す。除外の試合は一覧に出すが数えない
+  function dayMatches(matches, date) {
+    const mine = matches.filter(m => m.date === date), last = {};
+    mine.forEach(m => { if (validScore(m.scoreA, m.scoreB)) last[m.sid] = Math.max(last[m.sid] || 0, m.round); });
+    return mine.filter(m => last[m.sid] && (m.table === TABLE_PREV ? validScore(m.scoreA, m.scoreB) : m.round <= last[m.sid]));
+  }
+  // 記録のある練習日（新しい順）
+  function practiceDays(matches) {
+    const days = {};
+    matches.forEach(m => { if (dayNumber(m.date) !== null && validScore(m.scoreA, m.scoreB)) days[m.date] = true; });
+    return Object.keys(days).sort().reverse();
+  }
+  // 'YYYY-MM-DD' → '2026/10/25 (日)'（練習日シートのプルダウン）
+  function dayLabel(ymd) {
+    const n = dayNumber(ymd);
+    return n === null ? '' : ymd.replace(/-/g, '/') + ' (' + '日月火水木金土'[new Date(n * DAY).getUTCDay()] + ')';
+  }
+  const trimmed = names => names.map(n => String(n).trim());
+  // 「第1〜10節」。表が2つ以上なら表ごとに「／」で区切る
+  function roundSpan(spans, order) {
+    return order.filter(sid => spans[sid]).map(sid => {
+      const s = spans[sid];
+      return s.min === s.max ? '第' + s.min + '節' : '第' + s.min + '〜' + s.max + '節';
+    }).join('／');
+  }
+
+  /**
+   * 1日分の記録（練習日シート）。matches: [{row, date, sid, round, court, a, b, scoreA, scoreB, state, table}]
+   * people: 名前のある人ごと（出席者）／pairs: ペアごと（名前のない番号だけのペアも「9番ペア」で入る）／
+   * list: 試合の一覧（表の順・節・コート順）。勝敗・得失点は点数の入った試合だけ（除外は数えない）
+   */
+  function dayReport(matches, date) {
+    const rows = dayMatches(matches, date);
+    const order = [], firstRow = {};
+    rows.forEach(m => { if (!(m.sid in firstRow)) { firstRow[m.sid] = m.row; order.push(m.sid); } });
+    order.sort((x, y) => firstRow[x] - firstRow[y]);
+    const people = {}, pairs = {};
+    const entry = (book, key, label) => (book[key] = book[key] || { label, spans: {}, games: 0, wins: 0, pf: 0, pa: 0 });
+    const tally = (e, m, pf, pa) => {
+      const s = e.spans[m.sid] = e.spans[m.sid] || { min: m.round, max: m.round };
+      s.min = Math.min(s.min, m.round); s.max = Math.max(s.max, m.round);
+      if (pf === null) return;
+      e.games++; if (pf > pa) e.wins++;
+      e.pf += pf; e.pa += pa;
+    };
+    let scored = 0;
+    rows.forEach(m => {
+      const counted = m.state !== STATE_EXCLUDED && validScore(m.scoreA, m.scoreB);
+      if (counted) scored++;
+      const a = counted ? toPoint(m.scoreA) : null, b = counted ? toPoint(m.scoreB) : null;
+      [[m.a, a, b], [m.b, b, a]].forEach(([side, pf, pa]) => {
+        const names = trimmed(side);
+        // 番号だけのペア（「9番ペア」）は表が違えば別のペア
+        const key = names.length === 2 ? sideKey(names) : m.sid + '|' + sideKey(names);
+        tally(entry(pairs, key, names.join('・')), m, pf, pa);
+        if (names.length === 2) names.forEach(n => tally(entry(people, canonicalName(n), n), m, pf, pa));
+      });
+    });
+    const finish = book => Object.keys(book).map(k => {
+      const e = book[k];
+      return { label: e.label, rounds: roundSpan(e.spans, order), games: e.games, wins: e.wins, losses: e.games - e.wins, pf: e.pf, pa: e.pa, diff: e.pf - e.pa };
+    }).sort((x, y) => y.wins - x.wins || y.diff - x.diff || y.games - x.games || (x.label < y.label ? -1 : x.label > y.label ? 1 : 0));
+    const list = rows.slice().sort((x, y) => firstRow[x.sid] - firstRow[y.sid] || x.round - y.round ||
+      COURTS.indexOf(x.court) - COURTS.indexOf(y.court) || (x.table === TABLE_PREV ? 0 : 1) - (y.table === TABLE_PREV ? 0 : 1) || x.row - y.row)
+      .map(m => ({
+        table: order.indexOf(m.sid) + 1, round: m.round, court: m.court, a: trimmed(m.a).join('・'), b: trimmed(m.b).join('・'),
+        scoreA: validScore(m.scoreA, m.scoreB) ? toPoint(m.scoreA) : null, scoreB: validScore(m.scoreA, m.scoreB) ? toPoint(m.scoreB) : null,
+        note: m.table === TABLE_PREV ? TABLE_PREV : m.state === STATE_EXCLUDED ? STATE_EXCLUDED : validScore(m.scoreA, m.scoreB) ? '' : STATE_EMPTY,
+      }));
+    return {
+      date, tables: order.length, games: rows.length, scored, people: finish(people), pairs: finish(pairs), list,
+      unnamed: Object.keys(pairs).filter(k => k.indexOf('|') >= 0).length,
+    };
+  }
+
   // 名簿の追加（消さない。辞めた人がプルダウンに残るだけで害はない）
   function mergeRoster(existing, incoming) {
     const out = existing.filter(validName).map(s => s.trim()), seen = {};
@@ -235,6 +313,7 @@ const CORE = (() => {
     dayNumber, ymdOf, practicePeriod, canonicalName, sideKey, sameSide, pairKey,
     parseScore, validScore, isId, checkRegister, checkScore, planRegister,
     resolveTournaments, computeStats, activeTournaments, defaultTournament, mergeRoster, cellText,
+    dayMatches, practiceDays, dayLabel, dayReport,
   };
 })();
 

@@ -13,7 +13,9 @@ const colOf = s => s.split('').reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0
 class Range {
   constructor(sheet, row, col, nr, nc) { Object.assign(this, { sheet, row, col, nr, nc }); }
   getRow() { return this.row; }
+  getColumn() { return this.col; }
   getNumRows() { return this.nr; }
+  getNumColumns() { return this.nc; }
   getSheet() { return this.sheet; }
   each(fn) { for (let r = 0; r < this.nr; r++) for (let c = 0; c < this.nc; c++) fn(this.row + r, this.col + c, r, c); return this; }
   grid(fn) { return Array.from({ length: this.nr }, (_, r) => Array.from({ length: this.nc }, (_, c) => fn(this.row + r, this.col + c))); }
@@ -30,6 +32,25 @@ class Range {
   setFormula(f) { this.sheet.cells.set(this.sheet.key(this.row, this.col), { v: '', f }); return this; }
   clearContent() { return this.each((r, c) => this.sheet.cells.delete(this.sheet.key(r, c))); }
   setDataValidation(rule) { this.sheet.validations.push({ range: [this.row, this.col, this.nr, this.nc], rule }); return this; }
+  // 左上のセルにかかる最後の入力規則（null を設定すると消える）
+  getDataValidation() {
+    const hit = this.sheet.validations.filter(({ range: [r, c, nr, nc] }) => this.row >= r && this.row < r + nr && this.col >= c && this.col < c + nc).pop();
+    return hit ? hit.rule : null;
+  }
+  // 書式（太字・背景色・文字色）はセルごとに覚える。テストで見出しの行などを確かめる
+  setFormats(kind, grid) {
+    assert.equal(grid.length, this.nr, kind + ' の行数');
+    grid.forEach(line => assert.equal(line.length, this.nc, kind + ' の列数'));
+    return this.each((r, c, i, j) => {
+      const f = this.sheet.formats.get(this.sheet.key(r, c)) || {};
+      if (grid[i][j] === null) delete f[kind]; else f[kind] = grid[i][j];
+      this.sheet.formats.set(this.sheet.key(r, c), f);
+    });
+  }
+  setFontWeights(g) { return this.setFormats('weight', g); }
+  setBackgrounds(g) { return this.setFormats('background', g); }
+  setFontColors(g) { return this.setFormats('color', g); }
+  clearFormat() { return this.each((r, c) => this.sheet.formats.delete(this.sheet.key(r, c))); }
   createTextFinder(text) {
     const opts = { caseSensitive: false, entire: false };
     const hits = () => {
@@ -53,7 +74,7 @@ class Range {
 for (const m of ['setNumberFormat', 'setNote', 'setFontWeight', 'setBackground', 'setFontColor']) Range.prototype[m] = function () { return this; };
 
 class Sheet {
-  constructor(name) { this.name = name; this.cells = new Map(); this.validations = []; this.hidden = false; this.protections = []; this.maxRows = 1000; }
+  constructor(name, book) { this.name = name; this.book = book; this.cells = new Map(); this.formats = new Map(); this.validations = []; this.hidden = false; this.protections = []; this.maxRows = 1000; }
   key(r, c) { return r + ',' + c; }
   value(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.v : ''; }
   formula(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.f : ''; }
@@ -67,6 +88,8 @@ class Sheet {
   }
   getName() { return this.name; }
   setName(n) { this.name = n; return this; }
+  getIndex() { return this.book.sheets.indexOf(this) + 1; }
+  format(r, c) { return this.formats.get(this.key(r, c)) || {}; }
   getLastRow() { let m = 0; for (const [k, cell] of this.cells) if (cell.v !== '' || cell.f) m = Math.max(m, Number(k.split(',')[0])); return m; }
   getLastColumn() { let m = 0; for (const [k, cell] of this.cells) if (cell.v !== '' || cell.f) m = Math.max(m, Number(k.split(',')[1])); return m; }
   // 本物と同じく、新しいシートは1000行。最大行を超える範囲は例外（appendRow と違って自動では増えない）。
@@ -105,12 +128,13 @@ class Sheet {
 }
 
 class Book {
-  constructor() { this.sheets = [new Sheet('シート1')]; this.active = this.sheets[0]; }
+  constructor() { this.sheets = [new Sheet('シート1', this)]; this.active = this.sheets[0]; }
   setSpreadsheetTimeZone(tz) { this.tz = tz; }
   setSpreadsheetLocale(l) { this.locale = l; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
   getSheets() { return this.sheets.slice(); }
-  insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; }
+  // index を渡すと、その位置（0始まり）に入れる
+  insertSheet(n, index) { const s = new Sheet(n, this); if (index === undefined) this.sheets.push(s); else this.sheets.splice(index, 0, s); return s; }
   setActiveSheet(s) { this.active = s; return s; }
   moveActiveSheet(pos) { this.sheets = this.sheets.filter(s => s !== this.active); this.sheets.splice(pos - 1, 0, this.active); }
   getUrl() { return 'https://docs.google.com/spreadsheets/d/mock/edit'; }
@@ -119,9 +143,9 @@ class Book {
 function makeContext() {
   const book = new Book();
   const cache = new Map();
-  const builder = () => { const rule = {}; const b = {
-    requireValueInRange(r, show) { rule.range = r; return b; }, setAllowInvalid(x) { rule.allowInvalid = x; return b; },
-    setHelpText(t) { rule.help = t; return b; }, build() { return rule; } }; return b; };
+  const builder = () => { const rule = { getCriteriaValues: () => (rule.list ? [rule.list, rule.show] : [rule.range, rule.show]) }; const b = {
+    requireValueInRange(r, show) { rule.range = r; rule.show = show; return b; }, requireValueInList(list, show) { rule.list = Array.from(list); rule.show = show; return b; },
+    setAllowInvalid(x) { rule.allowInvalid = x; return b; }, setHelpText(t) { rule.help = t; return b; }, build() { return rule; } }; return b; };
   const context = {
     console: { error: (...a) => { context.errors.push(a.join(' ')); }, log() {} },
     errors: [],

@@ -55,7 +55,7 @@ test('準備：シートの作成・並び・隠し・名簿・大会・ペア�
     ],
   });
   assert.ok(r.ok, JSON.stringify(r));
-  assert.deepEqual(ctx.book.getSheets().map(s => s.name), ['成績', '大会', 'ペア', '試合', '記録', 'ペア成績', '対戦表', '名簿']);
+  assert.deepEqual(ctx.book.getSheets().map(s => s.name), ['成績', '練習日', '大会', 'ペア', '試合', '記録', 'ペア成績', '対戦表', '名簿']);
   assert.deepEqual(ctx.book.getSheets().filter(s => s.hidden).map(s => s.name), ['ペア成績', '対戦表', '名簿']);
   assert.equal(rows('名簿').length, 11);
   assert.equal(rows('大会').length, 2);
@@ -348,6 +348,117 @@ test('ロックを手放す前に書き込みを確定させる（次の人が�
   order.length = 0;
   c.menuRecompute();
   assert.deepEqual(order, ['lock:20000', 'flush', 'release'], 'スプシ上の操作は20秒まで（シンプルトリガーは30秒で止まる）');
+});
+
+// 2026-10-25：練習日ごとの記録（体育館のノートの代わり）。練習日を選ぶと、その日1日分が出る
+test('練習日シート：点数が入った表だけ・出席者と成績・ペア・対戦表と点数、新しい練習日に切り替わる・選び直せる', () => {
+  const c = makeContext();
+  const p = body => JSON.parse(c.doPost({ postData: { contents: JSON.stringify(body) } }).content);
+  const adm = (op, extra = {}) => p({ action: 'admin', key: c.ADMIN_KEY, op, ...extra });
+  assert.ok(adm('setup', { tournaments: [{ name: '岡谷連盟杯', date: '2026-11-03' }] }).ok);
+  const sh = c.book.getSheetByName('練習日');
+  const lines = () => sh.getRange(1, 1, sh.getLastRow(), 8).getValues().map(r => r.map(String).join('|').replace(/\|+$/, ''));
+  assert.match(lines()[1], /まだ記録がありません/);
+  const BH = ['バレ', '原'], UN = ['内田', '根津真'];
+  const T1 = 'PracticeDay1aaaaaaaa', T2 = 'PracticeDay2bbbbbbbb', T3 = 'PracticeDay3cccccccc';
+  const reg = (sid, date, matches) => assert.ok(p({ action: 'register', sid, hostKey: 'PracticeKey' + sid, date, data: 'eyJ2IjoxfQ==', matches }).ok);
+  reg(T1, '2026-10-25', [
+    { round: 1, court: 'A', a: OHARA, b: KOSHINO }, { round: 1, court: 'B', a: KARA, b: ['9番ペア'] },
+    { round: 2, court: 'A', a: OHARA, b: KARA }, { round: 2, court: 'B', a: KOSHINO, b: ['9番ペア'] },
+    { round: 3, court: 'A', a: OHARA, b: ['9番ペア'] }, { round: 3, court: 'B', a: KOSHINO, b: KARA },
+  ]);
+  reg(T2, '2026-10-25', [{ round: 1, court: 'A', a: BH, b: UN }]); // 作り直して使わなかった表
+  const s = (sid, round, court, a, b, x, y) => assert.ok(p({ action: 'score', sid, round, court, a, b, scoreA: x, scoreB: y }).ok);
+  s(T1, 1, 'A', OHARA, KOSHINO, 21, 15);
+  s(T1, 1, 'B', KARA, ['9番ペア'], 21, 9);
+  s(T1, 2, 'A', OHARA, KARA, 18, 21);
+  adm('view'); // 後回しにした計算を片付ける
+  assert.equal(sh.value(1, 2), '2026/10/25 (日)', '記録のある日を出す');
+  const v = lines();
+  assert.equal(v[1], '出席 6人＋名前のないペア 1組・試合 4（点数あり 3）');
+  assert.match(v[2], /点数が1試合でも入った対戦表だけ/);
+  assert.equal(v[4], '■ 出席者と成績（6人）');
+  assert.equal(v[5], '名前|出た節|試合|勝|敗|得点|失点|得失点');
+  assert.deepEqual(v.slice(6, 12), [
+    '唐澤|第1〜2節|2|2|0|42|27|15', '渡辺|第1〜2節|2|2|0|42|27|15', '佐藤|第1〜2節|2|1|1|39|36|3', '原|第1〜2節|2|1|1|39|36|3',
+    '善志|第1〜2節|1|0|1|15|21|-6', '越野|第1〜2節|1|0|1|15|21|-6',
+  ], '第3節は点数が無いのでやらなかった節。2Bは入れ忘れでも出た節に入る');
+  assert.equal(v[13], '■ ペアごとの成績（4組）');
+  assert.deepEqual(v.slice(15, 19), ['唐澤・渡辺|第1〜2節|2|2|0|42|27|15', '原・佐藤|第1〜2節|2|1|1|39|36|3', '越野・善志|第1〜2節|1|0|1|15|21|-6', '9番ペア|第1〜2節|1|0|1|9|21|-12']);
+  assert.equal(v[20], '■ 対戦表と点数（4試合）');
+  assert.equal(v[21], '節・コート|ペア|点|点|ペア|メモ');
+  assert.deepEqual(v.slice(22), ['第1節 A|原・佐藤|21|15|越野・善志', '第1節 B|唐澤・渡辺|21|9|9番ペア', '第2節 A|原・佐藤|18|21|唐澤・渡辺', '第2節 B|越野・善志|||9番ペア|未入力'],
+    '使わなかった表（T2）は出さない');
+  assert.deepEqual([sh.format(5, 1).weight, sh.format(5, 1).background, sh.format(6, 3).background, sh.format(3, 1).color, sh.format(7, 1).weight],
+    ['bold', '#d7ecf9', '#e6f4ea', '#666666', 'normal'], '見出しの書式');
+
+  // 次の練習日の点数が入ると、その日に切り替わる
+  reg(T3, '2026-11-01', [{ round: 1, court: 'A', a: BH, b: UN }, { round: 2, court: 'A', a: BH, b: UN }]);
+  s(T3, 1, 'A', BH, UN, 21, 17);
+  adm('view');
+  assert.equal(sh.value(1, 2), '2026/11/01 (日)');
+  assert.deepEqual(sh.getRange(1, 2).getDataValidation().getCriteriaValues()[0], ['2026/11/01 (日)', '2026/10/25 (日)'], 'プルダウンは記録のある日（新しい順）');
+  assert.equal(lines()[1], '出席 4人・試合 1（点数あり 1）');
+  assert.equal(sh.getLastRow(), 1 + 2 + 3 * 3 + 4 + 2 + 1, '前の日の行は残らない（1行目・概要2行・見出し3行×3・4人・2組・1試合）');
+
+  // 前の日を選び直すと、その日の中身になる。以後、同じ日の点数が入っても選んだ日のまま
+  sh.getRange(1, 2).setValue('2026/10/25 (日)');
+  c.onEdit({ range: sh.getRange(1, 2) });
+  assert.equal(lines()[1], '出席 6人＋名前のないペア 1組・試合 4（点数あり 3）');
+  s(T3, 2, 'A', BH, UN, 15, 21);
+  adm('view');
+  assert.equal(sh.value(1, 2), '2026/10/25 (日)', '選んだ日のまま');
+  // 記録の無い日を入れたとき・日付でないとき
+  sh.getRange(1, 2).setValue('2026/12/24');
+  c.onEdit({ range: sh.getRange(1, 2) });
+  assert.match(lines()[1], /この日の記録はありません/);
+  sh.getRange(1, 2).setValue('あした');
+  c.onEdit({ range: sh.getRange(1, 2) });
+  assert.match(lines()[1], /一覧から練習日を選んでください/);
+  assert.equal(sh.getLastRow(), 2);
+  const r = adm('day', { date: '2026-10-25' });
+  assert.deepEqual([r.values[0][1], r.values[1][0]], ['2026/10/25 (日)', '出席 6人＋名前のないペア 1組・試合 4（点数あり 3）'], '確認用の窓口でも選べる');
+  // 試合を除外すると数えない
+  const ms = c.book.getSheetByName('試合'), at = ms.getRange(2, 2, ms.getLastRow() - 1, 1).getValues().findIndex(x => x[0] === T1) + 2;
+  ms.getRange(at, 11).setValue('除外');
+  c.onEdit({ range: ms.getRange(at, 11) });
+  assert.equal(lines()[1], '出席 6人＋名前のないペア 1組・試合 4（点数あり 2）');
+  assert.ok(lines().includes('第1節 A|原・佐藤|21|15|越野・善志|除外'));
+  // 選んだ日の記録が全部消えたら、記録のある日に戻る
+  adm('deleteRows', { sids: [T1] });
+  assert.equal(sh.value(1, 2), '2026/11/01 (日)');
+  assert.deepEqual(sh.getRange(1, 2).getDataValidation().getCriteriaValues()[0], ['2026/11/01 (日)']);
+  adm('deleteRows', { sids: [T3] });
+  assert.deepEqual([sh.value(1, 2), sh.getRange(1, 2).getDataValidation()], ['', null]);
+  assert.match(lines()[1], /まだ記録がありません/);
+  assert.deepEqual(c.errors, []);
+});
+
+test('練習日シート：公開中のスプシに無くても最初の計算で作る・名前が数式にならない・同じ内容は書き直さない', () => {
+  const c = makeContext();
+  const p = body => JSON.parse(c.doPost({ postData: { contents: JSON.stringify(body) } }).content);
+  assert.ok(p({ action: 'admin', key: c.ADMIN_KEY, op: 'setup' }).ok);
+  c.book.sheets = c.book.sheets.filter(x => x.name !== '練習日'); // 「シートを整える」をする前の公開中のスプシ
+  const sid = 'PracticeDay4dddddddd';
+  assert.ok(p({ action: 'register', sid, hostKey: 'PracticeKey4dddddddd', date: '2026-10-25', data: 'eyJ2IjoxfQ==',
+    matches: [{ round: 1, court: 'A', a: ['=1+1', '原'], b: KOSHINO }] }).ok);
+  assert.ok(p({ action: 'score', sid, round: 1, court: 'A', a: ['=1+1', '原'], b: KOSHINO, scoreA: 21, scoreB: 4 }).ok);
+  p({ action: 'admin', key: c.ADMIN_KEY, op: 'view' }); // 準備の直後なので計算は後回し。確認で片付ける
+  const sh = c.book.getSheetByName('練習日');
+  assert.ok(sh, '作られる');
+  assert.equal(sh.getIndex(), 2, '成績シートの次');
+  const nameRow = sh.getRange(1, 1, sh.getLastRow(), 1).getValues().findIndex(r => r[0] === '=1+1') + 1;
+  assert.ok(nameRow > 0 && sh.formula(nameRow, 1) === '', '数式にせず文字のまま');
+  let writes = 0;
+  const real = c.book.getSheetByName.bind(c.book);
+  c.book.getSheetByName = n => {
+    const x = real(n);
+    if (x && n === '練習日' && !x.counted) { x.counted = true; const set = x.put.bind(x); x.put = (...a) => { writes++; return set(...a); }; }
+    return x;
+  };
+  p({ action: 'admin', key: c.ADMIN_KEY, op: 'recompute' });
+  assert.equal(writes, 0, '中身が同じなら書き直さない');
+  assert.deepEqual(c.errors, []);
 });
 
 test('サーバー側の想定外のエラーは中身を出さずに知らせる', () => {
