@@ -142,7 +142,7 @@ const CORE = (() => {
    * rows: [{name, date, start, end}]（日付は 'YYYY-MM-DD' か ''）。同じ大会名は先の行を使う
    */
   function resolveTournaments(rows) {
-    const out = [], seen = {};
+    const out = [], seen = Object.create(null);
     rows.forEach(r => {
       const name = typeof r.name === 'string' ? r.name.trim() : '';
       if (!name || seen[name] || dayNumber(r.date) === null) return;
@@ -164,7 +164,7 @@ const CORE = (() => {
    * matches: [{date, a, b, scoreA, scoreB, excluded}]
    */
   function computeStats(tournaments, pairs, matches) {
-    const results = {};
+    const results = Object.create(null);
     matches.forEach(m => {
       if (m.excluded || !validScore(m.scoreA, m.scoreB)) return;
       const a = toPoint(m.scoreA), b = toPoint(m.scoreB);
@@ -174,9 +174,9 @@ const CORE = (() => {
         (results[k] = results[k] || []).push({ date: m.date, pf, pa });
       });
     });
-    const byName = {};
+    const byName = Object.create(null);
     tournaments.forEach(t => { if (!byName[t.name]) byName[t.name] = t; });
-    const rows = [], seen = {};
+    const rows = [], seen = Object.create(null);
     pairs.forEach(p => {
       const t = byName[typeof p.tournament === 'string' ? p.tournament.trim() : ''];
       const k = pairKey(p.names);
@@ -254,7 +254,7 @@ const CORE = (() => {
     const order = [], firstRow = {};
     rows.forEach(m => { if (!(m.sid in firstRow)) { firstRow[m.sid] = m.row; order.push(m.sid); } });
     order.sort((x, y) => firstRow[x] - firstRow[y]);
-    const people = {}, pairs = {};
+    const people = Object.create(null), pairs = Object.create(null);
     const entry = (book, key, label) => (book[key] = book[key] || { label, spans: {}, games: 0, wins: 0, pf: 0, pa: 0 });
     const tally = (e, m, pf, pa) => {
       const s = e.spans[m.sid] = e.spans[m.sid] || { min: m.round, max: m.round };
@@ -285,7 +285,7 @@ const CORE = (() => {
       .map(m => ({
         table: order.indexOf(m.sid) + 1, round: m.round, court: m.court, a: trimmed(m.a).join('・'), b: trimmed(m.b).join('・'),
         scoreA: validScore(m.scoreA, m.scoreB) ? toPoint(m.scoreA) : null, scoreB: validScore(m.scoreA, m.scoreB) ? toPoint(m.scoreB) : null,
-        note: m.table === TABLE_PREV ? TABLE_PREV : m.state === STATE_EXCLUDED ? STATE_EXCLUDED : validScore(m.scoreA, m.scoreB) ? '' : STATE_EMPTY,
+        note: [m.table === TABLE_PREV ? TABLE_PREV : '', m.state === STATE_EXCLUDED ? STATE_EXCLUDED : !validScore(m.scoreA, m.scoreB) ? STATE_EMPTY : ''].filter(Boolean).join('・'),
       }));
     return {
       date, tables: order.length, games: rows.length, scored, people: finish(people), pairs: finish(pairs), list,
@@ -295,7 +295,7 @@ const CORE = (() => {
 
   // 名簿の追加（消さない。辞めた人がプルダウンに残るだけで害はない）
   function mergeRoster(existing, incoming) {
-    const out = existing.filter(validName).map(s => s.trim()), seen = {};
+    const out = existing.filter(validName).map(s => s.trim()), seen = Object.create(null);
     out.forEach(s => { seen[canonicalName(s)] = true; });
     (incoming || []).forEach(s => {
       if (!validName(s) || seen[canonicalName(s)] || out.length >= MAX_ROSTER * 2) return;

@@ -3,3 +3,4 @@ audit_*.log
 
 # GAS の管理用の鍵
 gas/secret.js
+**/secret.js

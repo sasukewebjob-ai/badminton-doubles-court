@@ -4,7 +4,7 @@
   "private": true,
   "description": "バドミントンのダブルス試合のコート割を自動生成するWebアプリ（index.html 単体で動作。本ファイルはテスト実行用）",
   "scripts": {
-    "test": "node test_algorithm.js && node test_gender_court_rotation.js && node test_audit_regressions.js && node test_audit_2026_09_26.js && node test_audit_2026_09_28.js && node test_rest_rotation.js && node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js && node test_singles_rest_order.js && node test_singles_names.js && node test_singles_score.js && node test_gas_core.js && node test_gas_main.js",
+    "test": "node test_algorithm.js && node test_gender_court_rotation.js && node test_audit_regressions.js && node test_audit_2026_09_26.js && node test_audit_2026_09_28.js && node test_rest_rotation.js && node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js && node test_singles_rest_order.js && node test_singles_names.js && node test_singles_score.js && node test_gas_core.js && node test_gas_main.js && node test_daily_score_sheets.js",
     "test:singles": "node test_singles.js && node test_singles_audit.js && node test_singles_opponents.js && node test_singles_rest_order.js && node test_singles_names.js && node test_singles_score.js && node test_singles_browser.js && node test_singles_ui_browser.js && node test_singles_names_browser.js && node test_singles_score_browser.js && node test_practice_record_browser.js",
     "test:browser": "node run_browser_tests.js",
     "test:all": "npm test && node test_calculation_stress.js && node run_browser_tests.js",
@@ -20,7 +20,7 @@
     "test:image": "node test_image.js",
     "test:fixed-round1": "node check_fixed_round1.js",
     "check:deploy": "node check_deploy.js",
-    "test:gas": "node test_gas_core.js && node test_gas_main.js"
+    "test:gas": "node test_gas_core.js && node test_gas_main.js && node test_daily_score_sheets.js"
   },
   "devDependencies": {
     "playwright": "^1.49.0"

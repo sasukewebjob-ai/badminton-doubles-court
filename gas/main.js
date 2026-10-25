@@ -401,9 +401,12 @@ function recomputeStats_() {
     const current = String(view.getRange(1, 2).getValue()).trim();
     if (!tours.some(t => t.name === current)) view.getRange(1, 2).setValue(CORE.cellText(CORE.defaultTournament(tours, todayYmd_())));
   }
-  // 練習日シートも同じ試合の一覧から作り直す（失敗しても成績と点数の保存は止めない）
-  try { renderDay_(matches); } catch (e) { console.error(e && e.stack ? e.stack : e); }
-  setStatsState_({ at: Date.now(), pending: false });
+  // 表示更新に失敗しても点数は保存する。失敗した表示は次の取得・保存で再試行する。
+  let pending = false;
+  [() => renderDay_(matches), () => renderDayTabs_(matches)].forEach(render => {
+    try { render(); } catch (e) { pending = true; console.error(e && e.stack ? e.stack : e); }
+  });
+  setStatsState_({ at: Date.now(), pending, dayTabsVersion: 1 });
 }
 
 // ---------- 練習日シート（2026-10-25 ユーザー要望：体育館のノートの代わり） ----------
@@ -413,6 +416,7 @@ function recomputeStats_() {
 const DAY_COLS = 8;
 const DAY_LIST_MAX = 400; // プルダウンに出す練習日（新しい順）
 const DAY_KEY = 'day';
+const DAY_TAB_META = 'badmintonPracticeDay';
 
 // 無ければ作る（公開中のスプシに「シートを整える」をしなくても、最初の計算で出てくる）
 function daySheet_() {
@@ -422,7 +426,6 @@ function daySheet_() {
   const view = ss.getSheetByName(SHEETS.view);
   sh = ss.insertSheet(SHEETS.day, view ? view.getIndex() : 0);
   setupDay_(sh);
-  try { CacheService.getScriptCache().remove(DAY_KEY); } catch (e) { /* 次は必ず書く */ }
   return sh;
 }
 
@@ -436,10 +439,11 @@ function setupDay_(sh) {
 }
 
 // matches は readMatches_() の結果。picked は B1 を人が選んだとき（記録の無い日でもその日のままにする）
-function renderDay_(matches, picked) {
+function renderDay_(matches, picked, force) {
   const sh = daySheet_(), cell = sh.getRange(1, 2);
   const days = CORE.practiceDays(matches), labels = days.slice(0, DAY_LIST_MAX).map(CORE.dayLabel);
-  const rule = cell.getDataValidation(), before = rule ? (rule.getCriteriaValues()[0] || []) : [];
+  const rule = cell.getDataValidation(), criteria = rule ? rule.getCriteriaValues()[0] : null;
+  const before = Array.isArray(criteria) ? criteria : [];
   if (before.join('\n') !== labels.join('\n')) {
     cell.setDataValidation(labels.length ? SpreadsheetApp.newDataValidation().requireValueInList(labels, true)
       .setAllowInvalid(true).setHelpText('一覧から練習日を選んでください。').build() : null);
@@ -450,15 +454,52 @@ function renderDay_(matches, picked) {
   if (date && String(cell.getValue()) !== CORE.dayLabel(date)) cell.setValue(CORE.dayLabel(date));
   if (!picked && !date && cell.getValue() !== '') cell.setValue('');
 
+  writeDayBody_(sh, date, dayBody_(matches, date, days.length > 0), DAY_KEY + ':' + sh.getSheetId(), force);
+}
+
+// 日付ごとにタブを残す。管理印で探すため、手作りの同名タブを上書きせず、改名したタブも再利用する。
+function renderDayTabs_(matches, forceSheetId) {
+  const ss = book_(), tabs = Object.create(null), grouped = Object.create(null);
+  ss.createDeveloperMetadataFinder().withKey(DAY_TAB_META).find().forEach(meta => {
+    const date = meta.getValue(), sh = meta.getLocation().getSheet();
+    if (sh && CORE.dayNumber(date) !== null) (tabs[date] = tabs[date] || []).push(sh);
+  });
+  matches.forEach(m => { (grouped[m.date] = grouped[m.date] || []).push(m); });
+  CORE.practiceDays(matches).forEach(date => {
+    if (tabs[date]) return;
+    const base = '点数メモ ' + date;
+    let name = base, n = 2;
+    while (ss.getSheetByName(name)) name = base + ' (' + n++ + ')';
+    const sh = ss.insertSheet(name);
+    // 印は初期設定の前に付ける。設定が途中で失敗しても同じタブで再試行できる。
+    sh.addDeveloperMetadata(DAY_TAB_META, date);
+    tabs[date] = [sh];
+  });
+  Object.keys(tabs).sort().reverse().forEach(date => {
+    const body = dayBody_(grouped[date] || [], date, true, true);
+    tabs[date].forEach(sh => {
+      writeDayBody_(sh, date, body, DAY_KEY + ':' + sh.getSheetId(), forceSheetId === sh.getSheetId(), () => {
+        setupDay_(sh);
+        sh.getRange(1, 2).setValue(CORE.dayLabel(date)).setDataValidation(null)
+          .setNote('この練習日の点数メモです。訂正はアプリ、または「試合」タブで行うと自動で反映されます。');
+        if (!sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).length) sh.protect().setWarningOnly(true);
+      });
+    });
+  });
+}
+
+function dayBody_(matches, date, hasDays, fixedDate) {
   const out = [], styles = [];
   const line = (style, cells) => {
     const v = cells.map(x => (typeof x === 'string' ? CORE.cellText(x) : x));
     while (v.length < DAY_COLS) v.push('');
     out.push(v); styles.push(style);
   };
-  const r = date && days.indexOf(date) >= 0 ? CORE.dayReport(matches, date) : null;
+  const report = date ? CORE.dayReport(matches, date) : null;
+  const r = report && report.games ? report : null;
   if (!r) {
-    line('note', [!days.length ? 'まだ記録がありません（アプリで点数を入れた練習日がここに出ます）。'
+    line('note', [fixedDate ? 'この日の記録はありません。点数を記録するとここに表示されます。'
+      : !hasDays ? 'まだ記録がありません（アプリで点数を入れた練習日がここに出ます）。'
       : date ? 'この日の記録はありません（点数を入れた練習日は B1 の一覧から選べます）。' : 'B1 の一覧から練習日を選んでください。']);
   } else {
     line('summary', ['出席 ' + r.people.length + '人' + (r.unnamed ? '＋名前のないペア ' + r.unnamed + '組' : '') + '・試合 ' + r.games +
@@ -479,10 +520,15 @@ function renderDay_(matches, picked) {
     ]));
   }
 
-  // 同じ内容なら書き直さない（成績の計算は点数の保存のたびに走るので、そのぶん短くする）
-  const sig = digest_(JSON.stringify([CORE.dayLabel(date), out]));
+  return { out, styles };
+}
+
+// 日付・シートIDも含めて比較し、変化した日だけ書く。削除・再作成したタブは必ず書き直す。
+function writeDayBody_(sh, date, body, cacheKey, force, prepare) {
+  const { out, styles } = body;
+  const sig = digest_(JSON.stringify([2, CORE.dayLabel(date), out]));
   const cache = CacheService.getScriptCache();
-  try { if (cache.get(DAY_KEY) === sig) return; } catch (e) { /* 読めなければ書く */ }
+  try { if (!force && cache.get(cacheKey) === sig) return false; } catch (e) { /* 読めなければ書く */ }
   const old = sh.getLastRow();
   if (old >= 2) {
     const range = sh.getRange(2, 1, old - 1, Math.max(DAY_COLS, sh.getLastColumn()));
@@ -495,7 +541,9 @@ function renderDay_(matches, picked) {
   range.setFontWeights(fill(s => (s === 'note' || s === '' ? 'normal' : 'bold')));
   range.setBackgrounds(fill(s => (s === 'section' ? '#d7ecf9' : s === 'head' ? '#e6f4ea' : null)));
   range.setFontColors(fill(s => (s === 'note' ? '#666666' : null)));
-  try { cache.put(DAY_KEY, sig, 600); } catch (e) { /* 次も書くだけ */ }
+  if (prepare) prepare();
+  try { cache.put(cacheKey, sig, 600); } catch (e) { /* 次も書くだけ */ }
+  return true;
 }
 
 // ---------- 成績の計算の後回し（2026-10-25） ----------
@@ -524,7 +572,7 @@ function setStatsState_(s) {
 function statsAfterWrite_() {
   const s = statsState_();
   if (Date.now() - s.at < STATS_QUIET_MS) {
-    if (!s.pending) setStatsState_({ at: s.at, pending: true });
+    if (!s.pending) setStatsState_({ ...s, pending: true });
     return false;
   }
   recomputeStats_();
@@ -711,7 +759,9 @@ function onOpen() {
     .addToUi();
   // アプリの保存で後回しにした成績の計算を、開いた人が見る前に片付ける
   try {
-    if (statsState_().pending) withLock_(() => flushStats_(true), LOCK_WAIT_SHEET_MS);
+    const state = statsState_();
+    if (state.dayTabsVersion !== 1) withLock_(() => recomputeStats_(), LOCK_WAIT_SHEET_MS);
+    else if (state.pending) withLock_(() => flushStats_(true), LOCK_WAIT_SHEET_MS);
   } catch (err) {
     console.error(err && err.stack ? err.stack : err);
   }
@@ -728,12 +778,22 @@ function onEdit(e) {
   // 練習日シートの B1（練習日）を選び直したら、その日の中身にする
   if (name === SHEETS.day) {
     const r = e.range;
-    if (r.getRow() !== 1 || r.getColumn() > 2 || r.getColumn() + r.getNumColumns() - 1 < 2) return;
+    const picked = r.getRow() === 1 && r.getColumn() <= 2 && r.getColumn() + r.getNumColumns() - 1 >= 2;
     try {
-      withLock_(() => renderDay_(readMatches_(), true), LOCK_WAIT_SHEET_MS);
+      withLock_(() => renderDay_(readMatches_(), picked, true), LOCK_WAIT_SHEET_MS);
     } catch (err) {
       console.error(err && err.stack ? err.stack : err);
     }
+    return;
+  }
+  // 日別タブは表示専用。誤って直接書き換えても、元の試合から日付と点数を復元する。
+  if (e && e.range && e.range.getSheet().getDeveloperMetadata().some(m => m.getKey() === DAY_TAB_META)) {
+    try {
+      withLock_(() => {
+        const sh = e.range.getSheet();
+        renderDayTabs_(readMatches_(), sh.getSheetId());
+      }, LOCK_WAIT_SHEET_MS);
+    } catch (err) { console.error(err && err.stack ? err.stack : err); }
     return;
   }
   if ([SHEETS.tournaments, SHEETS.pairs, SHEETS.matches].indexOf(name) < 0) return;

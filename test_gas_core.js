@@ -270,5 +270,60 @@ test('1日分：除外は一覧に出すが数えない・表が2つなら表ご
   assert.deepEqual(CORE.dayReport(two, '2026-10-24'), { date: '2026-10-24', tables: 0, games: 0, scored: 0, people: [], pairs: [], list: [], unnamed: 0 });
 });
 
+test('名前や大会名がconstructor・__proto__でも、集計・名簿・大会の登録が壊れない', () => {
+  const names = ['constructor', '__proto__'];
+  const ts = CORE.resolveTournaments(names.map(name => ({ name, date: '2026-11-03' })));
+  assert.equal(ts.length, 2);
+  assert.deepEqual(CORE.mergeRoster([], names), names);
+  const matches = [dm(T1, 1, 'A', names, BH, 21, 15)];
+  const report = CORE.dayReport(matches, '2026-10-25');
+  assert.equal(report.people.length, 4);
+  names.forEach(name => assert.equal(report.people.find(p => p.label === name).wins, 1));
+  const stats = CORE.computeStats(ts, names.map(tournament => ({ tournament, names })), matches);
+  assert.equal(stats.length, 2);
+  assert.ok(stats.every(s => s.games === 1 && s.wins === 1));
+});
+
+test('作り直し前の試合を除外したとき、点数メモにも除外と表示し、成績に数えない', () => {
+  const r = CORE.dayReport([dm(T1, 1, 'A', BH, KZ, 21, 15, { state: '除外', table: '作り直し前' })], '2026-10-25');
+  assert.equal(r.scored, 0);
+  assert.ok(r.people.every(p => p.games === 0));
+  assert.equal(r.list[0].note, '作り直し前・除外');
+});
+
+test('日別集計1000ケース：別日の点数が混ざらず、各人の勝敗・得失点が独立した記録と一致する', () => {
+  let seed = 0x20261025;
+  const rand = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };
+  const names = ['原', '佐藤', '越野', '善志', '北原', '上條', 'constructor', '__proto__'];
+  const dates = ['2026-10-25', '2026-11-01', '2026-12-31', '2027-01-01'];
+  for (let sample = 0; sample < 250; sample++) {
+    const matches = [], expected = new Map(dates.map(d => [d, new Map()]));
+    for (const date of dates) for (let i = 0; i < 24; i++) {
+      const ids = names.map((_, n) => n);
+      for (let n = ids.length - 1; n > 0; n--) { const j = rand(n + 1); [ids[n], ids[j]] = [ids[j], ids[n]]; }
+      const a = ids.slice(0, 2).map(n => names[n]), b = ids.slice(2, 4).map(n => names[n]);
+      let x = rand(31), y = rand(31); if (x === y) y = (y + 1) % 31;
+      const excluded = rand(5) === 0;
+      matches.push(dm('RandomDayTable000001', i + 1, 'A', a, b, x, y, { date, state: excluded ? '除外' : '入力済み', table: rand(3) === 0 ? '作り直し前' : '' }));
+      const people = expected.get(date);
+      for (const [side, pf, pa] of [[a, x, y], [b, y, x]]) for (const name of side) {
+        if (!people.has(name)) people.set(name, { games: 0, wins: 0, losses: 0, pf: 0, pa: 0, diff: 0 });
+        if (excluded) continue;
+        const p = people.get(name); p.games++; p.wins += pf > pa ? 1 : 0; p.losses += pf < pa ? 1 : 0;
+        p.pf += pf; p.pa += pa; p.diff += pf - pa;
+      }
+    }
+    for (const date of dates) {
+      const report = CORE.dayReport(matches, date);
+      assert.equal(report.games, 24);
+      assert.equal(report.people.length, expected.get(date).size);
+      report.people.forEach(({ label, games, wins, losses, pf, pa, diff }) =>
+        assert.deepEqual({ games, wins, losses, pf, pa, diff }, expected.get(date).get(label), `case ${sample} ${date} ${label}`));
+      assert.equal(report.people.reduce((n, p) => n + p.wins, 0), report.scored * 2);
+      assert.equal(report.people.reduce((n, p) => n + p.diff, 0), 0);
+    }
+  }
+});
+
 if (failed) process.exitCode = 1;
 else console.log('大会練習の成績（計算）のテスト 全合格');

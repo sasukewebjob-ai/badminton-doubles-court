@@ -74,7 +74,7 @@ class Range {
 for (const m of ['setNumberFormat', 'setNote', 'setFontWeight', 'setBackground', 'setFontColor']) Range.prototype[m] = function () { return this; };
 
 class Sheet {
-  constructor(name, book) { this.name = name; this.book = book; this.cells = new Map(); this.formats = new Map(); this.validations = []; this.hidden = false; this.protections = []; this.maxRows = 1000; }
+  constructor(name, book) { this.name = name; this.book = book; this.id = book.nextSheetId++; this.metadata = []; this.cells = new Map(); this.formats = new Map(); this.validations = []; this.hidden = false; this.protections = []; this.maxRows = 1000; }
   key(r, c) { return r + ',' + c; }
   value(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.v : ''; }
   formula(r, c) { const cell = this.cells.get(this.key(r, c)); return cell ? cell.f : ''; }
@@ -87,6 +87,12 @@ class Sheet {
     else this.cells.set(this.key(r, c), { v, f: '' });
   }
   getName() { return this.name; }
+  getSheetId() { return this.id; }
+  addDeveloperMetadata(key, value) {
+    this.metadata.push({ getKey: () => key, getValue: () => value, getLocation: () => ({ getSheet: () => this }) });
+    return this;
+  }
+  getDeveloperMetadata() { return this.metadata.slice(); }
   setName(n) { this.name = n; return this; }
   getIndex() { return this.book.sheets.indexOf(this) + 1; }
   format(r, c) { return this.formats.get(this.key(r, c)) || {}; }
@@ -128,11 +134,16 @@ class Sheet {
 }
 
 class Book {
-  constructor() { this.sheets = [new Sheet('シート1', this)]; this.active = this.sheets[0]; }
+  constructor() { this.nextSheetId = 1; this.sheets = [new Sheet('シート1', this)]; this.active = this.sheets[0]; }
   setSpreadsheetTimeZone(tz) { this.tz = tz; }
   setSpreadsheetLocale(l) { this.locale = l; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
   getSheets() { return this.sheets.slice(); }
+  createDeveloperMetadataFinder() {
+    let key;
+    const finder = { withKey(k) { key = k; return finder; }, find: () => this.sheets.flatMap(s => s.metadata).filter(m => m.getKey() === key) };
+    return finder;
+  }
   // index を渡すと、その位置（0始まり）に入れる
   insertSheet(n, index) { const s = new Sheet(n, this); if (index === undefined) this.sheets.push(s); else this.sheets.splice(index, 0, s); return s; }
   setActiveSheet(s) { this.active = s; return s; }

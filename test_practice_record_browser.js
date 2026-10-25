@@ -180,6 +180,9 @@ async function share(page) {
     check('出席者は10人（途中参加の2人を含む）', /^出席 10人・/.test(lines[1]), lines[1]);
     check('途中参加の人は出た節が第3節から', lines.some(l => /^上條\|第\d+節|^上條\|第\d+〜\d+節/.test(l) && !/^上條\|第[12]/.test(l)), lines.filter(l => /^上條/.test(l)));
     check('対戦表と点数（幹事・開いた人・途中参加の試合）', lines.some(l => /^第1節 A\|.*\|21\|17\|/.test(l)) && lines.some(l => /^第1節 B\|.*\|15\|21\|/.test(l)) && lines.some(l => /上條・細井/.test(l) && /\|21\|12\||\|12\|21\|/.test(l)));
+    const dateTab = gas.book.getSheetByName('点数メモ 2026-12-20');
+    check('日付ごとの点数メモタブも自動で作る', !!dateTab);
+    check('日別タブに幹事・共有先・途中参加の記録がそろう', !!dateTab && JSON.stringify(dateTab.getRange(1, 1, dateTab.getLastRow(), 8).getValues()) === JSON.stringify(day.getRange(1, 1, day.getLastRow(), 8).getValues()));
 
     console.log('[7] 記録をオフにした表は長いリンク');
     await host.uncheck('#scoringNow');
