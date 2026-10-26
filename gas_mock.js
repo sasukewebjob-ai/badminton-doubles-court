@@ -146,6 +146,8 @@ class Book {
   }
   // index を渡すと、その位置（0始まり）に入れる
   insertSheet(n, index) { const s = new Sheet(n, this); if (index === undefined) this.sheets.push(s); else this.sheets.splice(index, 0, s); return s; }
+  // 本物と同じく、最後の1枚は消せない
+  deleteSheet(s) { assert.ok(this.sheets.length > 1, '最後のシートは消せない'); this.sheets = this.sheets.filter(x => x !== s); }
   setActiveSheet(s) { this.active = s; return s; }
   moveActiveSheet(pos) { this.sheets = this.sheets.filter(s => s !== this.active); this.sheets.splice(pos - 1, 0, this.active); }
   getUrl() { return 'https://docs.google.com/spreadsheets/d/mock/edit'; }

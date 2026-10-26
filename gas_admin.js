@@ -81,6 +81,7 @@ async function e2e() {
   const T = 'zz自動確認用', SID1 = 'E2eCheck' + Date.now() + 'a', SID2 = 'E2eCheck' + Date.now() + 'b';
   const KEY1 = 'E2eHostKey' + Date.now() + 'x', KEY2 = 'E2eHostKey' + Date.now() + 'y';
   const P = { a: ['確認A1', '確認A2'], b: ['確認B1', '確認B2'], c: ['確認C1', '確認C2'], t: ['臨時X', '臨時Y'] };
+  const DAY_TABS = ['点数メモ 2000-01-15', '点数メモ 2000-01-22'];
   const before = await admin('view', {});
   const keepTournament = before.values[0][1], keepMin = before.values[0][4];
   const keepDay = (await admin('day', {})).values[0][1]; // 練習日シートで選んでいた日（最後に戻す）
@@ -137,12 +138,19 @@ async function e2e() {
     check(d[0] === '練習日|2000/01/15 (土)' && d[1] === '出席 8人・試合 3（点数あり 3）', '練習日シートに選んだ日の概要: ' + d.slice(0, 2).join(' / '));
     check(d.includes('確認A1|第1〜2節|2|1|1|40|36|4') && d.includes('確認B1・確認B2|第1〜3節|2|1|1|36|26|10'), '練習日シートに人ごと・ペアごとの成績');
     check(d.includes('第3節 A|確認B1・確認B2|21|5|臨時X・臨時Y'), '練習日シートに対戦表と点数');
+    // 日別タブ（GAS版7）：点数を入れた日ごとに「点数メモ YYYY-MM-DD」ができる
+    const tabs = (await admin('dump', { sheets: DAY_TABS })).sheets;
+    const tab15 = (tabs[DAY_TABS[0]] || []).map(r => r.join('|').replace(/\|+$/, ''));
+    check(DAY_TABS.every(n => tabs[n]) && tab15.includes('第3節 A|確認B1・確認B2|21|5|臨時X・臨時Y'), '点数を入れた日ごとに日別タブができる: ' + Object.keys(tabs).join('、'));
   } finally {
     const r = await admin('deleteRows', { sids: [SID1, SID2], tournaments: [T] });
     await admin('view', { tournament: keepTournament, min: keepMin === '' ? 0 : Number(keepMin) });
     await admin('day', { date: keepDay });
     console.log('後片付け', JSON.stringify(r.removed));
   }
+  // 記録が無くなった日のタブは消える（2026-10-26。テスト用のタブがスプシに残らない）
+  const leftTabs = Object.keys((await admin('dump', { sheets: DAY_TABS })).sheets);
+  check(!leftTabs.length, '後片付けで、記録が無くなった日別タブは消える' + (leftTabs.length ? ': ' + leftTabs.join('、') : ''));
   console.log(`本番確認 ${ok}項目 全合格`);
 }
 

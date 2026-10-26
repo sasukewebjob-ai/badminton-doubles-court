@@ -63,17 +63,52 @@ test('2日分を別タブに保存し、複数の表は同じ日にまとめる�
   assert.deepEqual(c.errors, []);
 });
 
-test('日付の訂正・最後の点数の消去で、古い日の結果を残さない', () => {
+test('日付の訂正・最後の点数の消去で、記録が無くなった日のタブを消す・記録が戻れば作り直す', () => {
   const { c, reg, score, flush, sheet, lines } = fixture();
   const sid = 'DailyMove0000000001';
   reg(sid, '2026-10-25'); score(sid); flush();
   reg(sid, '2026-11-01'); flush();
   assert.ok(sheet('2026-11-01'));
-  assert.match(lines(sheet('2026-10-25'))[1], /この日の記録はありません/);
-  assert.ok(!lines(sheet('2026-10-25')).some(s => /21\|15/.test(s)));
+  assert.ok(lines(sheet('2026-11-01')).includes('第1節 A|原・佐藤|21|15|越野・善志'));
+  assert.equal(sheet('2026-10-25'), null, '日付を直す前の日のタブは消える');
   score(sid, '', ''); flush();
-  assert.match(lines(sheet('2026-11-01'))[1], /この日の記録はありません/);
-  assert.equal(sheet('2026-11-01').getLastRow(), 2);
+  assert.equal(sheet('2026-11-01'), null, '最後の点数を消した日のタブも消える');
+  score(sid, 21, 9); flush();
+  assert.ok(lines(sheet('2026-11-01')).includes('第1節 A|原・佐藤|21|9|越野・善志'), '点数を入れ直すと作り直す');
+  assert.deepEqual(c.errors, []);
+});
+
+test('後片付け（テストの表を消す）で日別タブも消える・手作りの同名タブとほかの日のタブは残る', () => {
+  const { c, admin, reg, score, flush, sheet } = fixture();
+  const keep = c.book.insertSheet('点数メモ 2000-01-15');
+  keep.getRange(1, 1).setValue('手書きメモ');
+  reg('DailyKeep0000000001', '2026-10-25'); score('DailyKeep0000000001');
+  reg('DailyCleanup0000001', '2000-01-15'); score('DailyCleanup0000001');
+  reg('DailyCleanup0000002', '2000-01-22'); score('DailyCleanup0000002'); flush();
+  const test15 = c.book.getSheetByName('点数メモ 2000-01-15 (2)');
+  assert.ok(test15 && sheet('2000-01-22'));
+  test15.setName('改名したテストの日');
+  const r = admin('deleteRows', { sids: ['DailyCleanup0000001', 'DailyCleanup0000002'] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.equal(c.book.getSheetByName('改名したテストの日'), null, '改名したタブも管理印で見つけて消す');
+  assert.equal(sheet('2000-01-22'), null);
+  assert.equal(sheet('2000-01-15'), keep, '手作りの同名タブは消さない');
+  assert.equal(keep.value(1, 1), '手書きメモ');
+  assert.ok(sheet('2026-10-25'), 'ほかの日のタブは残る');
+  assert.ok(c.book.getSheetByName('練習日'), '練習日シートは残る');
+  assert.deepEqual(c.errors, []);
+});
+
+test('前の版で残った空の日別タブは、公開し直した後にスプシを開くと消える', () => {
+  const { c, reg, score, flush, sheet } = fixture();
+  reg('DailyKeep0000000002', '2026-10-25'); score('DailyKeep0000000002'); flush();
+  const left = c.book.insertSheet('点数メモ 2000-01-15');
+  left.addDeveloperMetadata('badmintonPracticeDay', '2000-01-15');
+  c.cache.set('stats', JSON.stringify({ at: Date.now(), pending: false, dayTabsVersion: 1 }));
+  c.onOpen();
+  assert.equal(sheet('2000-01-15'), null);
+  assert.ok(sheet('2026-10-25'));
+  assert.equal(JSON.parse(c.cache.get('stats')).dayTabsVersion, 2);
   assert.deepEqual(c.errors, []);
 });
 

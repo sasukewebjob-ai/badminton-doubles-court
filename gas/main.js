@@ -406,7 +406,7 @@ function recomputeStats_() {
   [() => renderDay_(matches), () => renderDayTabs_(matches)].forEach(render => {
     try { render(); } catch (e) { pending = true; console.error(e && e.stack ? e.stack : e); }
   });
-  setStatsState_({ at: Date.now(), pending, dayTabsVersion: 1 });
+  setStatsState_({ at: Date.now(), pending, dayTabsVersion: DAY_TABS_VERSION });
 }
 
 // ---------- 練習日シート（2026-10-25 ユーザー要望：体育館のノートの代わり） ----------
@@ -417,6 +417,8 @@ const DAY_COLS = 8;
 const DAY_LIST_MAX = 400; // プルダウンに出す練習日（新しい順）
 const DAY_KEY = 'day';
 const DAY_TAB_META = 'badmintonPracticeDay';
+// 日別タブの作り方を変えたら上げる。スプシを開いたとき、古い版で作ったタブを作り直す（2：記録の無い日のタブを消す）
+const DAY_TABS_VERSION = 2;
 
 // 無ければ作る（公開中のスプシに「シートを整える」をしなくても、最初の計算で出てくる）
 function daySheet_() {
@@ -465,7 +467,15 @@ function renderDayTabs_(matches, forceSheetId) {
     if (sh && CORE.dayNumber(date) !== null) (tabs[date] = tabs[date] || []).push(sh);
   });
   matches.forEach(m => { (grouped[m.date] = grouped[m.date] || []).push(m); });
-  CORE.practiceDays(matches).forEach(date => {
+  const days = CORE.practiceDays(matches);
+  // 記録が無くなった日（日付の訂正・最後の点数の消去・テストの後片付け）のタブは消す。記録が戻れば作り直す。
+  // 管理印の付いたタブだけが対象で、同名の手作りタブは消さない（2026-10-26 ユーザー要望：空のタブが残る）
+  Object.keys(tabs).forEach(date => {
+    if (days.indexOf(date) >= 0) return;
+    tabs[date].forEach(sh => { if (ss.getSheets().length > 1) ss.deleteSheet(sh); });
+    delete tabs[date];
+  });
+  days.forEach(date => {
     if (tabs[date]) return;
     const base = '点数メモ ' + date;
     let name = base, n = 2;
@@ -760,7 +770,7 @@ function onOpen() {
   // アプリの保存で後回しにした成績の計算を、開いた人が見る前に片付ける
   try {
     const state = statsState_();
-    if (state.dayTabsVersion !== 1) withLock_(() => recomputeStats_(), LOCK_WAIT_SHEET_MS);
+    if (state.dayTabsVersion !== DAY_TABS_VERSION) withLock_(() => recomputeStats_(), LOCK_WAIT_SHEET_MS);
     else if (state.pending) withLock_(() => flushStats_(true), LOCK_WAIT_SHEET_MS);
   } catch (err) {
     console.error(err && err.stack ? err.stack : err);
