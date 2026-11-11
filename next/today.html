@@ -121,6 +121,8 @@ h2 { font-size: 22px; font-weight: 900; letter-spacing: .02em; }
 .opt { appearance: none; text-align: left; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); padding: 12px 14px; display: grid; gap: 2px; min-height: 60px; }
 .opt b { font-size: 16px; } .opt small { font-size: 12px; color: var(--muted); }
 .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.blist { display: grid; gap: 4px; background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.note p + p { margin-top: 4px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--dock-h, 90px) + 12px); z-index: 30; background: var(--fg); color: var(--bg); font-weight: 700; font-size: 13px; padding: 10px 16px; border-radius: 999px; max-width: calc(100% - 32px); text-align: center; }
 </style>
 </head>
@@ -228,7 +230,7 @@ let tour = { status: 'idle' };   // 大会ペアの読み込み状況（idle / o
 
 function fresh(date) {
   return { v: 1, date, step: 1, off: [], guests: [], mode: 'split', layout: 'single', lastVariant: {}, place: {}, pairs: [],
-    mixCourts: 4, mixRounds: 10, scoring: false, tours: null, built: null };
+    mixCourts: 4, mixRounds: 10, splitRounds: 10, scoring: false, tours: null, built: null };
 }
 const layoutOf = id => LAYOUTS.find(l => l.id === id) || LAYOUTS[0];
 // 保存データは形を確かめて読み直す（壊れた値・名簿から外れた人・今の配置に無いコートは捨てる）
@@ -258,6 +260,7 @@ function sanitize(s) {
   });
   f.mixCourts = [2, 3, 4].indexOf(s.mixCourts) >= 0 ? s.mixCourts : 4;
   f.mixRounds = [10, 15, 20, 25, 30].indexOf(s.mixRounds) >= 0 ? s.mixRounds : 10;
+  f.splitRounds = [10, 15, 20, 25, 30].indexOf(s.splitRounds) >= 0 ? s.splitRounds : 10;
   f.scoring = s.scoring === true;
   f.step = s.step === 2 ? 2 : 1;
   if (s.tours && typeof s.tours.date === 'string' && Array.isArray(s.tours.list)) f.tours = { date: s.tours.date, list: cleanTours(s.tours.list) };
@@ -448,6 +451,31 @@ function buildMix() {
   st.built = { t: 'mix', date: st.date }; save();
   location.href = 'index.html#today';
 }
+// コートを分ける日：コートごとに固定ペアの表を作れるか確かめる（固定ペア版＝singles.html は1つの表で2〜12ペア）
+const MAX_PAIRS = 12;
+function splitCheck() {
+  const out = { groups: [], blocks: [], solo: false, pool: present().filter(p => !st.place[p.n]).map(p => p.n) };
+  groups().forEach(cells => {
+    const id = gid(cells), mem = membersIn(id);
+    if (!mem.length) return;
+    const ps = pairsIn(id), solo = mem.filter(n => !pairOf(n)), label = glabel(cells);
+    if (solo.length) { out.solo = true; out.blocks.push(label + '：ペアになっていない人がいます（' + solo.join('、') + '）'); }
+    else if (ps.length < 2) out.blocks.push(label + '：ペアが1組だけです（2組から作れます）');
+    else if (ps.length > MAX_PAIRS) out.blocks.push(label + '：' + ps.length + 'ペアいます（1つの表は' + MAX_PAIRS + 'ペアまで）');
+    out.groups.push({ cells, label, pairs: ps, courts: Math.min(cells.length, Math.floor(ps.length / 2)) });
+  });
+  return out;
+}
+function buildSplit() {
+  const c = splitCheck();
+  if (!c.groups.length || c.blocks.length) return;
+  const data = { v: 1, t: 'split', date: st.date, at: Date.now(), rounds: st.splitRounds,
+    groups: c.groups.map(g => ({ faces: g.cells.slice(), pairs: g.pairs.map(p => [p.a, p.b]) })) };
+  try { localStorage.setItem(HANDOFF_KEY, JSON.stringify(data)); }
+  catch (e) { toast('この端末では引き継げません（保存できないため）。'); return; }
+  st.built = { t: 'split', date: st.date }; ui.sheet = null; save();
+  location.href = 'singles.html#today';
+}
 
 // ── 画面 ──
 function viewAttend() {
@@ -529,7 +557,8 @@ function viewCourt() {
     h('h3', { class: 'grp' }, 'まだ入っていない人 ', h('b', null, pool.length), '人'),
     pool.length ? h('div', { class: 'chips', id: 'pool' }, pool.map(p => chip(p.n, ''))) : h('p', { class: 'lead' }, present().length ? '全員コートに入りました。' : '参加する人がいません。'),
     h('p', { class: 'how' }, '名前をタップすると、下に「◯へ」「2人を入れ替える」が出ます。大会ペアは2人一緒に、練習用ペアは1人ずつ選べます。'),
-    h('div', { class: 'courts' }, gs.map(court))];
+    h('div', { class: 'courts' }, gs.map(court)),
+    st.built && st.built.t === 'split' ? h('p', { class: 'note' }, '作った対戦表は、ここを変えても変わりません。変えたら、もう一度「対戦表を作る」を押します。') : null];
 }
 function viewTable() {
   return [h('h2', null, '対戦表'),
@@ -580,6 +609,17 @@ function renderSheet() {
       h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'keep' }, h('b', null, 'そのまま使う'), h('small', null, '前回の出欠・ゲスト・コート割から始めます')),
       h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'court' }, h('b', null, 'コート割だけ空にする'), h('small', null, '出欠とゲストは前回のまま、コートを空にします')),
       h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'all' }, h('b', null, '最初からやり直す'), h('small', null, '全員参加に戻し、ゲストとコート割を消します'))];
+  } else if (s.t === 'build') {
+    const c = splitCheck(), ok = c.groups.length && !c.blocks.length;
+    kids = [h('h3', null, 'コートごとに対戦表を作る'),
+      c.groups.length ? h('div', { class: 'blist' }, c.groups.map(g => h('p', null, h('b', null, g.label), '　' + g.pairs.length + 'ペア' +
+        (g.pairs.length >= 2 && g.pairs.length <= MAX_PAIRS ? '・' + (g.courts < g.cells.length ? g.courts + '面で回す（' + g.cells.slice(0, g.courts).join('+') + '。ペアが少ないため）' : g.courts + '面で回す') : '')))) : h('p', { class: 'lead' }, 'コートに人を入れてから作ります。'),
+      c.blocks.length ? h('div', { class: 'note' }, c.blocks.map(b => h('p', null, b))) : null,
+      c.solo ? h('div', { class: 'row' }, B('act', 'pairrest', '残りをペアにする')) : null,
+      c.pool.length ? h('p', { class: 'lead' }, 'コートに入っていない人：' + c.pool.join('、') + '（対戦表には入りません）') : null,
+      h('div', { class: 'field' }, h('span', null, '節数'), h('div', { class: 'seg sm' }, [10, 15, 20, 25, 30].map(v => segBtn('splitr', v, String(v), st.splitRounds === v)))),
+      h('p', { class: 'lead' }, 'コートごとに固定ペアの表を作り、表の画面の上のボタンで切り替えます。コートの名前（C・Dなど）は、この画面の面の名前になります。'),
+      h('div', { class: 'row' }, B('act', 'close', 'やめる'), B('btn', 'buildsplit', '作る', { disabled: !ok }))];
   } else if (s.t === 'clear') {
     kids = [h('h3', null, 'コートを空にしますか'), h('p', { class: 'lead' }, 'コートに入れた人とペアを、すべて外します。出欠は変わりません。'),
       h('div', { class: 'row' }, B('act', 'close', 'やめる'), B('btn', 'clearok', '空にする'))];
@@ -603,6 +643,7 @@ const toTop = () => window.scrollTo(0, 0);
 // 対戦表の画面（作ってあればそこへ移る。まだなら、この画面で案内を出す）
 function openTable() {
   if (st.built && st.built.t === 'mix') { location.href = 'index.html'; return true; }
+  if (st.built && st.built.t === 'split') { location.href = 'singles.html'; return true; }
   return false;
 }
 
@@ -664,8 +705,10 @@ document.addEventListener('click', e => {
   else if (a === 'mixr') st.mixRounds = Number(v);
   else if (a === 'build') {
     if (st.mode === 'mix') { buildMix(); return; }
-    toast('コートごとの対戦表は、次の更新で入ります。今はコート割まで試せます。');
+    ui.sel = []; ui.sheet = { t: 'build' };
   }
+  else if (a === 'splitr') st.splitRounds = Number(v);
+  else if (a === 'buildsplit') { buildSplit(); if (!ui.sheet) return; }
   else if (a === 'newday') {
     if (v === 'all') st = fresh(todayStr());
     else { if (v === 'court') { st.place = {}; st.pairs = []; } st.date = todayStr(); st.built = null; st.step = 1; }

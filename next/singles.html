@@ -94,14 +94,34 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .score-wait { flex-basis: 100%; color: #6b5300; font-size: .82rem; }
 .score-missing { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #fff1e9; color: #98421b; }
 .score-bar .score-missing button { margin: 3px 4px 0 0; padding: 4px 8px; background: white; color: #98421b; border: 1.5px solid #e8b89a; }
+/* 統合版（2026-11-11〜）：上のタブ（出欠・コート割は today.html）と、今日のコート別の表の切り替え */
+.day-nav { display: grid; grid-template-columns: repeat(3, 1fr); margin: -12px -12px 12px; background: #fff; border-bottom: 1px solid #cfdad3; }
+.day-nav a, .day-nav span { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 48px; font-weight: bold; font-size: .95rem; color: #5a6b62; text-decoration: none; border-bottom: 3px solid transparent; }
+.day-nav span { color: #0a7350; border-bottom-color: #0a7350; }
+.group-box { margin: 0 0 12px; }
+.group-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(80px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.group-tabs button { min-width: 0; min-height: 48px; padding: 4px 6px; border-radius: 999px; border: 1.5px solid #cfdad3; background: #fff; color: #263c4c; font-weight: bold; line-height: 1.25; display: grid; justify-items: center; }
+.group-tabs button small { font-size: .75rem; font-weight: normal; color: #5a6b62; }
+.group-tabs button[aria-selected="true"] { background: #0a7350; border-color: #0a7350; color: #fff; }
+.group-tabs button[aria-selected="true"] small { color: inherit; }
+.group-note { margin: 6px 0 0; font-size: .82rem; color: #536875; line-height: 1.6; }
 [hidden] { display: none !important; }
-@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
+@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button,.group-box { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
 </style>
 </head>
 <body>
+<nav class="day-nav" id="dayNav" aria-label="今日の流れ">
+  <a href="today.html#attend"><b>1</b>出欠</a>
+  <a href="today.html#court"><b>2</b>コート割</a>
+  <span aria-current="step"><b>3</b>対戦表</span>
+</nav>
 <h1>🏸 シングルス・固定ペア<br>コート割</h1>
 <nav><a href="index.html">通常のダブルス版へ</a></nav>
 <p id="status" role="status" aria-live="polite"></p>
+<div class="group-box" id="groupBox" hidden>
+  <div class="group-tabs" id="groupTabs" role="tablist" aria-label="コート"></div>
+  <p class="group-note" id="groupNote"></p>
+</div>
 <section id="setup" class="panel">
   <div class="row"><label for="practiceDate">練習日</label><input id="practiceDate" type="date" min="0001-01-01" max="9999-12-31"></div>
   <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
@@ -231,6 +251,10 @@ function freshPracticeDate() {
 }
 const unit = mode => mode === 'pairs' ? 'ペア' : '人';
 const own = (table, k) => table && Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined;
+// コートの名前。出欠・コート割の画面（today.html）から作った表は、体育館の面の名前（例：C・D）を faces に持つ（2026-11-11）。
+// faces の無い表は今までどおり A・B・C・D。点数のスプシにも、この名前で送る
+const courtName = (s, i) => (s && Array.isArray(s.faces) && s.faces[i]) || COURTS[i];
+const facesLabel = s => s && Array.isArray(s.faces) ? (s.faces.length===4 ? '全コート' : 'コート'+s.faces.join('+')) : '';
 // 番号の名前（シングルス: '田中'、固定ペア: ['田中','鈴木']）。名簿を使っていなければ undefined
 const namesOf = p => session ? own(session.names, p) : undefined;
 // 休みの並びの区切り。名前付きの固定ペアは「宮澤輝・濱島」の中の「・」と見分けるため「／」にする
@@ -805,6 +829,11 @@ function validSession(s) {
       if (all.length!==r.players.length || new Set(all).size!==all.length || all.some(p => !r.players.includes(p))) return false;
       if ((s.forced[r.round] || []).some(p => !r.rest.includes(p))) return false;
     }
+    // 体育館の面の名前（today.html から作った表だけ）。A〜D の重複なし、どの節のコート数も面の数以下
+    if (s.faces!==undefined) {
+      if (!Array.isArray(s.faces) || s.faces.length<1 || s.faces.length>4 || new Set(s.faces).size!==s.faces.length || s.faces.some(f=>!COURTS.includes(f))) return false;
+      if (s.courts>s.faces.length || s.rounds.some(r=>r.courts>s.faces.length)) return false;
+    }
     const last=s.rounds[s.rounds.length-1]; // not .at(-1): iOS 14.0-15.3 Safari lacks it
     return last.courts===s.courts && last.players.length===s.players.length && last.players.every(p => s.players.includes(p));
   } catch { return false; }
@@ -831,8 +860,102 @@ function decodeShare(data) {
 function notify(message) { $('status').textContent=message; }
 function persist() {
   if (viewerMode) return;
+  // 今日のコート別の表（統合版）を開いているときは、その表も新しくする
+  if (dayGroups && dayGroups.current && session) { dayGroups.sessions[dayGroups.current]=session; saveGroups(); }
   try { localStorage.setItem(STORAGE_KEY,JSON.stringify(session)); }
   catch { notify('対戦表は作成できましたが、このブラウザでは保存できません。画像または共有リンクを保存してください。'); }
+}
+// ===== 統合版：今日のコート別の表（2026-11-11〜） =====
+// 出欠・コート割の画面（today.html）で「コートを分ける」にして「対戦表を作る」を押すと、コートごとの固定ペアを
+// HANDOFF_KEY に置いて singles.html#today を開く。ここでコートごとに表を作り、上のボタンで切り替える。
+// 表は GROUPS_KEY に今日の分だけ持つ（開いている表は今までどおり STORAGE_KEY にも保存する）
+const HANDOFF_KEY = 'kalidia-handoff-v1';
+const GROUPS_KEY = 'kalidia-groups-v1';
+let dayGroups = null;   // {v, date, order:[gid…], current:gid, labels:{gid:'コートC+D'}, sessions:{gid:session}}
+const groupHolds = s => !!(dayGroups && s && Object.values(dayGroups.sessions).includes(s));
+function saveGroups() {
+  if (!dayGroups) return;
+  try { localStorage.setItem(GROUPS_KEY,JSON.stringify(dayGroups)); } catch { /* 保存できない端末は、開いている間だけ切り替えられる */ }
+}
+// 今日のコート別の表を読み直す（形を確かめ、今日の分でなければ使わない）
+function loadGroups() {
+  let g;
+  try { g=JSON.parse(localStorage.getItem(GROUPS_KEY)); } catch { return null; }
+  if (!g || g.v!==1 || g.date!==todayPracticeDate() || !Array.isArray(g.order) || !g.order.length || !g.sessions || typeof g.sessions!=='object') return null;
+  const order=g.order.filter(id=>typeof id==='string' && validSession(own(g.sessions,id)));
+  if (!order.length) return null;
+  const labels={}, sessions={};
+  order.forEach(id=>{ sessions[id]=g.sessions[id]; labels[id]=facesLabel(sessions[id]) || id; });
+  return {v:1,date:g.date,order,current:order.includes(g.current) ? g.current : order[0],labels,sessions};
+}
+// today.html から渡された内容を確かめる（今日の分・コートを分ける日だけ）
+function readGroupHandoff() {
+  let d;
+  try { d=JSON.parse(localStorage.getItem(HANDOFF_KEY)); } catch { return null; }
+  if (!d || d.v!==1 || d.t!=='split' || d.date!==todayPracticeDate() || !ROUND_OPTIONS.includes(d.rounds) || !Array.isArray(d.groups) || !d.groups.length || d.groups.length>4) return null;
+  const used=new Set(), groups=[];
+  for (const g of d.groups) {
+    if (!g || !Array.isArray(g.faces) || !Array.isArray(g.pairs)) return null;
+    const faces=g.faces.filter(f=>COURTS.includes(f));
+    if (!faces.length || faces.length!==g.faces.length || new Set(faces).size!==faces.length || faces.some(f=>used.has(f))) return null;
+    faces.forEach(f=>used.add(f));
+    const ok=s=>typeof s==='string' && s.trim().length>0 && s.length<=20;
+    const pairs=g.pairs.filter(p=>Array.isArray(p) && p.length===2 && ok(p[0]) && ok(p[1]) && p[0]!==p[1]);
+    if (pairs.length!==g.pairs.length || pairs.length<2 || pairs.length>12) return null;
+    groups.push({faces,pairs:pairs.map(p=>[p[0],p[1]])});
+  }
+  return {date:d.date,rounds:d.rounds,groups};
+}
+function importGroups() {
+  history.replaceState(null,'',location.pathname+location.search);
+  const d=readGroupHandoff();
+  if (!d) { notify('出欠の画面からの引き継ぎを読み込めませんでした。出欠・コート割の画面で、もう一度「対戦表を作る」を押してください。'); return false; }
+  const next={v:1,date:d.date,order:[],current:null,labels:{},sessions:{}};
+  try {
+    for (const g of d.groups) {
+      const gid=g.faces.join(''), courts=Math.min(g.faces.length,Math.floor(g.pairs.length/2));
+      const config={mode:'pairs',players:sequence(g.pairs.length),courts,totalRounds:d.rounds,restOrder:'desc',practiceDate:d.date,
+        names:Object.fromEntries(g.pairs.map((p,i)=>[i+1,p.slice()])),forced:{},faces:g.faces.slice()};
+      // 点数の記録：本番の場所では最初からオン、テスト版（next/）ではオフ（固定ペア版の初期値と同じ）
+      if (scoreApi() && !testBuild()) { config.scoring=true; config.scoreId=newScoreId(); }
+      const s=buildSession(config);
+      if (!validSession(s)) throw Error('invalid');
+      next.order.push(gid); next.labels[gid]=facesLabel(s); next.sessions[gid]=s;
+    }
+  } catch { notify('コート別の対戦表を作れませんでした。出欠・コート割の画面で、ペアとコートを確かめてください。'); return false; }
+  next.current=next.order[0];
+  dayGroups=next; saveGroups();
+  session=dayGroups.sessions[dayGroups.current]; joinPicks=[];
+  restoreInputs(); persist();
+  // 点数を記録する表は、コートごとにスプシへ登録する（開いていないコートの表も送る）。
+  // 開いている表を最後に積むと、その表の「登録しています…」がそのまま画面に出る
+  next.order.slice().reverse().forEach(id=>{ session=next.sessions[id]; registerScores(); });
+  render();
+  notify(`コート別に${next.order.length}つの対戦表を作りました。上のボタンで切り替えます。`);
+  return true;
+}
+function switchGroup(gid) {
+  if (!dayGroups || !own(dayGroups.sessions,gid) || gid===dayGroups.current) return;
+  dayGroups.current=gid; saveGroups();
+  session=dayGroups.sessions[gid]; joinPicks=[];
+  restoreInputs(); persist(); render();
+  if (pendingScoreRegistration()) registerScores(true);
+  window.scrollTo(0,0);
+}
+function renderGroups() {
+  const box=$('groupBox'), on=!!dayGroups && !viewerMode;
+  box.hidden=!on;
+  if (!on) return;
+  $('groupTabs').replaceChildren(...dayGroups.order.map(id=>{
+    const s=dayGroups.sessions[id], b=document.createElement('button');
+    b.type='button'; b.setAttribute('role','tab'); b.dataset.gid=id; b.setAttribute('aria-selected',String(id===dayGroups.current));
+    const small=document.createElement('small'); small.textContent=`${s.players.length}ペア・${s.courts}面`;
+    b.append(dayGroups.labels[id],small); b.onclick=()=>switchGroup(id);
+    return b;
+  }));
+  $('groupNote').textContent=dayGroups.order.length>1
+    ? `今日のコート別の表です（${dayGroups.order.length}つ）。共有と画像は、表ごとに下のボタンから送ります。ペアやコートを変えるときは「2 コート割」で直して、もう一度「対戦表を作る」を押します。`
+    : '今日のコート別の表です。ペアやコートを変えるときは「2 コート割」で直して、もう一度「対戦表を作る」を押します。';
 }
 // ===== 大会練習の点数（スプシ＋GAS。2026-10-24追加） =====
 // 固定ペア＋名簿のときだけ。練習日が大会の練習期間なら大会ペアを自動で組み、各試合の点数をスプシに送る。
@@ -992,7 +1115,7 @@ function serverScores(list) {
   return out;
 }
 const sideNames = (s,p) => { const nm=own(s.names,p); return Array.isArray(nm) ? nm.slice() : [`${p}番ペア`]; };
-const scoreMatches = s => s.rounds.flatMap(r=>r.matches.map((m,i)=>({round:r.round,court:COURTS[i],a:sideNames(s,m[0]),b:sideNames(s,m[1])})));
+const scoreMatches = s => s.rounds.flatMap(r=>r.matches.map((m,i)=>({round:r.round,court:courtName(s,i),a:sideNames(s,m[0]),b:sideNames(s,m[1])})));
 function pendingScoreRegistration() {
   try {
     const p=JSON.parse(localStorage.getItem(SCORE_PENDING) || 'null');
@@ -1031,8 +1154,9 @@ function registerScores(force) {
   registerChain=registerChain.then(async()=>{
     let ok=false;
     try {
-      // 待っている間にさらに変わったら、あとから積んだ新しい方だけ送る
-      if (session!==owner) return;
+      // 待っている間にさらに変わったら、あとから積んだ新しい方だけ送る。ただし今日のコート別の表（統合版）で
+      // 別のコートの表に切り替えただけなら、その表はまだ最新なので送る（groupHolds）
+      if (session!==owner && !groupHolds(owner)) return;
       const r=await scoreRequest('POST',{action:'register',sid:owner.scoreId,hostKey:hostKeyFor(owner.scoreId),date:owner.practiceDate,
         data,matches:scoreMatches(owner),roster:ROSTER.slice()});
       clearPendingRegistration(owner.scoreId,data);
@@ -1119,8 +1243,8 @@ function scoreBar() {
 function missingScores() {
   if (!scoringOn() || !scoreState.checkedAt) return [];
   let last=0;
-  session.rounds.forEach(r=>r.matches.forEach((m,i)=>{ if (own(scoreState.scores,r.round+COURTS[i])) last=Math.max(last,r.round); }));
-  return session.rounds.filter(r=>r.round<last).flatMap(r=>r.matches.map((m,i)=>r.round+COURTS[i])).filter(k=>!own(scoreState.scores,k));
+  session.rounds.forEach(r=>r.matches.forEach((m,i)=>{ if (own(scoreState.scores,r.round+courtName(session,i))) last=Math.max(last,r.round); }));
+  return session.rounds.filter(r=>r.round<last).flatMap(r=>r.matches.map((m,i)=>r.round+courtName(session,i))).filter(k=>!own(scoreState.scores,k));
 }
 function jumpToScore(k) {
   const row=document.querySelector(`.score-row[data-key="${k}"]`);
@@ -1196,7 +1320,8 @@ async function reachedServer(st, owner, k, want) {
 async function saveScore(k) {
   const el=document.querySelector(`.score-row[data-key="${k}"]`);
   if (!el || scoreSaving.has(k) || !scoringOn()) return;
-  const round=Number(el.dataset.round), ci=COURTS.indexOf(el.dataset.court), r=session.rounds[round-1], m=r && r.matches[ci];
+  // 何番目のコートかは欄に持たせた番号で引く（面の名前が C・D の表もあるので、名前から A〜D の順を引かない）
+  const round=Number(el.dataset.round), ci=Number(el.dataset.ci), r=session.rounds[round-1], m=r && r.matches[ci];
   if (!m) return;
   const draft=own(scoreDrafts,k) || {a:'',b:''};
   const half=s=>String(s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).trim();
@@ -1415,6 +1540,7 @@ function applyChange() {
     if (joins.some(s=>s.names.length<2)) throw Error('途中から来た人は2人ずつ選んでください（あと1人）。');
     if (joins.some(s=>!s.number)) throw Error('参加できるのは12ペアまでです。');
     const players=[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value)).concat(joins.map(s=>s.number)).sort((a,b)=>a-b);
+    if (Array.isArray(session.faces) && Number($('changeCourts').value)>session.faces.length) throw Error(`${facesLabel(session)}は${session.faces.length}面です。コート数を${session.faces.length}以下にしてください。`);
     const names=joins.length ? {...session.names,...Object.fromEntries(joins.map(s=>[s.number,s.names.slice()]))} : session.names;
     const next=buildSession({...session,names,players,courts:Number($('changeCourts').value)},session.rounds.slice(0,consumed));
     if (!confirm(`第${consumed+1}節以降を作り直しますか？`)) return;
@@ -1423,7 +1549,7 @@ function applyChange() {
   } catch(e) { notify(e.message); }
 }
 function speechText(r) {
-  return `第${r.round}節。`+r.matches.map((m,i)=>`${COURTS[i]}コート、${speechLabel(m[0],session.mode)} 対 ${speechLabel(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>speechLabel(p,session.mode)).join('、') : 'なし'}。`;
+  return `第${r.round}節。`+r.matches.map((m,i)=>`${courtName(session,i)}コート、${speechLabel(m[0],session.mode)} 対 ${speechLabel(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>speechLabel(p,session.mode)).join('、') : 'なし'}。`;
 }
 function speak(r) {
   if (!('speechSynthesis' in window)) { notify('このブラウザは読み上げに対応していません。'); return; }
@@ -1524,7 +1650,7 @@ function makeImage(start) {
   const hasForced=rounds.some(r=>r.rest.some(p=>(session.forced[r.round] || []).includes(p)));
   ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
   ctx.fillStyle='#263c4c'; ctx.font='bold 25px sans-serif';
-  ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
+  ctx.fillText((session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割')+(facesLabel(session) ? `（${facesLabel(session)}）` : ''),24,38);
   if (dateLabel) { ctx.font='bold 20px sans-serif'; ctx.fillText(dateLabel,24,72); }
   ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}${hasForced ? ' ／ * は指定休み' : ''}`,24,72+dateHeight);
   let y=100+dateHeight;
@@ -1532,7 +1658,7 @@ function makeImage(start) {
     ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
     for (let i=0;i<r.matches.length;i++) {
       ctx.fillStyle='white'; ctx.fillRect(16,y,768,46); ctx.fillStyle='#263c4c'; ctx.font='22px sans-serif';
-      ctx.fillText(`${COURTS[i]}コート`,30,y+31);
+      ctx.fillText(`${courtName(session,i)}コート`,30,y+31);
       fitText(ctx,`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,140,y+31,630,22); y+=46;
     }
     const lines=restLines[ri], restH=30+(lines.length-1)*24;
@@ -1611,10 +1737,12 @@ async function sharePhoto() {
   catch(e) { if (e && e.name!=='AbortError') notify('共有できませんでした。画像を長押しして保存してください。'); }
 }
 function clearSession() {
-  if (!confirm('保存した対戦表を消して最初から始めますか？')) return;
+  // 今日のコート別の表（統合版）は、全部まとめて消す（1つだけ消すと、ほかのコートの表と食い違う）
+  if (!confirm(dayGroups ? `今日のコート別の対戦表（${dayGroups.order.length}つ）をすべて消して、最初から始めますか？` : '保存した対戦表を消して最初から始めますか？')) return;
   // Storage may be blocked (private mode, site data disabled); the table on screen must still clear.
   let removed=true;
   try { localStorage.removeItem(STORAGE_KEY); } catch { removed=false; }
+  if (dayGroups) { dayGroups=null; try { localStorage.removeItem(GROUPS_KEY); } catch { removed=false; } }
   // 次に作る表は今日の練習のもの。前回の表の日付を入力欄に残さない（2026-10-22）
   session=null; joinPicks=[]; $('practiceDate').value=todayPracticeDate(); practiceDateTouched=''; keptPracticeDate=null;
   // 前の表の休み指定も消す（残すと次の練習の表にも効く。2026-11-10）
@@ -1626,11 +1754,14 @@ function button(text, handler) { const b=document.createElement('button'); b.tex
 function render() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   $('results').replaceChildren(); $('summary').replaceChildren();
-  $('summary').hidden=!session; $('changePanel').hidden=!session || viewerMode; $('setup').hidden=viewerMode;
+  // 今日のコート別の表（統合版）は出欠・コート割の画面で作るので、ここの作成欄は出さない
+  $('summary').hidden=!session; $('changePanel').hidden=!session || viewerMode; $('setup').hidden=viewerMode || !!(dayGroups && session);
+  $('dayNav').hidden=viewerMode;
+  renderGroups();
   ensureScoreState();
   if (!session) { updateScoreSync(); return; }
   const title=document.createElement('h2');
-  title.textContent=`${session.mode==='pairs' ? '固定ペア番号' : 'シングルス'} ／ ${session.totalRounds}節${viewerMode ? '（閲覧用）' : ''}`;
+  title.textContent=`${facesLabel(session) ? facesLabel(session)+' ／ ' : ''}${session.mode==='pairs' ? '固定ペア番号' : 'シングルス'} ／ ${session.totalRounds}節${viewerMode ? '（閲覧用）' : ''}`;
   $('summary').append(title);
   const description=document.createElement('p'); description.className='muted';
   description.textContent=`1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}。表示中の表は作成時の設定です。* は指定休み。途中変更がある場合、各番号の参加期間内で集計します。`;
@@ -1664,6 +1795,8 @@ function render() {
     const pick=new Option('選んでください',''); pick.disabled=true;
     $('consumedRound').replaceChildren(pick,...sequence(session.totalRounds-1).map(n=>new Option(`第${n}節まで`,n)));
     $('consumedRound').value=''; $('changeBtn').disabled=true;
+    // 面の名前を持つ表は、面の数より多いコートにはできない（例：コートC+D は2面まで）
+    [...$('changeCourts').options].forEach(o=>{ o.disabled=Array.isArray(session.faces) && Number(o.value)>session.faces.length; });
     $('changeCourts').value=String(session.courts);
     $('memberChips').replaceChildren();
     for (const p of sequence(12)) {
@@ -1688,10 +1821,10 @@ function render() {
       const span=(cls,text)=>{ const e=document.createElement('span'); if (cls) e.className=cls; e.textContent=text; return e; };
       const match=document.createElement('div'); match.className='match';
       match.append(span('',label(m[0],session.mode)),span('vs','vs'),span('',label(m[1],session.mode)));
-      row.append(span('court-label',COURTS[i]),match); card.append(row);
+      row.append(span('court-label',courtName(session,i)),match); card.append(row);
       if (scoringOn()) {
         const score=document.createElement('div'); score.className='score-row'; row.classList.add('has-score');
-        Object.assign(score.dataset,{key:r.round+COURTS[i],round:r.round,court:COURTS[i],a:label(m[0],session.mode),b:label(m[1],session.mode)});
+        Object.assign(score.dataset,{key:r.round+courtName(session,i),round:r.round,court:courtName(session,i),ci:i,a:label(m[0],session.mode),b:label(m[1],session.mode)});
         card.append(score); paintScoreRow(score,true);
       }
     });
@@ -1738,6 +1871,9 @@ function init() {
   $('rosterClear').onclick=()=>{ if (rosterPicks.length>1 && !confirm(`選んだ${rosterPicks.length}人をすべて外しますか？`)) return; rosterPicks=[]; renderRoster(); };
   $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; renderRoster();
   $('consumedRound').addEventListener('change',()=>{ $('changeBtn').disabled=!$('consumedRound').value; });
+  // 出欠・コート割の画面（today.html）から「コートを分ける」で来たとき：コートごとの表を作る（統合版。2026-11-11）
+  // 読み込めなかったときは、下の普段の起動（今日のコート別の表・前回の表の復元）に進む
+  if (location.hash==='#today' && importGroups()) { loadTournaments(); return; }
   if (location.hash) {
     viewerMode=true; $('setup').hidden=true;
     try {
@@ -1748,6 +1884,13 @@ function init() {
       session=decodeShare(hash.slice(SHARE_PREFIX.length)); notify('共有された対戦表です。'); render();
     } catch(e) { notify(e.message); $('status').append(document.createTextNode(' ')); const a=document.createElement('a'); a.href=location.pathname+location.search; a.textContent='自分の対戦表に戻る'; $('status').append(a); }
     return;
+  }
+  // 今日のコート別の表があれば、それを開く（日が変われば使わない＝今までどおりの1つの表に戻る）
+  dayGroups=loadGroups();
+  if (dayGroups) {
+    session=dayGroups.sessions[dayGroups.current]; restoreInputs();
+    if (pendingScoreRegistration()) registerScores(true);
+    render(); notify('今日のコート別の対戦表を開きました。'); loadTournaments(); return;
   }
   // Blocked storage means there is nothing saved, not a failed restore.
   let saved=null;
