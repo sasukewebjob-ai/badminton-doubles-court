@@ -1,0 +1,3827 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script id="shortLinkRedirect">
+// 固定ペア版の短い共有リンク（…/badminton-doubles-court/#t=表ID）を固定ペア版へ渡す。
+// URLを短くするため、リンクはこのページのURLで作る（2026-11-10）。%3D に書き換えるアプリにも対応。
+// id を付けているのは、テスト（test_app_loader.js）が本体のスクリプトを切り出すときに取り違えないため
+if (/^#t(=|%3D)/i.test(location.hash)) { window.__toSingles = true; location.replace('singles.html' + location.hash); }
+</script>
+<title>バドミントン ダブルス コート割</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+  background: #f0f4f8;
+  color: #333;
+  padding: 12px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+h1 {
+  text-align: center;
+  font-size: 1.3em;
+  color: #1a5276;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: linear-gradient(135deg, #d4efdf, #aed6f1);
+  border-radius: 10px;
+}
+.input-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.input-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+.input-row label {
+  font-weight: bold;
+  font-size: 0.95em;
+  min-width: 80px;
+}
+.input-row select, .input-row input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 2px solid #aed6f1;
+  border-radius: 8px;
+  font-size: 1em;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.info-box {
+  background: #eaf2f8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.85em;
+  color: #2c3e50;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { background: #bdc3c7; }
+
+.round-card {
+  background: #fff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+.round-date { padding: 7px 14px; background: #eaf2f8; color: #245370; font-size: 0.85em; font-weight: bold; }
+.round-header {
+  background: linear-gradient(135deg, #2c3e50, #34495e);
+  color: #fff;
+  padding: 10px 14px;
+  font-weight: bold;
+  font-size: 1em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rest-badge {
+  background: #e74c3c;
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.8em;
+  /* 「第N節」の右側の空きスペースの中央に置く（2026-07-25。従来は右寄せ）。
+     休みが多くて長いときは自動的に左右いっぱいまで広がる */
+  margin: 0 auto;
+  text-align: center;
+}
+.round-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-speak {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9em;
+  padding: 4px 10px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.btn-speak.speaking {
+  background: #e67e22;
+}
+.rest-none {
+  background: #27ae60;
+}
+.court-match {
+  padding: 8px 14px;
+  border-bottom: 1px solid #ecf0f1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92em;
+}
+.court-match:last-child { border-bottom: none; }
+.court-label {
+  background: #3498db;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 0.85em;
+  min-width: 28px;
+  text-align: center;
+}
+.court-type {
+  color: #fff;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 0.72em;
+  white-space: nowrap;
+}
+.ct-m { background: #2980b9; }
+.ct-f { background: #e0619b; }
+.ct-x { background: #8e44ad; }
+.ct-o { background: #27ae60; }
+.match-detail {
+  flex: 1;
+  text-align: left; /* 「A」のすぐ右に番号・名前を並べる（中央寄せより目で追いやすい。2026-09-26ユーザー要望） */
+  font-weight: 500;
+}
+.vs { color: #e74c3c; font-weight: bold; margin: 0 4px; }
+/* 「18 北澤」の途中で改行しない。種目タグで幅が狭くなると「18／北澤」「9 下／平」に割れていた（2026-10-22） */
+.pair { color: #2c3e50; white-space: nowrap; }
+.pair-sep { color: #7f8c8d; margin: 0 2px; }
+
+.stats-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.stats-section h2 {
+  font-size: 1.05em;
+  margin-bottom: 12px;
+  color: #1a5276;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+.stats-table th, .stats-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid #ecf0f1;
+}
+.stats-table th {
+  background: #eaf2f8;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+}
+.stats-table tr:hover { background: #f9f9f9; }
+
+.pair-stats-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.pair-stats-section h2 {
+  font-size: 1.05em;
+  margin-bottom: 8px;
+  color: #1a5276;
+}
+.pair-stats-info {
+  font-size: 0.85em;
+  color: #555;
+  line-height: 1.6;
+}
+
+.change-divider {
+  background: #fff3e0;
+  border-left: 4px solid #ff9800;
+  color: #e65100;
+  font-weight: bold;
+  font-size: 0.88em;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 14px 0 12px;
+}
+.change-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-top: 4px solid #ff9800;
+}
+.change-section h2 {
+  font-size: 1.05em;
+  margin-bottom: 8px;
+  color: #e65100;
+}
+.change-info {
+  font-size: 0.82em;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.chips-label {
+  font-weight: bold;
+  font-size: 0.95em;
+  margin-bottom: 6px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.chip {
+  padding: 7px 13px;
+  border-radius: 18px;
+  border: 1.5px solid #bbb;
+  background: #f8f9fa;
+  color: #333;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.chip.selected {
+  background: #e74c3c;
+  color: #fff;
+  border-color: #e74c3c;
+  font-weight: bold;
+}
+.chip.chip-return.selected {
+  background: #27ae60;
+  border-color: #27ae60;
+}
+/* 名簿チップ（作る前の名簿・途中追加）は男性＝薄い青・女性＝薄いピンク・選んだら濃い緑。
+   シングルス版（singles.html の .roster-chips）と同じ色（2026-11-10。以前は灰色→選ぶと青） */
+.chip.gender-m {
+  background: #e3f0fb;
+  border-color: #9cc8ec;
+}
+.chip.gender-f {
+  background: #fde7ef;
+  border-color: #f3a9c2;
+}
+.chip.chip-roster.selected,
+.chip.chip-add.selected {
+  background: #27ae60;
+  border-color: #1e8449;
+}
+.roster-clear {
+  border: none;
+  background: none;
+  color: #2980b9;
+  font-size: 0.85em;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+.roster-count {
+  font-size: 0.82em;
+  color: #555;
+  margin: -4px 0 12px;
+}
+/* 休み指定（「◯節に◯◯さんを必ず休み」）の入力行 */
+.forced-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.forced-row select {
+  flex: 1;
+  min-width: 0;   /* 375px幅で横にはみ出さないため */
+  padding: 9px 8px;
+  border: 2px solid #aed6f1;
+  border-radius: 8px;
+  font-size: 0.95em;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.forced-del {
+  flex: 0 0 auto;
+  border: none;
+  background: #f2f4f6;
+  color: #b03a3a;
+  font-size: 1.05em;
+  font-weight: bold;
+  line-height: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.roster-map {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.roster-map h2 {
+  font-size: 1em;
+  color: #1a5276;
+  margin-bottom: 8px;
+}
+.roster-map-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 8px;
+  font-size: 0.9em;
+}
+.roster-map-grid .departed {
+  color: #aaa;
+  text-decoration: line-through;
+}
+.match-detail.md-names {
+  font-size: 0.9em;
+}
+.btn-change {
+  background: linear-gradient(135deg, #e67e22, #f39c12);
+}
+.btn-change:disabled { background: #bdc3c7; cursor: default; }
+.btn-change small { display: block; font-size: 0.8em; font-weight: normal; }
+.player-note {
+  font-size: 0.78em;
+  color: #999;
+}
+.departed-row td {
+  color: #aaa;
+  background: #fafafa;
+}
+.restore-banner {
+  background: #fff8e1;
+  border: 1.5px solid #f0c36d;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.88em;
+  color: #6d5a1e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.restore-banner button {
+  border: 1px solid #d9b85c;
+  background: #fff;
+  color: #8a6d1f;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-save {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #2980b9, #3498db);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  transition: transform 0.1s;
+}
+.btn-save:active { transform: scale(0.97); }
+.btn-save:disabled { background: #bdc3c7; }
+.btn-share {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #8e44ad, #9b59b6);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  transition: transform 0.1s;
+}
+.btn-share:active { transform: scale(0.97); }
+.viewer-banner {
+  background: #e8f4fd;
+  border: 1.5px solid #7fb6e0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.88em;
+  color: #1a5276;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.viewer-banner button {
+  border: 1px solid #7fb6e0;
+  background: #fff;
+  color: #1a5276;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.save-hint {
+  font-size: 0.78em;
+  color: #666;
+  text-align: center;
+  margin-bottom: 8px;
+}
+#imagePreview {
+  margin-top: 8px;
+  text-align: center;
+}
+#imagePreview img {
+  max-width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+.preview-label {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #2c3e50;
+  margin: 8px 0 4px;
+}
+.preview-guide {
+  font-size: 0.85em;
+  color: #1a5276;
+  background: #e8f4fd;
+  border: 1.5px solid #7fb6e0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.btn-photo {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #16a085, #1abc9c);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  margin: 8px 0 4px;
+}
+.btn-photo:active { transform: scale(0.97); }
+.btn-preview-close {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: #ecf0f1;
+  color: #2c3e50;
+  border: 1px solid #ccd5db;
+  border-radius: 8px;
+  font-size: 0.9em;
+  cursor: pointer;
+  margin: 4px 0 8px;
+}
+/* 結果のいちばん上の操作ボタン。画像保存とメンバー変更は全節カードの下（4画面以上先）にあり、
+   体育館で何度も往復していたので、よく使う2つを上にも置く（2026-10-22） */
+.top-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.top-actions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.btn-top {
+  padding: 12px 8px;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: bold;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.btn-top small { display: block; font-size: 0.75em; font-weight: normal; }
+.btn-top:active { transform: scale(0.97); }
+.btn-top-image { background: linear-gradient(135deg, #2980b9, #3498db); }
+.btn-top-change { background: linear-gradient(135deg, #e67e22, #f39c12); }
+.change-notice {
+  background: #eafaf1;
+  border: 1.5px solid #58c48b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.9em;
+  color: #1e6b43;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.change-notice button {
+  border: 1px solid #58c48b;
+  background: #fff;
+  color: #1e6b43;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.95em;
+  font-weight: bold;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* 統合版の上のタブ（2026-11-11）。出欠・コート割は today.html にあり、この画面は「3 対戦表」。共有リンクの人には出さない */
+.day-nav { display: grid; grid-template-columns: repeat(3, 1fr); margin: -12px -12px 12px; background: #fff; border-bottom: 1px solid #cfdad3; }
+.day-nav[hidden] { display: none; }
+.day-nav a, .day-nav span { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 48px; font-weight: bold; font-size: 0.95em; color: #5a6b62; text-decoration: none; border-bottom: 3px solid transparent; }
+.day-nav span { color: #0a7350; border-bottom-color: #0a7350; }
+/* 印刷：対戦表と集計だけを出し、ボタン・入力欄・メンバー変更は隠す。節のカードはページの境目で切らない（2026-09-26） */
+@media print {
+  body { max-width: none; padding: 0; background: #fff; }
+  .day-nav, h1 + p, .input-section, .viewer-banner, .restore-banner, .btn-save, .btn-share, .save-hint,
+  #imagePreview, .change-section, .btn-speak, .top-actions, .change-notice { display: none !important; }
+  .round-card, .roster-map, .stats-section, .pair-stats-section { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .stats-table th { position: static; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+
+<nav class="day-nav" id="dayNav" aria-label="今日の流れ">
+  <a href="today.html#attend"><b>1</b>出欠</a>
+  <a href="today.html#court"><b>2</b>コート割</a>
+  <span aria-current="step"><b>3</b>対戦表</span>
+</nav>
+<h1>🏸 ダブルス コート割</h1>
+<p style="text-align:center;margin:0 0 16px;font-size:0.9em"><a href="singles.html" style="color:#1a5276">シングルス・固定ペア番号版はこちら（最大12番号）</a></p>
+
+<div class="input-section">
+  <div class="input-row">
+    <label for="practiceDate">練習日</label>
+    <input id="practiceDate" type="date" min="0001-01-01" max="9999-12-31">
+  </div>
+  <div class="input-row">
+    <label>コート数</label>
+    <select id="courtCount">
+      <option value="2">2コート</option>
+      <option value="3">3コート</option>
+      <option value="4" selected>4コート</option>
+    </select>
+  </div>
+  <div class="input-row" id="playerCountRow">
+    <label>参加人数</label>
+    <select id="playerCount"></select>
+  </div>
+  <div class="input-row">
+    <label>節数</label>
+    <select id="roundCount">
+      <option value="10" selected>10節</option>
+      <option value="15">15節</option>
+      <option value="20">20節</option>
+      <option value="25">25節</option>
+      <option value="30">30節</option>
+    </select>
+  </div>
+  <div class="input-row">
+    <label>休み順</label>
+    <select id="restOrder">
+      <option value="asc">1番から休む</option>
+      <option value="desc" selected>最後の番号から休む</option>
+    </select>
+  </div>
+  <div class="input-row" id="genderModeRow" style="display:none">
+    <label>種目別コート</label>
+    <select id="genderMode">
+      <option value="off" selected>使わない</option>
+      <option value="on">A男子・B女子・C/Dミックス</option>
+    </select>
+  </div>
+  <div class="chips-label">参加メンバー（タップで選択）<button class="roster-clear" onclick="clearRoster()">全解除</button></div>
+  <div class="chips" id="rosterChips"></div>
+  <div class="roster-count" id="rosterCount">未選択（番号のみで作成します）</div>
+  <div class="chips-label">休み指定（任意）<button class="roster-clear" id="forcedAddBtn" onclick="addForcedRestRow()">＋ 追加</button></div>
+  <div id="forcedRestList"></div>
+  <div class="roster-count" id="forcedRestNote">「第◯節は◯◯さんを必ず休みにする」を指定できます（指定した人は休みが増えることがあります）</div>
+  <div class="info-box" id="infoBox"></div>
+  <button class="btn" id="generateBtn" onclick="generate()">コート割を作成</button>
+</div>
+
+<div id="results"></div>
+
+<script>
+const COURT_LABELS = ['A','B','C','D'];
+// 固定名簿（原本は バドミントン系/members.txt。バドミントン系/update_members.py が下のKANAごと自動更新する）
+const ROSTER = [
+  // 男性
+  '大野','上條','唐澤祐','唐澤郁','北原','越野','小林','善志','髙橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
+  // 女性
+  '濱島','内田','北澤','黒河内','後藤','酒井','下平','田中','中原','根津真','宮下','依田',
+];
+// 読み上げ用フリガナ（原本から自動生成。対応がない名前は漢字のまま読み上げエンジンに渡す）
+const KANA = {
+  '大野':'おおの','上條':'かみじょう','唐澤祐':'からさわゆうじ','唐澤郁':'からさわふみや','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','髙橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
+  '濱島':'はましま','内田':'うちだ','北澤':'きたざわ','黒河内':'くろごうち','後藤':'ごとう','酒井':'さかい','下平':'しもだいら','田中':'たなか','中原':'なかはら','根津真':'ねづまほ','宮下':'みやした','依田':'よだ',
+};
+// 性別（原本の[男性]/[女性]セクションから自動生成。種目別コートで使用）
+const GENDER = {
+  '大野':'M','上條':'M','唐澤祐':'M','唐澤郁':'M','北原':'M','越野':'M','小林':'M','善志':'M','髙橋':'M','原':'M','バレ':'M','根津':'M','細井':'M','松武':'M','宮澤輝':'M','渡辺':'M',
+  '濱島':'F','内田':'F','北澤':'F','黒河内':'F','後藤':'F','酒井':'F','下平':'F','田中':'F','中原':'F','根津真':'F','宮下':'F','依田':'F',
+};
+// 読み上げ専用の表記上書き（手動管理。update_members.py の自動生成対象外なので名簿同期で消えない）
+// TTSは渡す表記でアクセント・発音が変わるため、実機で聞き比べて自然だったものを入れる。
+// ここに無い名前は KANA のフリガナをそのまま使う。表示（画面・画像）には一切影響しない
+const SPEECH_KANA = {
+  'バレ': 'バレ',     // 'ばれ'だと平板で「バレる」のように聞こえる → カタカナで頭高に（2026-08-13）
+  '濱島': 'ハマシマ', // 'はましま'だとスマホで頭の「は」が飲まれ「マシマ」に聞こえる（2026-08-13）
+};
+// HTMLエスケープ（共有リンク経由の名前など、信頼できない文字列をinnerHTMLに入れる前に必ず通す）
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function todayPracticeDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function validPracticeDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  return y >= 1 && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+function practiceDateLabel(value) {
+  if (!validPracticeDate(value)) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  const day = new Date(value + 'T12:00:00').getDay();
+  return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
+}
+// 練習日の入力欄を手で選んだ日（'YYYY-MM-DD'。選んでいなければ ''）。選んでいなければ、
+// 入力欄の日付は前回の表のもの（または開いた日のもの）なので、次に作る表には使わない（generate 参照）。
+// 今日のうちに手で選んだ日付なら、過去の日付でも作り直したときにそのまま使う（2026-11-10。以前は作成のたびに
+// 「選んでいない」に戻し、2回目の作成で今日に変わっていた）。日をまたいだら選んでいない扱い
+let practiceDateTouched = '';
+function changePracticeDate() {
+  practiceDateTouched = todayPracticeDate();
+  const value = document.getElementById('practiceDate').value;
+  if (viewerMode || !session || (value && !validPracticeDate(value))) return;
+  session = { ...session, practiceDate: value };
+  saveSession();
+  // 日付だけ変わるので、画面は動かさず、選びかけのメンバー変更もそのまま（2026-11-10。以前は結果まで
+  // スクロールし、消化済み・離脱する人などの選択も消えていた）
+  renderResults({ keepView: true });
+}
+// 名簿テーブル（GENDER・KANA等）の引き当て。共有リンクの名前は細工できるので、
+// 「toString」などが Object の組み込みプロパティに当たらないよう自前のキーだけを見る
+function ownValue(table, key) {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+// 名簿チップに男女の色を付けるクラス（先頭に空白付き。名簿に無い名前は付けない）
+function genderChipClass(nm) {
+  const g = ownValue(GENDER, nm);
+  return g === 'M' ? ' gender-m' : g === 'F' ? ' gender-f' : '';
+}
+// 番号の表示名（名簿モードなら「1 田中」、番号のみなら「1番」）
+function pname(p) {
+  const nm = session && session.names && session.names[p];
+  return nm ? p + ' ' + nm : p + '番';
+}
+// 番号の性別（'M'/'F'/null）。名簿の人はGENDER、ゲストは追加時に選んだ性別。
+// 名簿で改名・削除された人は、表に覚えておいた性別（session.genders）を使う。名簿が変わる前に作った表を
+// 続けて使うと、その人の性別が分からず種目別コートが黙って外れていた（2026-11-10）
+function genderOfNum(p) {
+  if (!session) return null;
+  const nm = session.names && session.names[p];
+  if (nm && ownValue(GENDER, nm)) return ownValue(GENDER, nm);
+  const saved = session.genders && ownValue(session.genders, p);
+  if (saved === 'M' || saved === 'F') return saved;
+  return (session.guestGenders && session.guestGenders[p]) || null;
+}
+// 名簿の人の性別を表に覚えておく（保存のたびに。すでに覚えた番号はそのまま）
+function rememberGenders(s) {
+  if (!s || !s.names) return;
+  const out = {};
+  if (s.genders && typeof s.genders === 'object' && !Array.isArray(s.genders)) {
+    for (const k in s.genders) if (ownValue(s.genders, k) === 'M' || ownValue(s.genders, k) === 'F') out[k] = s.genders[k];
+  }
+  for (const p of s.everPlayers || []) {
+    const g = s.names[p] && ownValue(GENDER, s.names[p]);
+    if (g && !out[p]) out[p] = g;
+  }
+  s.genders = out;
+}
+// コートの実際の種目（種目別モードの表示用）。全員の性別が分かるときだけ返す。
+// ミックスは「男女ペア vs 男女ペア」のみ。男3女1などは「混成」。
+// 最後のコート（4コートのD／3コートのC）は人数調整役なので、
+// ミックスにならなかった節は緑（ct-o）で示す
+function courtTypeLabel(court, idx, courtCount) {
+  const gs = court.pair1.concat(court.pair2).map(genderOfNum);
+  if (gs.some(g => g !== 'M' && g !== 'F')) return null;
+  const m = gs.filter(g => g === 'M').length;
+  const pairMixed = pr => pr.filter(p => genderOfNum(p) === 'M').length === 1;
+  let label;
+  if (m === 4) label = '男子';
+  else if (m === 0) label = '女子';
+  else if (m === 2 && pairMixed(court.pair1) && pairMixed(court.pair2)) label = 'ミックス';
+  else label = '混成';
+  let cls = label === '男子' ? 'ct-m' : label === '女子' ? 'ct-f' : label === 'ミックス' ? 'ct-x' : 'ct-o';
+  if (idx === (courtCount || 4) - 1 && label !== 'ミックス') cls = 'ct-o';
+  return { label, cls };
+}
+// 読み上げ用の呼び名（名簿モードならフリガナ、番号のみなら「5番」）
+// SPEECH_KANA に手動の上書きがあればそちらを優先（実機で聞いて不自然だった人だけ登録）
+function sname(p) {
+  const nm = session && session.names && session.names[p];
+  return nm ? (ownValue(SPEECH_KANA, nm) || ownValue(KANA, nm) || nm) : p + '番';
+}
+// 節の読み上げ文（例:「第3節の対戦を読み上げます！Aコート、たなか・すずき 対 こばやし・はら。休み、よだ。」）
+// 冒頭は漢字かな交じりで渡す：ひらがな＋数字のベタ書き（だい1せつ…）だと形態素解析が効かず
+// 「だい・いち・せつ」と不自然なアクセントになる。漢字なら「だいいっせつ」と正しく読まれる
+function roundSpeechText(round) {
+  const intro = `第${round.round}節の対戦を読み上げます！`;
+  const parts = [];
+  round.assignments.forEach((court, idx) => {
+    const p1 = [...court.pair1].sort((a, b) => a - b);
+    const p2 = [...court.pair2].sort((a, b) => a - b);
+    const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
+    parts.push(`${COURT_LABELS[idx]}コート、${sname(left[0])}、${sname(left[1])}、たい、${sname(right[0])}、${sname(right[1])}`);
+  });
+  if (round.resting.length > 0) {
+    parts.push(`やすみ、${round.resting.map(sname).join('、')}`);
+  }
+  return intro + parts.join('。') + '。';
+}
+// 読み上げの実行（同じ節をもう一度タップで停止）
+let speakingRound = null;
+function speakRound(rn) {
+  if (!('speechSynthesis' in window)) {
+    alert('この端末は音声読み上げに対応していません');
+    return;
+  }
+  if (speakingRound === rn) { stopSpeech(); return; }
+  speechSynthesis.cancel();
+  const round = session.rounds.find(r => r.round === rn);
+  if (!round) return;
+  const u = new SpeechSynthesisUtterance(roundSpeechText(round));
+  u.lang = 'ja-JP';
+  u.rate = 0.89;   // 1.0が標準速度（0.99から10%ダウン、2026-07-06ユーザー要望）
+  u.volume = 1.0;  // APIの上限。端末のメディア音量を超える増幅は仕様上不可
+  u.onend = u.onerror = () => {
+    if (speakingRound === rn) { speakingRound = null; updateSpeakButtons(); }
+  };
+  speakingRound = rn;
+  updateSpeakButtons();
+  speechSynthesis.speak(u);
+}
+function stopSpeech() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  speakingRound = null;
+  updateSpeakButtons();
+}
+function updateSpeakButtons() {
+  document.querySelectorAll('.btn-speak').forEach(b => {
+    const active = Number(b.dataset.round) === speakingRound;
+    b.classList.toggle('speaking', active);
+    b.textContent = active ? '⏹ 停止' : '🔊';
+  });
+}
+let TOTAL_ROUNDS = 20;
+let lastRounds = null;
+// セッション状態（途中のメンバー変更に使用）
+// players: 現在の参加者番号 / everPlayers: 参加経験のある全番号 / changes: 変更履歴
+let session = null;
+
+// --- localStorage永続化 ---
+// 体育館でタブが落ちても状態が残るよう、生成・メンバー変更のたびに保存する
+const STORAGE_KEY = 'badminton-court-session-v1';
+let restoredAt = null; // 復元直後のみ保存日時が入る（バナー表示用）
+let changeNotice = null; // メンバー変更で作り直した最初の節（結果の上に送り直しの案内を出す。保存はしない）
+
+function saveSession() {
+  // 閲覧モードでは保存しない（共有を見た人自身のコート割を壊さない）
+  if (!session || viewerMode) return;
+  rememberGenders(session);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, savedAt: Date.now(), session }));
+  } catch (e) {
+    // プライベートモード等で保存できなくてもアプリは継続
+  }
+}
+
+function clearSavedSession() {
+  if (!confirm('保存されたコート割を消去して、最初からやり直しますか？')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  stopSpeech(); // 表を消すので読み上げ中なら止める
+  session = null;
+  lastRounds = null;
+  restoredAt = null;
+  changeNotice = null;
+  // 次に作る表は今日の練習のもの。前回の表の日付を入力欄に残さない（2026-10-22）
+  document.getElementById('practiceDate').value = todayPracticeDate();
+  practiceDateTouched = '';
+  document.getElementById('results').replaceChildren();
+  // 前の表の休み指定も消す（残すと次の練習の表にも効く。2026-11-10）。
+  // 「表示中のコート割に反映するには…」の注意書きも消える（表が無くなったので）
+  document.getElementById('forcedRestList').replaceChildren();
+  updateForcedRestNote();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function restoreSession() {
+  let data;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch (e) {
+    return false;
+  }
+  const s = data && data.session;
+  if (!s || !Array.isArray(s.rounds) || s.rounds.length === 0 ||
+      !Array.isArray(s.players) || !Array.isArray(s.everPlayers) || !Array.isArray(s.changes)) {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    return false;
+  }
+  // 旧データや壊れた names は番号のみモードとして扱う
+  s.names = validateNames(s.names);
+  // 復帰機能より前の保存形式には returned が無い。
+  for (const c of s.changes) if (c && c.returned === undefined) c.returned = [];
+  // 旧データには genderMode / guestGenders が無い → 通常モード扱い
+  if (s.genderMode !== true || !s.names) s.genderMode = false;
+  if (!s.guestGenders || typeof s.guestGenders !== 'object' || Array.isArray(s.guestGenders)) {
+    s.guestGenders = s.genderMode ? {} : null;
+  }
+  // 覚えておいた性別（2026-11-10〜）。旧データには無い。壊れた値は捨てる
+  if (s.genders && typeof s.genders === 'object' && !Array.isArray(s.genders)) {
+    const clean = {};
+    for (const k in s.genders) {
+      const n = Number(k), g = ownValue(s.genders, k);
+      if (Number.isInteger(n) && s.everPlayers.includes(n) && (g === 'M' || g === 'F')) clean[n] = g;
+    }
+    s.genders = clean;
+  } else {
+    delete s.genders;
+  }
+  // 旧データには forcedRests が無い。壊れた値は捨てる（復元描画で落ちないように）
+  if (!s.forcedRests || typeof s.forcedRests !== 'object' || Array.isArray(s.forcedRests)) {
+    s.forcedRests = null;
+  } else {
+    const clean = {};
+    for (const rn in s.forcedRests) {
+      const n = Number(rn);
+      const arr = s.forcedRests[rn];
+      if (!Number.isInteger(n) || n < 1 || n > s.totalRounds || !Array.isArray(arr)) continue;
+      const nums = arr.filter(p => Number.isInteger(p) && p >= 1);
+      if (nums.length > 0) clean[n] = nums;
+    }
+    s.forcedRests = Object.keys(clean).length > 0 ? clean : null;
+  }
+  // 共有と同じ構造検証を、状態を採用・描画する前に行う。
+  // 配列の外形だけでは、null の節や重複番号を含む破損データを検出できない。
+  if (!validateSharedSession(s)) {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    return false;
+  }
+  session = s;
+  lastRounds = s.rounds;
+  TOTAL_ROUNDS = s.totalRounds;
+  restoredAt = data.savedAt || null;
+  document.getElementById('practiceDate').value = s.practiceDate || '';
+  practiceDateTouched = '';
+
+  // 入力欄は「作成したときの設定」に戻す（再読み込みしない画面と同じ状態）。
+  // 途中変更後の人数・コート数に合わせていたため、番号のみモードで離脱者がいると
+  // 在籍中の大きい番号への休み指定が「今は対象外」と誤表示されていた（2026-09-23修正）
+  const laterAdded = new Set(s.changes.flatMap(c => c.added));
+  const initialCount = s.everPlayers.filter(p => !laterAdded.has(p)).length;
+  const initialCourts = s.initialCourts || s.courts;
+  const courtSel = document.getElementById('courtCount');
+  if (courtSel.querySelector(`option[value="${initialCourts}"]`)) {
+    courtSel.value = initialCourts;
+    courtSel.dispatchEvent(new Event('change')); // 人数の選択肢を再構築
+  }
+  const playerSel = document.getElementById('playerCount');
+  if (playerSel.querySelector(`option[value="${initialCount}"]`)) {
+    playerSel.value = initialCount;
+    updateInfo();
+  }
+  const roundSel = document.getElementById('roundCount');
+  if (roundSel.querySelector(`option[value="${s.totalRounds}"]`)) {
+    roundSel.value = s.totalRounds;
+  }
+  // 旧バージョンの保存データには restOrder が無い → 従来仕様の「1番から」
+  document.getElementById('restOrder').value = s.restOrder === 'desc' ? 'desc' : 'asc';
+  document.getElementById('genderMode').value = s.genderMode ? 'on' : 'off';
+
+  // 名簿チップも作成したときのメンバーに戻す（コート数・人数と同じく作成時の設定）。
+  // 現在のメンバーに合わせると、途中変更後は「4コートなのに15人」のように食い違い、
+  // 作成できない・休み指定が「今は対象外」になっていた
+  if (s.names) {
+    const initialPlayers = s.everPlayers.filter(p => !laterAdded.has(p));
+    const activeNames = new Set(initialPlayers.map(p => s.names[p]).filter(Boolean));
+    document.querySelectorAll('#rosterChips .chip').forEach(b =>
+      b.classList.toggle('selected', activeNames.has(b.dataset.name)));
+  }
+  onRosterChange();
+  // 休み指定も復元する（onRosterChange→updateInfo が選択肢を作り直したあとに行を並べる）。
+  // ただし前回の練習（今日より前の練習日）の指定は、次の練習の表に効かないよう入力欄に戻さない
+  // （2026-11-10。表示中の表の * 印・途中変更の休み指定は session.forcedRests なのでそのまま）
+  restoreForcedRestRows(!s.practiceDate || s.practiceDate >= todayPracticeDate() ? s : null);
+
+  renderResults();
+  return true;
+}
+
+// --- 対戦表の共有（URLにセッションを埋め込む） ---
+// サーバー不要で「リンクを開くだけで同じ対戦表が見える」ようにする。
+// 番号・節数は小さい整数なので、独自の可変長エンコードでURLを短く保つ
+// （JSON+base64より大幅に短く、15節で400文字前後に収まる）
+const SHARE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const SHARE_INDEX = {};
+for (let i = 0; i < 64; i++) SHARE_INDEX[SHARE_CHARS[i]] = i;
+let viewerMode = false; // 共有リンクの閲覧モード（編集UI・localStorage保存を無効化）
+let sharedAt = null;    // 共有リンクの作成日時（バナー表示用）
+
+// 0〜47は1文字、48〜1071は2文字
+function encInt(v) {
+  if (!Number.isInteger(v) || v < 0 || v > 1071) throw new Error('encInt range: ' + v);
+  if (v < 48) return SHARE_CHARS[v];
+  v -= 48;
+  return SHARE_CHARS[48 + (v >> 6)] + SHARE_CHARS[v & 63];
+}
+
+function encList(arr) {
+  return encInt(arr.length) + arr.map(encInt).join('');
+}
+
+// 名前マップ {番号: 名前} をURL安全なbase64urlに（日本語対応、共有データ末尾に付加）
+function encodeNamesBlob(names) {
+  const bytes = new TextEncoder().encode(JSON.stringify(names));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeBlobJson(blob) {
+  try {
+    if (!blob) return null;
+    let b64 = blob.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const obj = JSON.parse(new TextDecoder().decode(bytes));
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    return obj;
+  } catch (e) {
+    return null;
+  }
+}
+
+function validateNames(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const names = {};
+  for (const k in obj) {
+    const num = parseInt(k, 10);
+    if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
+    if (typeof obj[k] !== 'string' || obj[k].length === 0 || obj[k].length > 20) return null;
+    names[num] = obj[k];
+  }
+  return names;
+}
+
+function decodeNamesBlob(blob) {
+  return validateNames(decodeBlobJson(blob));
+}
+
+// --- 共有データの内容検証（2026-07-25追加） ---
+// 共有リンクは誰でも中身を書き換えられる。仕様外の値（5コート・31節・巨大な節数など）を
+// そのまま描画すると画面停止やCanvas生成失敗につながるので、範囲と整合性を検証する
+const SHARE_LIMITS = {
+  minCourts: 2, maxCourts: 4,   // コート数 2〜4
+  minRounds: 10, maxRounds: 30, // 節数 10〜30
+  maxPlayers: 26,               // 同時参加は最大26人
+  maxNumber: 1071,              // 可変長整数の上限。同時参加26人でも出入りで番号は増える
+  maxChanges: 100
+};
+
+// 1〜max の整数が重複なく maxLen 件以内で並んでいるか
+function isNumList(arr, max, maxLen) {
+  if (!Array.isArray(arr) || arr.length > maxLen) return false;
+  const seen = new Set();
+  for (const v of arr) {
+    if (!Number.isInteger(v) || v < 1 || v > max) return false;
+    if (seen.has(v)) return false;
+    seen.add(v);
+  }
+  return true;
+}
+
+// 番号キーのオブジェクトが everPlayers の範囲に収まっているか
+function keysWithin(obj, allowed) {
+  if (!obj) return true;
+  for (const k in obj) {
+    if (!allowed.has(parseInt(k, 10))) return false;
+  }
+  return true;
+}
+
+function validateSharedSession(s) {
+  const L = SHARE_LIMITS;
+  if (!s || typeof s !== 'object') return false;
+  if (s.practiceDate !== undefined && s.practiceDate !== '' && !validPracticeDate(s.practiceDate)) return false;
+
+  // 節数・コート数・番号の上限
+  if (!Number.isInteger(s.totalRounds) || s.totalRounds < L.minRounds || s.totalRounds > L.maxRounds) return false;
+  if (!Number.isInteger(s.initialCourts) || s.initialCourts < L.minCourts || s.initialCourts > L.maxCourts) return false;
+  if (!Number.isInteger(s.maxNumber) || s.maxNumber < 1 || s.maxNumber > L.maxNumber) return false;
+
+  // 参加者番号（のべ・現役）
+  if (!isNumList(s.everPlayers, s.maxNumber, L.maxNumber) || s.everPlayers.length === 0) return false;
+  if (!isNumList(s.players, s.maxNumber, L.maxPlayers) || s.players.length === 0) return false;
+  if (Math.max.apply(null, s.everPlayers) !== s.maxNumber) return false;
+  const ever = new Set(s.everPlayers);
+  if (!s.players.every(p => ever.has(p))) return false;
+
+  // atRound は「変更後の最初の節」。最終節からの変更も有効。
+  if (!Array.isArray(s.changes) || s.changes.length > L.maxChanges) return false;
+  // 画面の操作では同じ節に変更が2件できない（次の変更は前の変更より後の節から）。
+  // 同じ節の2件を通すと、変更帯が最初の1件しか表示されず参加・離脱の表示が欠ける
+  let prevAt = 1;
+  let courtsAfter = s.initialCourts;
+  const added = new Set();
+  for (const c of s.changes) {
+    if (!c || !Number.isInteger(c.atRound) || c.atRound <= prevAt || c.atRound > s.totalRounds) return false;
+    prevAt = c.atRound;
+    if (!Number.isInteger(c.courts) || c.courts < L.minCourts || c.courts > L.maxCourts) return false;
+    for (const list of [c.added, c.removed, c.returned]) {
+      if (!isNumList(list, s.maxNumber, L.maxPlayers)) return false;
+      if (!list.every(p => ever.has(p))) return false;
+    }
+    for (const p of c.added) {
+      if (added.has(p)) return false;
+      added.add(p);
+    }
+    courtsAfter = c.courts;
+  }
+  // 最終区間のコート数と現役人数の整合
+  if (s.players.length < courtsAfter * 4) return false;
+  if (s.courts !== undefined && s.courts !== courtsAfter) return false;
+
+  // 節の構造：節数一致・番号連番・コート数は変更履歴どおり・出場と休みに重複なし
+  if (!Array.isArray(s.rounds) || s.rounds.length !== s.totalRounds) return false;
+  const active = new Set(s.everPlayers.filter(p => !added.has(p)));
+  const joined = new Set(active);
+  let changeIndex = 0;
+  let courts = s.initialCourts;
+  for (let i = 0; i < s.rounds.length; i++) {
+    const r = s.rounds[i];
+    if (!r || r.round !== i + 1) return false;
+    const rn = i + 1;
+    // 変更した当節から人数・コート数を反映し、全区間の在籍者を確認する。
+    while (changeIndex < s.changes.length && s.changes[changeIndex].atRound === rn) {
+      const c = s.changes[changeIndex++];
+      const touched = c.added.concat(c.removed, c.returned);
+      if (new Set(touched).size !== touched.length) return false;
+      for (const p of c.removed) {
+        if (!active.delete(p)) return false;
+      }
+      for (const p of c.returned) {
+        if (!joined.has(p) || active.has(p)) return false;
+        active.add(p);
+      }
+      for (const p of c.added) {
+        if (joined.has(p)) return false;
+        joined.add(p);
+        active.add(p);
+      }
+      courts = c.courts;
+    }
+    if (active.size < courts * 4 || active.size > L.maxPlayers) return false;
+    if (!Array.isArray(r.assignments) || r.assignments.length !== courts) return false;
+    if (!isNumList(r.resting, s.maxNumber, L.maxPlayers)) return false;
+
+    const inRound = new Set(r.resting);
+    for (const a of r.assignments) {
+      if (!a || !Array.isArray(a.pair1) || !Array.isArray(a.pair2)) return false;
+      if (a.pair1.length !== 2 || a.pair2.length !== 2) return false;
+      for (const p of a.pair1.concat(a.pair2)) {
+        if (!Number.isInteger(p) || !ever.has(p)) return false;
+        if (inRound.has(p)) return false; // 同じ節に二重登場
+        inRound.add(p);
+      }
+    }
+    if (inRound.size > L.maxPlayers) return false;
+    if (inRound.size !== active.size || ![...active].every(p => inRound.has(p))) return false;
+  }
+  if (active.size !== s.players.length || !s.players.every(p => active.has(p))) return false;
+
+  // 名前・ゲスト性別のキーはのべ参加者の範囲内
+  if (!keysWithin(s.names, ever) || !keysWithin(s.guestGenders, ever)) return false;
+
+  return true;
+}
+
+function encodeShareData() {
+  const s = session;
+  // 作成時刻（分単位・固定5文字）。再共有されたとき新旧を見分けられるように
+  const minutes = Math.floor(Date.now() / 60000);
+  let ts = '';
+  for (let i = 4; i >= 0; i--) ts += SHARE_CHARS[(minutes >> (6 * i)) & 63];
+  // 番号のみ='1'、名前付き='2'（末尾に名前ブロック）、種目別コート='3'（名前＋性別ブロック）
+  let out = (s.genderMode ? '3' : s.names ? '2' : '1') + ts;
+  out += encInt(s.totalRounds) + encInt(s.initialCourts);
+  out += encInt(s.restOrder === 'desc' ? 1 : 0) + encInt(s.maxNumber);
+  out += encList(s.players) + encList(s.everPlayers);
+  out += encInt(s.changes.length);
+  for (const c of s.changes) {
+    out += encInt(c.atRound) + encInt(c.courts);
+    out += encList(c.added) + encList(c.removed) + encList(c.returned || []);
+  }
+  out += encInt(s.rounds.length);
+  for (const r of s.rounds) {
+    out += encInt(r.round) + encInt(r.assignments.length) + encList(r.resting);
+    for (const a of r.assignments) {
+      out += encInt(a.pair1[0]) + encInt(a.pair1[1]) + encInt(a.pair2[0]) + encInt(a.pair2[1]);
+    }
+  }
+  if (s.genderMode) {
+    // 名簿から外れた名前の人の性別も、ゲストと同じ欄で渡す（閲覧者の種目タグが欠けないように。2026-11-10）
+    const g = { ...(s.guestGenders || {}) };
+    for (const p of s.everPlayers) {
+      const nm = s.names && s.names[p], saved = s.genders && ownValue(s.genders, p);
+      if (nm && !ownValue(GENDER, nm) && (saved === 'M' || saved === 'F')) g[p] = saved;
+    }
+    out += encodeNamesBlob({ n: s.names, g });
+  }
+  else if (s.names) out += encodeNamesBlob(s.names);
+  // 日付は既存のbase64urlで使わない「.」の後ろに付ける。日付のない旧リンクはそのまま読める。
+  if (s.practiceDate) out += '.' + s.practiceDate;
+  return out;
+}
+
+// 壊れた・途切れたリンクでも例外を漏らさず null を返す
+function decodeShareData(str) {
+  try {
+    if (typeof str !== 'string' || (str[0] !== '1' && str[0] !== '2' && str[0] !== '3')) return null;
+    const parts = str.split('.');
+    if (parts.length > 2 || (parts.length === 2 && !validPracticeDate(parts[1]))) return null;
+    const practiceDate = parts[1];
+    str = parts[0];
+    const version = str[0];
+    let pos = 1;
+    const ch = () => {
+      const v = SHARE_INDEX[str[pos++]];
+      if (v === undefined) throw new Error('bad char');
+      return v;
+    };
+    const readInt = () => {
+      const v = ch();
+      return v < 48 ? v : 48 + ((v - 48) << 6) + ch();
+    };
+    const readList = () => {
+      const len = readInt();
+      const arr = [];
+      for (let i = 0; i < len; i++) arr.push(readInt());
+      return arr;
+    };
+    let ts = 0;
+    for (let i = 0; i < 5; i++) ts = ts * 64 + ch();
+    const s = {};
+    if (practiceDate) s.practiceDate = practiceDate;
+    s.totalRounds = readInt();
+    s.initialCourts = readInt();
+    s.restOrder = readInt() === 1 ? 'desc' : 'asc';
+    s.maxNumber = readInt();
+    s.players = readList();
+    s.everPlayers = readList();
+    s.changes = [];
+    const nChanges = readInt();
+    for (let i = 0; i < nChanges; i++) {
+      const c = { atRound: readInt(), courts: readInt() };
+      c.added = readList();
+      c.removed = readList();
+      c.returned = readList();
+      s.changes.push(c);
+    }
+    s.rounds = [];
+    const nRounds = readInt();
+    for (let i = 0; i < nRounds; i++) {
+      const round = { round: readInt() };
+      const nCourts = readInt();
+      round.resting = readList();
+      round.assignments = [];
+      for (let j = 0; j < nCourts; j++) {
+        round.assignments.push({ pair1: [readInt(), readInt()], pair2: [readInt(), readInt()] });
+      }
+      s.rounds.push(round);
+    }
+    if (version === '3') {
+      // 残り全部が {n: 名前, g: ゲスト性別} ブロック
+      const obj = decodeBlobJson(str.slice(pos));
+      if (!obj) return null;
+      s.names = validateNames(obj.n);
+      if (!s.names) return null;
+      s.guestGenders = {};
+      if (obj.g && typeof obj.g === 'object' && !Array.isArray(obj.g)) {
+        for (const k in obj.g) {
+          const num = parseInt(k, 10);
+          if (!Number.isInteger(num) || num < 1 || num > 1071) return null;
+          if (obj.g[k] !== 'M' && obj.g[k] !== 'F') return null;
+          s.guestGenders[num] = obj.g[k];
+        }
+      }
+      s.genderMode = true;
+    } else if (version === '2') {
+      // 残り全部が名前ブロック
+      s.names = decodeNamesBlob(str.slice(pos));
+      if (!s.names) return null;
+      s.genderMode = false;
+      s.guestGenders = null;
+    } else {
+      if (pos !== str.length) return null;
+      s.names = null;
+      s.genderMode = false;
+      s.guestGenders = null;
+    }
+    if (!validateSharedSession(s)) return null;
+    return { sharedAt: ts * 60000, session: s };
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildShareUrl() {
+  return location.href.split('#')[0] + '#s=' + encodeShareData();
+}
+
+async function shareLink() {
+  if (!session) return;
+  let url;
+  try {
+    url = buildShareUrl();
+  } catch (e) {
+    alert('共有リンクを作成できませんでした。');
+    return;
+  }
+  // スマホはOSの共有シート（LINE等に直接送れる）、使えなければコピー
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: '今日の対戦表', url });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // ユーザーが共有シートを閉じただけ
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('対戦表のリンクをコピーしました。\nLINEなどに貼り付けて送ってください。');
+  } catch (e) {
+    prompt('このリンクをコピーして共有してください', url);
+  }
+}
+
+function loadFromShareLink() {
+  if (!location.hash.startsWith('#s=')) return false;
+  const decoded = decodeShareData(location.hash.slice(3));
+  if (!decoded) {
+    alert('共有リンクを読み込めませんでした。\nリンクが途中で切れていないか、送った人に確認してください。');
+    history.replaceState(null, '', location.pathname + location.search);
+    return false;
+  }
+  viewerMode = true;
+  sharedAt = decoded.sharedAt;
+  session = decoded.session;
+  lastRounds = session.rounds;
+  TOTAL_ROUNDS = session.totalRounds;
+  document.querySelector('.input-section').style.display = 'none';
+  // 出欠・コート割へのタブは、共有リンクを開いた人には出さない
+  const nav = document.getElementById('dayNav');
+  if (nav) nav.hidden = true;
+  renderResults();
+  return true;
+}
+
+function exitViewerMode() {
+  history.replaceState(null, '', location.pathname + location.search);
+  location.reload();
+}
+
+// --- UI初期化 ---
+function initUI() {
+  const dateInput = document.getElementById('practiceDate');
+  dateInput.value = todayPracticeDate();
+  dateInput.addEventListener('change', changePracticeDate);
+  const courtSel = document.getElementById('courtCount');
+  const playerSel = document.getElementById('playerCount');
+
+  function updatePlayerOptions() {
+    const courts = parseInt(courtSel.value);
+    const minPlayers = courts * 4;
+    const maxPlayers = 26;
+    playerSel.innerHTML = '';
+    for (let i = minPlayers; i <= maxPlayers; i++) {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.text = i + '人';
+      playerSel.appendChild(opt);
+    }
+    const defaultVal = minPlayers + 2;
+    if (playerSel.querySelector(`option[value="${defaultVal}"]`)) {
+      playerSel.value = defaultVal;
+    }
+    updateGenderModeRow();
+    updateInfo();
+  }
+
+  courtSel.addEventListener('change', updatePlayerOptions);
+  playerSel.addEventListener('change', updateInfo);
+  document.getElementById('genderMode').addEventListener('change', updateInfo);
+  // 節数を変えたら休み指定の「第◯節」の選択肢も追従させる
+  document.getElementById('roundCount').addEventListener('change', rebuildForcedRestOptions);
+
+  // 名簿チップ（タップで参加/不参加を切り替え）
+  const rosterDiv = document.getElementById('rosterChips');
+  for (const nm of ROSTER) {
+    const b = document.createElement('button');
+    b.className = 'chip chip-roster' + genderChipClass(nm);
+    b.dataset.name = nm;
+    b.textContent = nm;
+    b.onclick = () => { b.classList.toggle('selected'); onRosterChange(); };
+    rosterDiv.appendChild(b);
+  }
+
+  updatePlayerOptions();
+}
+
+function selectedRosterNames() {
+  return Array.from(document.querySelectorAll('#rosterChips .chip.selected')).map(b => b.dataset.name);
+}
+
+function clearRoster() {
+  // 20人前後を選んだあとに触れて全部外れると戻せないので、2人以上なら確かめる（2026-11-10）
+  const n = selectedRosterNames().length;
+  if (n > 1 && !confirm(`選んだ${n}人をすべて外しますか？`)) return;
+  document.querySelectorAll('#rosterChips .chip.selected').forEach(b => b.classList.remove('selected'));
+  onRosterChange();
+}
+
+function onRosterChange() {
+  const n = selectedRosterNames().length;
+  // 名簿から選んでいる間は人数セレクトを隠し、選択人数をそのまま使う
+  document.getElementById('playerCountRow').style.display = n > 0 ? 'none' : '';
+  document.getElementById('rosterCount').textContent = n > 0
+    ? `選択中: ${n}人（番号は作成時に自動でランダムに振られます）`
+    : '未選択（番号のみで作成します）';
+  updateGenderModeRow();
+  updateInfo();
+}
+
+// 種目別コートは「3・4コート×名簿から選択」のときだけ提示する
+function updateGenderModeRow() {
+  const courts = document.getElementById('courtCount').value;
+  const show = (courts === '3' || courts === '4') && selectedRosterNames().length > 0;
+  document.getElementById('genderModeRow').style.display = show ? '' : 'none';
+  // コート数に応じて選択肢の文言を変える
+  document.querySelector('#genderMode option[value="on"]').textContent =
+    courts === '3' ? 'A男子・B女子・Cミックス' : 'A男子・B女子・C/Dミックス';
+}
+
+function updateInfo() {
+  const courts = parseInt(document.getElementById('courtCount').value);
+  const rosterN = selectedRosterNames().length;
+  const players = rosterN > 0 ? rosterN : parseInt(document.getElementById('playerCount').value);
+  const playingCount = courts * 4;
+  const restCount = players - playingCount;
+  const info = document.getElementById('infoBox');
+  info.replaceChildren();
+  const addLine = (text, warn) => {
+    if (info.childNodes.length > 0) info.appendChild(document.createElement('br'));
+    const span = document.createElement('span');
+    if (warn) span.style.color = '#c0392b';
+    span.textContent = text;
+    info.appendChild(span);
+  };
+  if (restCount < 0) {
+    addLine(`⚠️ ${courts}コートには最低${playingCount}人必要です（現在${players}人）。コート数を減らすかメンバーを追加してください。`, true);
+  } else if (restCount === 0) {
+    addLine(`全員プレー（休みなし）。${courts}コート × 4人 = ${playingCount}人`);
+  } else {
+    addLine(`毎節 ${restCount}人が休み、${playingCount}人がプレー。`);
+  }
+  if (players > 26) {
+    addLine('⚠️ 参加人数の上限は26人です。', true);
+  }
+  if (restCount > playingCount) {
+    addLine('⚠️ 休みのほうが多い構成です。コート数を増やすか人数を減らすことを推奨。', true);
+  }
+  // 種目別コート選択時は男女の人数と成立見込みを表示
+  if (document.getElementById('genderModeRow').style.display !== 'none' &&
+      document.getElementById('genderMode').value === 'on') {
+    const sel = selectedRosterNames();
+    const m = sel.filter(nm => GENDER[nm] === 'M').length;
+    const f = sel.filter(nm => GENDER[nm] === 'F').length;
+    // 理想の出場数: 4コート=男8女8（A4+C2+D2）、3コート=男6女6（A4+C2）
+    const ideal = courts === 3 ? 6 : 8;
+    const adjCourt = courts === 3 ? 'C' : 'D';
+    addLine(`種目別コート: 男${m}人・女${f}人（毎節 男${ideal}人・女${ideal}人の出場が理想）`);
+    if (m < 6) {
+      addLine('⚠️ 男性が6人未満のため、男子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
+    }
+    if (f < 6) {
+      addLine('⚠️ 女性が6人未満のため、女子ダブルス・ミックスを毎節は組めません（構成が崩れる節が出ます）', true);
+    }
+    if (m >= 6 && f >= 6 && (m - Math.max(0, restCount) < ideal || f - Math.max(0, restCount) < ideal)) {
+      addLine(`※ 男女${ideal}人ずつに足りない節は、${adjCourt}コートなどの構成で調整されます`);
+    }
+  }
+  // 参加者・コート数が変われば休み指定の選択肢と注意書きも作り直す
+  rebuildForcedRestOptions();
+}
+
+// --- 休み指定（「第◯節は◯◯さんを必ず休み」） ---
+// 名簿モードは番号が生成時にランダムに決まるので、UIでは「名前」で指定して生成時に番号へ変換する
+// （番号のみモードは番号をそのまま使う）。値は 'n:名前' / 'p:番号' の形で持つ
+function forcedRestPeople() {
+  const names = selectedRosterNames();
+  if (names.length > 0) return names.map(nm => ({ value: 'n:' + nm, label: nm }));
+  const n = parseInt(document.getElementById('playerCount').value) || 0;
+  const list = [];
+  for (let i = 1; i <= n; i++) list.push({ value: 'p:' + i, label: i + '番' });
+  return list;
+}
+
+// 行のセレクトを現在の設定で作り直す。選択済みの値は選べる限り維持する
+function fillForcedRow(row, round, who) {
+  const rs = row.querySelector('.fr-round');
+  const ps = row.querySelector('.fr-player');
+  const hasOption = (sel, v) => Array.prototype.some.call(sel.options, o => o.value === v);
+
+  // 選んだ値は行そのものに覚えさせる。セレクトの現在値だけを見ていると、いったん
+  // 「（今は対象外）」の空値になった行が次の作り直しで先頭の選択肢にすり替わってしまう
+  // （例: 春日を指定 → 春日を外す → 別の操作 → 黙って大野の指定に変わる）
+  if (round != null) row.dataset.frRound = String(round);
+  else if (rs.value) row.dataset.frRound = rs.value;
+  const keepRound = row.dataset.frRound || '';
+  const total = parseInt(document.getElementById('roundCount').value) || 10;
+  rs.replaceChildren();
+  for (let i = 1; i <= total; i++) {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.text = '第' + i + '節';
+    rs.appendChild(o);
+  }
+  if (keepRound && hasOption(rs, keepRound)) {
+    rs.value = keepRound;
+  } else if (!keepRound) {
+    // 「＋ 追加」で作った行は「選んでください」から。以前は［第1節］［先頭の人］が入った状態で、
+    // 触らずに作成すると、その人が第1節で休みになっていた（2026-11-10）
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '節を選んでください';
+    rs.insertBefore(o, rs.firstChild);
+    rs.value = '';
+  } else if (keepRound) {
+    // 節数を減らして範囲外になった指定を、黙って第1節に落とさない（人の指定と同じ扱い）
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '⚠️ 第' + keepRound + '節（今は対象外）';
+    rs.insertBefore(o, rs.firstChild);
+    rs.value = '';
+  }
+
+  if (who != null) row.dataset.frWho = who;
+  else if (ps.value) row.dataset.frWho = ps.value;
+  const keepWho = row.dataset.frWho || '';
+  ps.replaceChildren();
+  const people = forcedRestPeople();
+  if (people.length === 0) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '（先に人数かメンバーを選んでください）';
+    ps.appendChild(o);
+  }
+  for (const p of people) {
+    const o = document.createElement('option');
+    o.value = p.value;
+    o.text = p.label;
+    ps.appendChild(o);
+  }
+  if (keepWho && hasOption(ps, keepWho)) {
+    ps.value = keepWho;
+  } else if (!keepWho && people.length > 0) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '休む人を選んでください';
+    ps.insertBefore(o, ps.firstChild);
+    ps.value = '';
+  } else if (keepWho) {
+    // 参加メンバーから外した・人数を減らした等で選べなくなった指定を、黙って別の人に
+    // すり替えない（先頭の選択肢に落ちると気づかないまま別人が休みになってしまう）。
+    // 空値の警告項目にして、生成時は無視＋注意書きで知らせる
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = '⚠️ ' + (keepWho.slice(0, 2) === 'n:' ? keepWho.slice(2) : keepWho.slice(2) + '番') + '（今は対象外）';
+    ps.insertBefore(o, ps.firstChild);
+    ps.value = '';
+  }
+}
+
+function addForcedRestRow(round, who) {
+  const row = document.createElement('div');
+  row.className = 'forced-row';
+  const rs = document.createElement('select');
+  rs.className = 'fr-round';
+  const ps = document.createElement('select');
+  ps.className = 'fr-player';
+  const del = document.createElement('button');
+  del.className = 'forced-del';
+  del.type = 'button';
+  del.textContent = '×';
+  del.setAttribute('aria-label', 'この休み指定を削除');
+  del.onclick = () => { row.remove(); updateForcedRestNote(); };
+  // 選び直したら覚え直す（対象外の警告が解消したことを注意書きにも反映する）
+  rs.onchange = () => { if (rs.value) row.dataset.frRound = rs.value; updateForcedRestNote(); };
+  ps.onchange = () => { if (ps.value) row.dataset.frWho = ps.value; updateForcedRestNote(); };
+  row.append(rs, ps, del);
+  document.getElementById('forcedRestList').appendChild(row);
+  fillForcedRow(row, round, who);
+  updateForcedRestNote();
+}
+
+function rebuildForcedRestOptions() {
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => fillForcedRow(row));
+  updateForcedRestNote();
+}
+
+function updateForcedRestNote() {
+  const note = document.getElementById('forcedRestNote');
+  if (!note) return;
+  const rows = document.querySelectorAll('#forcedRestList .forced-row').length;
+  if (rows === 0) {
+    note.style.color = '';
+    note.textContent = '「第◯節は◯◯さんを必ず休みにする」を指定できます（指定した人は休みが増えることがあります）';
+    return;
+  }
+  const courts = parseInt(document.getElementById('courtCount').value);
+  const rosterN = selectedRosterNames().length;
+  const players = rosterN > 0 ? rosterN : parseInt(document.getElementById('playerCount').value);
+  const restCount = players - courts * 4;
+  // 対象外になった行（選んでいた人がメンバーから外れた／節数を減らして節が消えた）と、
+  // まだ選んでいない行（「＋ 追加」のまま）を分けて数えて知らせる
+  let stale = 0, unpicked = 0;
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => {
+    if (!row.dataset.frRound || !row.dataset.frWho) unpicked++;
+    else if (!row.querySelector('.fr-player').value || !row.querySelector('.fr-round').value) stale++;
+  });
+  if (restCount <= 0) {
+    note.style.color = '#c0392b';
+    note.textContent = `⚠️ いまの構成は休みが出ない（全員プレー）ので、指定した${rows}件は使えません。人数を増やすかコート数を減らしてください。`;
+  } else if (unpicked > 0) {
+    note.style.color = '#c0392b';
+    note.textContent = `⚠️ 節か休む人をまだ選んでいない指定が${unpicked}件あります。選ぶか × で消してください。`;
+  } else if (stale > 0) {
+    note.style.color = '#c0392b';
+    note.textContent = `⚠️ ${stale}件の指定が対象外になっています（その人がメンバーから外れた／その節が無くなった）。選び直すか × で消してください。このままだとその指定は使われません。`;
+  } else {
+    note.style.color = '';
+    // すでにコート割がある状態でここを触っても、作り直すまで表示中の表には反映されない
+    const needRegen = (session && !viewerMode)
+      ? '　※ 表示中のコート割に反映するには「コート割を作成」で作り直してください'
+      : '';
+    note.textContent =
+      `指定 ${rows}件（1つの節に指定できるのは休み枠の${restCount}人まで。指定した人は休みが増えることがあります）${needRegen}`;
+  }
+}
+
+// UIの入力を読み取る（未選択の行は無視）
+function collectForcedRestInput() {
+  const out = [];
+  document.querySelectorAll('#forcedRestList .forced-row').forEach(row => {
+    const rn = parseInt(row.querySelector('.fr-round').value);
+    const who = row.querySelector('.fr-player').value;
+    if (rn && who) out.push({ round: rn, who });
+  });
+  return out;
+}
+
+// 入力を番号ベースに変換して検証する。
+// 戻り値: { error: 'メッセージ' } または { byRound: {節番号: [番号,…]}, count: 件数 }
+function resolveForcedRests(entries, names, totalPlayers, totalRounds, restCount) {
+  if (entries.length === 0) return { byRound: {}, count: 0 };
+  if (restCount <= 0) {
+    return { error: '休みが出ない構成（全員プレー）では休み指定はできません。\n人数を増やすか、コート数を減らしてください。' };
+  }
+  const numOf = {};
+  if (names) for (const num in names) numOf[names[num]] = Number(num);
+
+  const byRound = {};
+  for (const e of entries) {
+    if (!(e.round >= 1 && e.round <= totalRounds)) {
+      return { error: `休み指定の「第${e.round}節」は節数（${totalRounds}節）の範囲外です。\n指定を消すか節数を増やしてください。` };
+    }
+    let num;
+    if (e.who.slice(0, 2) === 'n:') {
+      const nm = e.who.slice(2);
+      if (!names || !(nm in numOf)) {
+        return { error: `休み指定の「${nm}」さんが参加メンバーに入っていません。\nメンバーを選び直すか、指定を消してください。` };
+      }
+      num = numOf[nm];
+    } else {
+      num = parseInt(e.who.slice(2));
+      if (names) {
+        return { error: '休み指定が今のモードと合っていません。指定を消してやり直してください。' };
+      }
+      if (!(num >= 1 && num <= totalPlayers)) {
+        return { error: `休み指定の「${num}番」は参加人数（${totalPlayers}人）の範囲外です。` };
+      }
+    }
+    if (!byRound[e.round]) byRound[e.round] = [];
+    if (byRound[e.round].indexOf(num) === -1) byRound[e.round].push(num);
+  }
+  let count = 0;
+  for (const rn in byRound) {
+    if (byRound[rn].length > restCount) {
+      return { error: `第${rn}節に${byRound[rn].length}人を指定していますが、この構成の休みは${restCount}人までです。` };
+    }
+    byRound[rn].sort((a, b) => a - b);
+    count += byRound[rn].length;
+  }
+  return { byRound, count };
+}
+
+// その節で「指定休み」になっている番号の集合（画面・画像の * 印に使う）
+function forcedRestSetOf(roundNumber) {
+  const list = session && session.forcedRests && session.forcedRests[roundNumber];
+  return new Set(list || []);
+}
+
+// 表示中の表に * が付く節が1つでもあるか（凡例の出し分け用。保存画像と同じ判定）。
+// 指定があっても、その人が離脱して休みバッジに * が出なければ凡例は出さない
+function hasForcedRests() {
+  if (!session || !session.forcedRests) return false;
+  return session.rounds.some(r => {
+    const fs = forcedRestSetOf(r.round);
+    return fs.size > 0 && r.resting.some(p => fs.has(p));
+  });
+}
+
+// 1始まりの節番号 → generateRestSchedule に渡す0始まりindex（offset=消化済み節数）
+function forcedByIndexOf(byRound, offset) {
+  const out = {};
+  if (!byRound) return out;
+  for (const rn in byRound) {
+    const idx = Number(rn) - 1 - (offset || 0);
+    if (idx >= 0) out[idx] = byRound[rn];
+  }
+  return out;
+}
+
+// 保存済みセッションから入力行を復元する（名簿モードは番号→名前に戻す）
+function restoreForcedRestRows(s) {
+  const list = document.getElementById('forcedRestList');
+  if (!list) return;
+  list.replaceChildren();
+  const byRound = s && s.forcedRests;
+  if (!byRound) { updateForcedRestNote(); return; }
+  const rounds = Object.keys(byRound).map(Number).sort((a, b) => a - b);
+  for (const rn of rounds) {
+    for (const num of byRound[rn]) {
+      const nm = s.names && s.names[num];
+      addForcedRestRow(rn, nm ? 'n:' + nm : 'p:' + num);
+    }
+  }
+  updateForcedRestNote();
+}
+
+// --- 休み人決定（ストライド方式 + 境目公平化） ---
+// 方針:
+//   各周k は stride=k で休みグループを形成（番号順をベース）
+//     1周目 stride1: [1,2,3] [4,5,6] ...
+//     2周目 stride2: [1,3,5] [2,4,6] ... (端数は連番)
+//     3周目 stride3: [1,4,7] [2,5,8] [3,6,9] ...
+//   各周内ではグループの最小番号順で出題（小番号が早く休む）
+//   N が restCount で割り切れない場合は、周の境目で次周の先頭を「先取り」して休む。
+//   その先取りは boundaryHits をローテーションして全員に均等配分（公平化）。
+//   休み回数の差は常に最大1を厳守。
+
+function makeStrideGroups(N, cycle, restCount) {
+  const stride = cycle;
+  const used = new Set();
+  const groups = [];
+
+  for (let offset = 0; offset < stride; offset++) {
+    const candidates = [];
+    for (let i = 0; offset + 1 + i * stride <= N; i++) {
+      candidates.push(offset + 1 + i * stride);
+    }
+    for (let i = 0; i + restCount <= candidates.length; i += restCount) {
+      const group = candidates.slice(i, i + restCount);
+      groups.push(group);
+      group.forEach(p => used.add(p));
+    }
+  }
+
+  const leftovers = [];
+  for (let p = 1; p <= N; p++) {
+    if (!used.has(p)) leftovers.push(p);
+  }
+  for (let i = 0; i < leftovers.length; i += restCount) {
+    groups.push(leftovers.slice(i, i + restCount));
+  }
+
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups;
+}
+
+function strideLinearOrder(N, cycle, restCount) {
+  return makeStrideGroups(N, cycle, restCount).flat();
+}
+
+// players: 参加者番号の配列（欠番可）
+// initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
+// prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
+// reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
+// deferredNew: 途中追加者の番号。初回の休みを現在の周回の最後尾に回す（降順で末尾番号が
+//   キュー先頭に割り込み、追加直後に休みになるのを防ぐ）。省略可
+// forcedByIndex: 指定休み { 0始まりの節index: [番号,…] }。その節で必ず休ませる人。
+//   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
+//   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
+// roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
+// initialRestStreaks: 消化済みの最終節まで続いた休みの長さ（番号→連続節数）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset, initialRestStreaks) {
+  if (restCount === 0) return Array.from({length: numRounds}, () => []);
+
+  const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
+  const M = allPlayers.length;
+  // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
+  const playerAt = pos => allPlayers[pos - 1];
+  const playerSet = new Set(allPlayers);
+
+  const restCounts = {};
+  const initialOf = {};
+  const boundaryHits = {};
+  const deferred = new Set(deferredNew || []);
+  allPlayers.forEach(p => {
+    restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    initialOf[p] = restCounts[p];
+    boundaryHits[p] = 0;
+  });
+
+  const restSchedule = [];
+  let prevSet = new Set(prevResting || []);
+
+  // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
+  const forcedAt = rIdx => {
+    const forcedHere = [];
+    const forcedSet = new Set();
+    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
+      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
+        forcedSet.add(p);
+        forcedHere.push(p);
+      }
+    }
+    return { forcedHere, forcedSet };
+  };
+  // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）
+  const nearForcedAt = rIdx => new Set([
+    ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
+    ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
+  ]);
+
+  // 休みが参加人数の半分以上のときは「出場する順番」で回す（2026-09-23）。
+  // 休む順のストライドは休み人数ぶんの組を作れず毎周同じ番号順に戻るため、
+  // 出場する顔ぶれが固定されていた（例: 2コート24人で1〜8・9〜16・17〜24番がずっと同じ組）。
+  // 休み回数が多い人から出場させるのは、少ない人から休ませるのと同じなので公平性は変わらない。
+  // 1周目は番号順（最後の番号から休む＝小さい番号から出場）、2周目以降は周ごとに並びを入れ替える
+  if (restCount * 2 >= M) {
+    const playCount = M - restCount;
+    const playRankCache = {};
+    const playRank = cycle => {
+      if (!playRankCache[cycle]) {
+        // 並び位置（1=最初に休む）を逆にしたものが出場順。2周目以降は周ごとに決まった乱数列で並べ替える
+        const pos = Array.from({length: M}, (_, i) => M - i);
+        if (cycle > 1) {
+          let seed = (cycle * 7919 + M * 131 + playCount) >>> 0;
+          const rand = () => {
+            seed = (seed + 0x6D2B79F5) >>> 0;
+            let t = seed;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+          for (let i = pos.length - 1; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            [pos[i], pos[j]] = [pos[j], pos[i]];
+          }
+        }
+        playRankCache[cycle] = new Map(pos.map((p, i) => [playerAt(p), i]));
+      }
+      return playRankCache[cycle];
+    };
+    // 休みが半分を超える構成では、周ごとの並べ替えで同じ人が何節も続けて休むことがあった
+    // （例: 2コート26人30節で6節連続。避けられない長さは3節）。避けられない長さ+1節を
+    // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
+    // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
+    const streak = {};
+    // 再生成でも消化済み節からの連続休みを引き継ぐ。直前の1節だけに戻すと、
+    // 2コート20人で第5節後に作り直した際、上限3節を超えて4節連続で休んでいた。
+    allPlayers.forEach(p => streak[p] = prevSet.has(p)
+      ? Math.max(1, (initialRestStreaks && initialRestStreaks[p]) || 0) : 0);
+    const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
+    for (let rIdx = 0; rIdx < numRounds; rIdx++) {
+      const { forcedSet } = forcedAt(rIdx);
+      const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
+      const rank = playRank(cycle);
+      const nearForced = nearForcedAt(rIdx);
+      // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
+      const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const overCap = p => streak[p] > streakCap ? 1 : 0;
+      const playing = new Set(allPlayers
+        .filter(p => !forcedSet.has(p))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || overCap(b) - overCap(a) || rank.get(a) - rank.get(b))
+        .slice(0, playCount));
+      const picks = allPlayers.filter(p => !playing.has(p));
+      allPlayers.forEach(p => streak[p] = playing.has(p) ? 0 : streak[p] + 1);
+      picks.forEach(p => restCounts[p]++);
+      restSchedule.push(picks.sort((a, b) => a - b));
+    }
+    return restSchedule;
+  }
+
+  const linearOrderCache = {};
+  const getLinearOrder = (cycle) => {
+    if (!linearOrderCache[cycle]) {
+      linearOrderCache[cycle] = strideLinearOrder(M, cycle, restCount).map(playerAt);
+    }
+    return linearOrderCache[cycle];
+  };
+
+  while (restSchedule.length < numRounds) {
+    const rIdx = restSchedule.length;
+    const { forcedHere, forcedSet } = forcedAt(rIdx);
+    const need = restCount - forcedHere.length;
+
+    let picks;
+    let fillersFromB = [];
+
+    if (need <= 0) {
+      picks = forcedHere.slice();
+    } else {
+      // 残り枠は従来どおりの公平ロジック。指定済みの人は候補から外す
+      // （外さないと curMin が指定者の回数に引きずられ、poolBが空になって枠が埋まらない）
+      let curMin = Infinity;
+      for (const p of allPlayers) {
+        if (!forcedSet.has(p) && restCounts[p] < curMin) curMin = restCounts[p];
+      }
+      const poolA = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin);
+      const poolB = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin + 1);
+
+      const cycleA = curMin + 1;
+      const linearA = getLinearOrder(cycleA);
+      const rankA = new Map();
+      linearA.forEach((p, i) => rankA.set(p, i));
+
+      // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+      // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+      const deferWeight = p => {
+        if (!deferred.has(p)) return 0;
+        if (restCounts[p] === initialOf[p]) return 2;
+        if (prevSet.has(p)) return 1;
+        return 0;
+      };
+
+      // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）。
+      // あくまで同じ休み回数グループ内の並び替えなので公平性は変わらず、
+      // 指定が無いときは常に0＝従来とまったく同じ並びになる
+      const nearForced = nearForcedAt(rIdx);
+      const softWeight = p => deferWeight(p) + (nearForced.has(p) ? 1 : 0);
+
+      const orderedA = poolA.slice().sort((a, b) => {
+        const wa = softWeight(a);
+        const wb = softWeight(b);
+        if (wa !== wb) return wa - wb;
+        const ra = rankA.has(a) ? rankA.get(a) : 0;
+        const rb = rankA.has(b) ? rankA.get(b) : 0;
+        return ra - rb;
+      });
+
+      let selected;
+      if (orderedA.length >= need) {
+        // ストライド順を守りつつ、直前の節に休んだ人は同じ回数の中で後ろへ回す（2026-09-23）。
+        // 周の切り替わりで、新しい周の先頭に直前の休みの人が来て2節続けて休むのを防ぐ。
+        // 1周目は全員が未休みなので影響せず、番号順のまま
+        const fresh = orderedA.filter(p => !prevSet.has(p));
+        selected = fresh.concat(orderedA.filter(p => prevSet.has(p))).slice(0, need);
+      } else {
+        const shortfall = need - orderedA.length;
+        const cycleB = curMin + 2;
+        const linearB = getLinearOrder(cycleB);
+        const rankB = new Map();
+        linearB.forEach((p, i) => rankB.set(p, i));
+
+        const orderedB = poolB.slice().sort((a, b) => {
+          if (boundaryHits[a] !== boundaryHits[b]) {
+            return boundaryHits[a] - boundaryHits[b];
+          }
+          const ra = rankB.has(a) ? rankB.get(a) : 0;
+          const rb = rankB.has(b) ? rankB.get(b) : 0;
+          return ra - rb;
+        });
+
+        const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+        fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
+        selected = orderedA.concat(fillersFromB);
+      }
+      // 指定休みが続くと、指定された人の回数だけが先に伸びて curMin と curMin+1 の
+      // 2グループでは枠を埋めきれないことがある。埋まらないまま返すと出場者が
+      // 4の倍数にならず、出場も休みもしない人が出る／コート割の生成が失敗する。
+      // 残りは休み回数が少ない順に補充して、必ず枠ちょうどにする（2026-09-04修正）
+      if (selected.length < need) {
+        const chosen = new Set(selected);
+        const spare = allPlayers
+          .filter(p => !forcedSet.has(p) && !chosen.has(p))
+          .sort((a, b) => restCounts[a] - restCounts[b]); // 同数はストライド側の並び順を維持
+        selected = selected.concat(spare.slice(0, need - selected.length));
+      }
+      picks = forcedHere.concat(selected);
+    }
+
+    fillersFromB.forEach(p => boundaryHits[p]++);
+    picks.forEach(p => restCounts[p]++);
+    restSchedule.push(picks.slice().sort((a, b) => a - b));
+    prevSet = new Set(picks);
+  }
+
+  return restSchedule;
+}
+
+// --- 種目別コート（4コート時のオプション）---
+// 各節の出場者の男女数から各コートの男女構成を決める。
+// 理想は A=男4 / B=女4 / C=男2女2 / D=男2女2。人数が偏る節は A→B→C の優先で
+// 希望構成を維持し、足りない分は余っている性別で埋める（余りは実質Dに集まる）。
+// 休みの公平（差≤1）が最優先なので、男女比によっては構成が崩れる節も許容する。
+function courtTemplates(mCount, fCount, courts) {
+  const wants = [{m:4,f:0},{m:0,f:4},{m:2,f:2},{m:2,f:2}].slice(0, courts);
+  let availM = mCount, availF = fCount;
+  return wants.map(w => {
+    let m = Math.min(w.m, availM);
+    let f = Math.min(w.f, availF);
+    while (m + f < 4) {
+      if (availM - m >= availF - f) m++; else f++;
+    }
+    availM -= m; availF -= f;
+    return { m, f };
+  });
+}
+
+// コートの男女構成 {m,f} → 2ペアの性別タイプ。男女混在コートは戦力が偏らないよう
+// なるべく男女ペア（MF）を作る（例: 男3女1 → 男男ペア vs 男女ペア）
+function pairTypesFor(t) {
+  if (t.m === 4) return ['MM', 'MM'];
+  if (t.m === 3) return ['MM', 'MF'];
+  if (t.m === 2) return ['MF', 'MF'];
+  if (t.m === 1) return ['MF', 'FF'];
+  return ['FF', 'FF'];
+}
+
+// 性別テンプレートに従った1試行分のコート構成。
+// ペアはタイプ別クォータつき貪欲法（ペア回数が少ない組み合わせから。クォータ合計は
+// 男女数と必ず一致するので詰みは起きない）、コートへは A→D の順に対戦回数が
+// 最少のペアの組を割り当てる
+function genderAssign(shuffled, courts, genders, pairHistory, opponentHistory) {
+  const males = shuffled.filter(p => genders[p] === 'M');
+  const females = shuffled.filter(p => genders[p] === 'F');
+  const templates = courtTemplates(males.length, females.length, courts);
+  const courtNeeds = templates.map(pairTypesFor);
+  const quota = { MM: 0, MF: 0, FF: 0 };
+  courtNeeds.forEach(ts => ts.forEach(t => quota[t]++));
+
+  const n = shuffled.length;
+  const candidates = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = shuffled[i], b = shuffled[j];
+      const type = genders[a] === genders[b] ? genders[a] + genders[b] : 'MF';
+      const count = (pairHistory[a] && pairHistory[a][b]) || 0;
+      candidates.push({ i, j, a, b, type, count });
+    }
+  }
+  candidates.sort((x, y) => x.count - y.count);
+  const used = new Set();
+  const byType = { MM: [], MF: [], FF: [] };
+  for (const c of candidates) {
+    if (quota[c.type] === 0 || used.has(c.i) || used.has(c.j)) continue;
+    quota[c.type]--;
+    used.add(c.i);
+    used.add(c.j);
+    byType[c.type].push([c.a, c.b]);
+  }
+
+  const oppScore = (p, q) => {
+    let s = 0;
+    for (const a of p) for (const b of q) s += (opponentHistory[a] && opponentHistory[a][b]) || 0;
+    return s;
+  };
+  const assignments = [];
+  for (const [t1, t2] of courtNeeds) {
+    let best = null;
+    if (t1 === t2) {
+      const list = byType[t1];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const s = oppScore(list[i], list[j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    } else {
+      for (let i = 0; i < byType[t1].length; i++) {
+        for (let j = 0; j < byType[t2].length; j++) {
+          const s = oppScore(byType[t1][i], byType[t2][j]);
+          if (!best || s < best.s) best = { s, i, j };
+        }
+      }
+    }
+    // t1===t2 のときは j>i なので、先に j を抜けば i の位置はずれない
+    const pair2 = byType[t2].splice(best.j, 1)[0];
+    const pair1 = byType[t1].splice(best.i, 1)[0];
+    assignments.push({ pair1, pair2 });
+  }
+  return assignments;
+}
+
+// 種目別モード用のコート均等化: 同じ男女構成のコート同士だけを入れ替え、
+// 未経験のコートへの登場を優先し、同数なら過去の登場回数（二乗ペナルティ）で並びを均す。
+// 例: 10男6女ではAとDが両方男子ダブルス → どちらに入るかを節ごとにローテーション。
+// 理想構成ではC・D（両方ミックス）が対象。構成が異なるコートは入れ替えない
+function balanceCourtsSameType(assignments, courtHistory, genders) {
+  if (!assignments || assignments.length <= 1) return assignments;
+  const maleCount = c => c.pair1.concat(c.pair2).filter(p => genders[p] === 'M').length;
+  const groups = {};
+  assignments.forEach((c, i) => {
+    const k = maleCount(c);
+    (groups[k] = groups[k] || []).push(i);
+  });
+  const result = assignments.slice();
+  for (const k in groups) {
+    const idxs = groups[k];
+    if (idxs.length <= 1) continue;
+    const perms = [];
+    (function permute(arr, cur) {
+      if (arr.length === 0) { perms.push(cur); return; }
+      for (let i = 0; i < arr.length; i++) {
+        permute(arr.slice(0, i).concat(arr.slice(i + 1)), cur.concat(arr[i]));
+      }
+    })(idxs, []);
+    let bestScore = Infinity, bestVisits = -1;
+    let bestPerm = perms[0];
+    for (const perm of perms) {
+      let score = 0, visits = 0;
+      perm.forEach((srcIdx, j) => {
+        const courtIdx = idxs[j];
+        for (const p of assignments[srcIdx].pair1.concat(assignments[srcIdx].pair2)) {
+          const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+          if (cur === 0) visits++;
+          score += (cur + 1) * (cur + 1);
+        }
+      });
+      if (visits > bestVisits || (visits === bestVisits && score < bestScore)) {
+        bestVisits = visits;
+        bestScore = score;
+        bestPerm = perm;
+      }
+    }
+    bestPerm.forEach((srcIdx, j) => { result[idxs[j]] = assignments[srcIdx]; });
+  }
+  return result;
+}
+
+// --- ペア・対戦割り当て ---
+// genders: 種目別モード時のみ {番号: 'M'|'F'}。省略時は従来どおり性別を考慮しない
+// courtHistory を渡すと、ペア・対戦の評価が同点の候補の中から、A〜Dコートの登場回数が
+// 偏らない候補を選ぶ（2026-09-23。2コートで同じ人が同じコートに固定されやすかったため）
+function assignCourts(activePlayers, courts, pairHistory, opponentHistory, genders, mixDiff, courtHistory) {
+  const candidates = [];
+
+  // 複数回試行して候補を集める
+  for (let trial = 0; trial < 150; trial++) {
+    const shuffled = activePlayers.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    let courtAssignments;
+    if (genders) {
+      courtAssignments = genderAssign(shuffled, courts, genders, pairHistory, opponentHistory);
+    } else {
+      const pairs = greedyPairing(shuffled, pairHistory);
+      if (!pairs) continue;
+      courtAssignments = assignPairsToCourts(pairs, courts, opponentHistory);
+    }
+    const score = evaluateAssignment(courtAssignments, pairHistory, opponentHistory, genders, mixDiff);
+    candidates.push({ assignments: courtAssignments, score });
+  }
+
+  // 上位5候補を局所探索で磨き、最良を採用
+  candidates.sort((a, b) => a.score - b.score);
+  const best = { assignments: null, score: Infinity };
+  const improved = [];
+  for (const cand of candidates.slice(0, 5)) {
+    const r = localSearchImprove(cand.assignments, pairHistory, opponentHistory, genders, mixDiff);
+    improved.push(r);
+    if (r.score < best.score) {
+      best.score = r.score;
+      best.assignments = r.assignments;
+    }
+  }
+  if (!courtHistory || !best.assignments) return best.assignments;
+
+  // 同点の候補（局所探索後の上位＋最初から同点だった候補）をコートの偏りで比べる
+  let bestCourt = courtBalance(best.assignments, courtHistory);
+  for (const c of improved.concat(candidates)) {
+    if (c.score !== best.score || c.assignments === best.assignments) continue;
+    const cb = courtBalance(c.assignments, courtHistory);
+    if (cb.score < bestCourt.score) bestCourt = cb;
+  }
+  return bestCourt.assignments;
+}
+
+// 選手2人の入れ替えを全組み合わせで試し、スコアが下がる限り繰り返す局所探索
+// genders指定時は同性同士の入れ替えのみ許可（コートの男女構成を崩さない）
+function localSearchImprove(assignments, pairHistory, opponentHistory, genders, mixDiff) {
+  let current = JSON.parse(JSON.stringify(assignments));
+  let bestScore = evaluateAssignment(current, pairHistory, opponentHistory, genders, mixDiff);
+  let improved = true;
+  while (improved) {
+    improved = false;
+    const positions = [];
+    current.forEach((c, ci) => {
+      positions.push([ci, 1, 0], [ci, 1, 1], [ci, 2, 0], [ci, 2, 1]);
+    });
+    for (let x = 0; x < positions.length; x++) {
+      for (let y = x + 1; y < positions.length; y++) {
+        const [ci1, pi1, s1] = positions[x];
+        const [ci2, pi2, s2] = positions[y];
+        if (ci1 === ci2 && pi1 === pi2) continue; // 同一ペア内の入替は結果が変わらない
+        if (genders) {
+          const g1 = (pi1 === 1 ? current[ci1].pair1 : current[ci1].pair2)[s1];
+          const g2 = (pi2 === 1 ? current[ci2].pair1 : current[ci2].pair2)[s2];
+          if (genders[g1] !== genders[g2]) continue;
+        }
+        const trial = JSON.parse(JSON.stringify(current));
+        const arr1 = pi1 === 1 ? trial[ci1].pair1 : trial[ci1].pair2;
+        const arr2 = pi2 === 1 ? trial[ci2].pair1 : trial[ci2].pair2;
+        const tmp = arr1[s1]; arr1[s1] = arr2[s2]; arr2[s2] = tmp;
+        const sc = evaluateAssignment(trial, pairHistory, opponentHistory, genders, mixDiff);
+        if (sc < bestScore) {
+          bestScore = sc;
+          current = trial;
+          improved = true;
+        }
+      }
+    }
+  }
+  return { assignments: current, score: bestScore };
+}
+
+function greedyPairing(players, pairHistory) {
+  const n = players.length;
+  const used = new Set();
+  const pairs = [];
+
+  const candidates = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = players[i], b = players[j];
+      const count = (pairHistory[a] && pairHistory[a][b]) || 0;
+      candidates.push({ i, j, a, b, count });
+    }
+  }
+  candidates.sort((x, y) => x.count - y.count);
+
+  for (const c of candidates) {
+    if (used.has(c.i) || used.has(c.j)) continue;
+    pairs.push([c.a, c.b]);
+    used.add(c.i);
+    used.add(c.j);
+    if (pairs.length === n / 2) break;
+  }
+
+  return pairs.length === n / 2 ? pairs : null;
+}
+
+function assignPairsToCourts(pairs, courts, opponentHistory) {
+  const n = pairs.length;
+  const used = new Set();
+  const courtAssignments = [];
+
+  const matchups = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      let oppScore = 0;
+      for (const a of pairs[i]) {
+        for (const b of pairs[j]) {
+          oppScore += (opponentHistory[a] && opponentHistory[a][b]) || 0;
+        }
+      }
+      matchups.push({ i, j, score: oppScore });
+    }
+  }
+  matchups.sort((a, b) => a.score - b.score);
+
+  for (const m of matchups) {
+    if (used.has(m.i) || used.has(m.j)) continue;
+    courtAssignments.push({
+      pair1: pairs[m.i],
+      pair2: pairs[m.j]
+    });
+    used.add(m.i);
+    used.add(m.j);
+    if (courtAssignments.length === courts) break;
+  }
+
+  return courtAssignments;
+}
+
+// ペア回数は最優先（重み1000）、対戦相手は回数が多いほど急増する超線形ペナルティ
+// (c+1)^2 : 0回→1, 1回→4, 2回→9, 3回→16 …「同じ相手と3回目・4回目」を強く回避
+// 種目別モード（genders＋mixDiff指定時）はさらに「ミックス系コートと自分の種目コートの
+// 出場差」を均すペナルティ（配置後の差の二乗×重み）。理想＝全員が半々に近づく
+const MIX_BALANCE_WEIGHT = 12;
+function evaluateAssignment(assignments, pairHistory, opponentHistory, genders, mixDiff) {
+  if (!assignments) return Infinity;
+  let score = 0;
+  for (const court of assignments) {
+    const p1 = (pairHistory[court.pair1[0]] && pairHistory[court.pair1[0]][court.pair1[1]]) || 0;
+    const p2 = (pairHistory[court.pair2[0]] && pairHistory[court.pair2[0]][court.pair2[1]]) || 0;
+    score += ((p1 + 1) * (p1 + 1) + (p2 + 1) * (p2 + 1)) * 1000;
+    for (const a of court.pair1) {
+      for (const b of court.pair2) {
+        const c = (opponentHistory[a] && opponentHistory[a][b]) || 0;
+        score += (c + 1) * (c + 1);
+      }
+    }
+    if (genders && mixDiff) {
+      const ps = court.pair1.concat(court.pair2);
+      const m = ps.filter(p => genders[p] === 'M').length;
+      const step = (m > 0 && m < 4) ? 1 : -1; // 男女混在コート=+1 / 自種目コート=-1
+      for (const p of ps) {
+        const d = (mixDiff[p] || 0) + step;
+        score += MIX_BALANCE_WEIGHT * d * d;
+      }
+    }
+  }
+  return score;
+}
+
+// 種目別モード: 各自の「ミックス系（男女混在）コート出場 − 自種目コート出場」を更新
+function updateMixDiff(assignments, genders, mixDiff) {
+  if (!genders || !mixDiff) return;
+  for (const court of assignments) {
+    const ps = court.pair1.concat(court.pair2);
+    const m = ps.filter(p => genders[p] === 'M').length;
+    const step = (m > 0 && m < 4) ? 1 : -1;
+    for (const p of ps) mixDiff[p] = (mixDiff[p] || 0) + step;
+  }
+}
+
+function updateHistories(assignments, pairHistory, opponentHistory) {
+  for (const court of assignments) {
+    const [a1, a2] = court.pair1;
+    const [b1, b2] = court.pair2;
+    addHistory(pairHistory, a1, a2);
+    addHistory(pairHistory, b1, b2);
+    for (const a of court.pair1) {
+      for (const b of court.pair2) {
+        addHistory(opponentHistory, a, b);
+      }
+    }
+  }
+}
+
+// マッチアップ自体は変更せず、A/B/C/Dの割当順だけを過去登場回数で最適化
+// 二乗ペナルティ：count² の合計を最小化。高頻度コートへの再割当を強く抑制
+function balanceCourts(assignments, courtHistory) {
+  return courtBalance(assignments, courtHistory).assignments;
+}
+
+// balanceCourts の本体。並べ替えた結果と、その二乗ペナルティの合計を返す
+function courtBalance(assignments, courtHistory) {
+  if (!assignments || assignments.length <= 1) return { assignments, score: 0 };
+  const n = assignments.length;
+
+  // n! 通りの順列を列挙（最大 4! = 24 通り）
+  const perms = [];
+  (function permute(arr, current) {
+    if (arr.length === 0) { perms.push(current); return; }
+    for (let i = 0; i < arr.length; i++) {
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      permute(rest, current.concat(arr[i]));
+    }
+  })([...Array(n).keys()], []);
+
+  let bestScore = Infinity;
+  let bestPerm = perms[0];
+  for (const perm of perms) {
+    let score = 0;
+    for (let courtIdx = 0; courtIdx < n; courtIdx++) {
+      const m = assignments[perm[courtIdx]];
+      const players = m.pair1.concat(m.pair2);
+      for (const p of players) {
+        const cur = (courtHistory[p] && courtHistory[p][courtIdx]) || 0;
+        // (count+1)² = この割当を採用した場合の二乗ペナルティ
+        score += (cur + 1) * (cur + 1);
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestPerm = perm;
+    }
+  }
+
+  return { assignments: bestPerm.map(i => assignments[i]), score: bestScore };
+}
+
+function updateCourtHistory(assignments, courtHistory) {
+  assignments.forEach((m, courtIdx) => {
+    for (const p of m.pair1) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+    for (const p of m.pair2) {
+      if (!courtHistory[p]) courtHistory[p] = {};
+      courtHistory[p][courtIdx] = (courtHistory[p][courtIdx] || 0) + 1;
+    }
+  });
+}
+
+function addHistory(hist, a, b) {
+  if (!hist[a]) hist[a] = {};
+  if (!hist[b]) hist[b] = {};
+  hist[a][b] = (hist[a][b] || 0) + 1;
+  hist[b][a] = (hist[b][a] || 0) + 1;
+}
+
+// --- メイン生成 ---
+// opts.skipConfirm：出欠の画面から来て、表示中の表が前の練習日のものなら、確かめずに作り直す（importFromToday）
+function generate(opts) {
+  // 「＋ 追加」したまま選んでいない休み指定は、黙って無視せずに知らせる（2026-11-10）
+  const unpicked = [...document.querySelectorAll('#forcedRestList .forced-row')].filter(r => !r.dataset.frRound || !r.dataset.frWho).length;
+  if (unpicked > 0) {
+    alert(`休み指定に、節か休む人をまだ選んでいない行が${unpicked}件あります。\n選ぶか × で消してから作成してください。`);
+    return;
+  }
+  // 保存済みの状態を誤タップで失わないよう、既存セッションがあるときは確認する
+  if (session && !(opts && opts.skipConfirm) && !confirm('現在のコート割を破棄して、新しく作成しますか？')) return;
+  const dateInput = document.getElementById('practiceDate');
+  let practiceDate = dateInput ? dateInput.value : '';
+  // 前回の表を復元すると入力欄も前回の練習日になる。触らずに別の日に作ると新しい表まで
+  // 前回の日付になっていた（2026-10-22修正）。手で選んでいない過去の日付なら今日で作る。
+  // 手で選んだ日付は過去でもそのまま使う（過去の練習の表を作り直す場合）
+  if (practiceDateTouched !== todayPracticeDate() && practiceDate && practiceDate < todayPracticeDate()) {
+    practiceDate = todayPracticeDate();
+    dateInput.value = practiceDate;
+  }
+  if (practiceDate && !validPracticeDate(practiceDate)) { alert('練習日を確認してください。'); return; }
+
+  const totalRounds = parseInt(document.getElementById('roundCount').value);
+  const courts = parseInt(document.getElementById('courtCount').value);
+  const rosterNames = selectedRosterNames();
+  const totalPlayers = rosterNames.length > 0
+    ? rosterNames.length
+    : parseInt(document.getElementById('playerCount').value);
+  const playingCount = courts * 4;
+  const restCount = totalPlayers - playingCount;
+  if (restCount < 0) {
+    alert(`人数が足りません。${courts}コートには${playingCount}人必要です（選択中: ${totalPlayers}人）。\nコート数を減らすかメンバーを追加してください。`);
+    return;
+  }
+  if (totalPlayers > 26) {
+    alert('参加人数の上限は26人です。');
+    return;
+  }
+
+  // 名簿モード：番号をランダムに割り当てる（じゃんけんの代わり）
+  let names = null;
+  if (rosterNames.length > 0) {
+    const shuffled = rosterNames.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    names = {};
+    shuffled.forEach((nm, i) => { names[i + 1] = nm; });
+  }
+
+  // 種目別コート（3・4コート×名簿モードのみ）
+  // 4コート: A男子 / B女子 / C・Dミックス ／ 3コート: A男子 / B女子 / Cミックス
+  const genderMode = (courts === 3 || courts === 4) && !!names &&
+    document.getElementById('genderMode').value === 'on';
+  let genders = null;
+  if (genderMode) {
+    const missing = rosterNames.filter(nm => !genderOfName(nm));
+    if (missing.length > 0) {
+      alert('性別が登録されていないメンバーがいます: ' + missing.join('、') + '\n名簿の更新（update_members.py）が必要です。');
+      return;
+    }
+    genders = {};
+    for (const num in names) genders[num] = genderOfName(names[num]);
+  }
+
+  // 休み指定（名前で指定されているので、番号が決まったこの時点で番号へ変換して検証する）
+  const forced = resolveForcedRests(collectForcedRestInput(), names, totalPlayers, totalRounds, restCount);
+  if (forced.error) {
+    alert(forced.error);
+    return;
+  }
+
+  const restOrder = document.getElementById('restOrder').value;
+  const allPlayers = Array.from({length: totalPlayers}, (_, i) => i + 1);
+  const restSchedule = generateRestSchedule(allPlayers, restCount, totalRounds, null, null,
+    restOrder === 'desc', null, forcedByIndexOf(forced.byRound, 0));
+
+  const pairHistory = {};
+  const opponentHistory = {};
+  const restHistory = {};
+  const courtHistory = {};
+  const mixDiff = {}; // 種目別モード: ミックス系と自種目コートの出場差（半々に均す用）
+  allPlayers.forEach(p => restHistory[p] = 0);
+
+  const rounds = [];
+
+  for (let r = 0; r < totalRounds; r++) {
+    const resting = restSchedule[r];
+    const restSet = new Set(resting);
+    const active = allPlayers.filter(p => !restSet.has(p));
+
+    resting.forEach(p => restHistory[p]++);
+
+    let assignments;
+    if (r === 0 && restOrder === 'desc' && !genderMode) {
+      // 「最後の番号から休む」の第1節は若い番号がそのまま出場するので、
+      // 受付順に並べられるよう番号順の固定配置にする（A: 1,2 vs 3,4 / B: 5,6 vs 7,8 …）
+      // 種目別モードは番号順だと男女構成が崩れるため第1節から最適化する
+      assignments = [];
+      for (let c = 0; c < courts; c++) {
+        assignments.push({
+          pair1: [active[c * 4], active[c * 4 + 1]],
+          pair2: [active[c * 4 + 2], active[c * 4 + 3]]
+        });
+      }
+    } else {
+      assignments = assignCourts(active, courts, pairHistory, opponentHistory, genders, mixDiff, genderMode ? null : courtHistory);
+      // 種目別モードはコートの種目が固定（A=男子…）なので、同じ構成のコート同士だけ均す
+      assignments = genderMode
+        ? balanceCourtsSameType(assignments, courtHistory, genders)
+        : balanceCourts(assignments, courtHistory);
+    }
+    updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
+    if (genderMode) updateMixDiff(assignments, genders, mixDiff);
+
+    rounds.push({ round: r + 1, resting, assignments });
+  }
+
+  session = {
+    ...(practiceDate ? { practiceDate } : {}),
+    totalRounds,
+    initialCourts: courts,
+    courts,
+    restOrder,
+    players: allPlayers.slice(),
+    everPlayers: allPlayers.slice(),
+    maxNumber: totalPlayers,
+    names,
+    genderMode,
+    guestGenders: genderMode ? dayGuestGendersOf(names) : null,
+    forcedRests: forced.count > 0 ? forced.byRound : null,
+    changes: [],
+    rounds
+  };
+  TOTAL_ROUNDS = totalRounds;
+  lastRounds = rounds;
+  restoredAt = null;
+  changeNotice = null;
+  saveSession();
+  renderResults();
+}
+
+// --- メンバー変更（途中追加・離脱） ---
+function toggleChip(btn) {
+  btn.classList.toggle('selected');
+}
+
+// 離脱・復帰のチップは名簿の並び（作成時にタップした並び）にする。番号順だと
+// その日ランダムに振った番号の順になり、名前で探しにくかった（2026-10-22）。
+// 名簿にない名前とゲストは後ろに番号順。番号のみモードは従来どおり番号順になる
+function rosterOrderOf(p) {
+  const nm = session && session.names ? ownValue(session.names, p) : undefined;
+  const i = typeof nm === 'string' ? ROSTER.indexOf(nm) : -1;
+  return i >= 0 ? i : ROSTER.length + p;
+}
+
+// 「消化済み」は初期値を置かず、選ぶまで作り直せないようにする。初期値（第1節まで終了）の
+// まま押すと、終わった節や進行中の節まで組み替わり、元に戻せなかった（2026-10-22）
+function updateChangeButton() {
+  const sel = document.getElementById('consumedRound');
+  const btn = document.getElementById('changeApplyBtn');
+  if (!sel || !btn || !session) return;
+  const k = parseInt(sel.value);
+  if (!Number.isInteger(k)) {
+    btn.disabled = true;
+    btn.textContent = '↑ 終わった節（消化済み）を選んでください';
+    return;
+  }
+  btn.disabled = false;
+  const keep = document.createElement('small');
+  keep.textContent = `（第${k}節まではそのまま）`;
+  btn.replaceChildren(`第${k + 1}〜${session.totalRounds}節を作り直す`, keep);
+}
+
+function jumpToChange() {
+  const sec = document.getElementById('changeSection');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 作り直した最初の節へ。変更の区切り（何が変わったかの帯）があればそこから見せる
+function jumpToRound(n) {
+  const el = document.getElementById('change-at-' + n) || document.getElementById('round-' + n);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function changeLabel(change, prevCourts) {
+  const parts = [];
+  if (change.added.length > 0) parts.push('＋' + change.added.map(pname).join('・'));
+  const returned = change.returned || [];
+  if (returned.length > 0) parts.push('↩ ' + returned.map(pname).join('・') + ' 復帰');
+  if (change.removed.length > 0) parts.push('−' + change.removed.map(pname).join('・'));
+  if (change.courts !== prevCourts) parts.push(change.courts + 'コートへ変更');
+  return '↻ メンバー変更' + (parts.length > 0 ? '：' + parts.join(' ／ ') : '（組み直し）');
+}
+
+// 休み割当用の累計は、過去の途中参加・復帰時の補正も含めて再構築する。
+// 実際に休んだ回数だけを数え直すと、2回目の変更で以前の補正が消え、
+// 途中参加者が不足分を埋めるために連続して休むことになる。
+// 表示する休み回数は従来どおり実績のみ。この累計は次の割当専用。
+function restCountsThrough(s, kept) {
+  const later = new Set(s.changes.flatMap(c => c.added));
+  const active = new Set(s.everPlayers.filter(p => !later.has(p)));
+  const counts = {};
+  s.everPlayers.forEach(p => counts[p] = 0);
+  let ci = 0;
+  for (const round of kept) {
+    while (ci < s.changes.length && s.changes[ci].atRound <= round.round) {
+      const c = s.changes[ci++];
+      c.removed.forEach(p => active.delete(p));
+      const minimum = active.size ? Math.min(...[...active].map(p => counts[p])) : 0;
+      c.added.forEach(p => { counts[p] = minimum; active.add(p); });
+      (c.returned || []).forEach(p => {
+        counts[p] = Math.max(counts[p], minimum);
+        active.add(p);
+      });
+    }
+    round.resting.forEach(p => counts[p]++);
+  }
+  return counts;
+}
+
+function applyMemberChange() {
+  if (!session) return;
+
+  // 作り直せる節が残っていない（消化済みセレクトが無い／空＝NaN）ときに押されても
+  // 全節を消してしまわないよう、有効な節番号でなければ何もしない
+  const consumedEl = document.getElementById('consumedRound');
+  const consumed = consumedEl ? parseInt(consumedEl.value) : NaN;
+  if (consumedEl && consumedEl.value === '') {
+    alert('終わった節（消化済み）を選んでください。');
+    return;
+  }
+  if (!Number.isInteger(consumed) || consumed < 1 || consumed >= session.totalRounds) {
+    alert('これ以上作り直せる節がありません。');
+    return;
+  }
+  const addNames = document.getElementById('addNameChips')
+    ? Array.from(document.querySelectorAll('#addNameChips .chip.selected')).map(b => b.dataset.name)
+    : [];
+  // 種目別モードのゲストは性別が必要なので男女別セレクトから読む
+  let guestCount;
+  const guestGenderSeq = [];
+  if (session.genderMode) {
+    const gm = parseInt(document.getElementById('addCountM').value);
+    const gf = parseInt(document.getElementById('addCountF').value);
+    guestCount = gm + gf;
+    for (let i = 0; i < gm; i++) guestGenderSeq.push('M');
+    for (let i = 0; i < gf; i++) guestGenderSeq.push('F');
+  } else {
+    guestCount = parseInt(document.getElementById('addCount').value);
+  }
+  const addCount = addNames.length + guestCount;
+  const newCourts = parseInt(document.getElementById('changeCourtCount').value);
+  const removeNumbers = Array.from(document.querySelectorAll('#removeChips .chip.selected'))
+    .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
+  const returnNumbers = Array.from(document.querySelectorAll('#returnChips .chip.selected'))
+    .map(b => parseInt(b.dataset.num)).sort((a, b) => a - b);
+
+  const remaining = session.totalRounds - consumed;
+  if (remaining <= 0) return;
+
+  // 新しい参加者リスト（追加は続き番号、離脱は欠番に、復帰は同じ番号で）
+  const removedSet = new Set(removeNumbers);
+  const continuing = session.players.filter(p => !removedSet.has(p));
+  const newNumbers = [];
+  for (let i = 1; i <= addCount; i++) newNumbers.push(session.maxNumber + i);
+  const newPlayers = continuing.concat(returnNumbers).concat(newNumbers).sort((a, b) => a - b);
+
+  if (newPlayers.length < newCourts * 4) {
+    alert(`人数が足りません。${newCourts}コートには${newCourts * 4}人必要です（変更後: ${newPlayers.length}人）。\nコート数を減らしてください。`);
+    return;
+  }
+  if (newPlayers.length > 26) {
+    alert('参加人数の上限は26人です。');
+    return;
+  }
+
+  // 消化済み節から履歴を再構築
+  const kept = session.rounds.slice(0, consumed);
+  const pairHistory = {};
+  const opponentHistory = {};
+  const courtHistory = {};
+  const restHistory = {};
+  const mixDiff = {};
+  // 種目別モード: ミックス/自種目の出場差も過去節から再構築（離脱済みの人も性別を引けるようにする）
+  let histGenders = null;
+  if (session.genderMode) {
+    histGenders = {};
+    for (const p of session.everPlayers) histGenders[p] = genderOfNum(p);
+  }
+  session.everPlayers.concat(newNumbers).forEach(p => restHistory[p] = 0);
+  for (const round of kept) {
+    round.resting.forEach(p => restHistory[p]++);
+    updateHistories(round.assignments, pairHistory, opponentHistory);
+    updateCourtHistory(round.assignments, courtHistory);
+    if (histGenders) updateMixDiff(round.assignments, histGenders, mixDiff);
+  }
+
+  // 休み回数の引き継ぎ。途中参加者は「現時点の最少回数」扱いで以降を公平に
+  const creditedRestCounts = restCountsThrough(session, kept);
+  const contCounts = continuing.map(p => creditedRestCounts[p]);
+  const minCont = contCounts.length > 0 ? Math.min(...contCounts) : 0;
+  const initialRestCounts = {};
+  continuing.forEach(p => initialRestCounts[p] = creditedRestCounts[p]);
+  // 復帰者は自身の休み履歴を引き継ぐ。不在中に休みが少なくても現役の最少回数までは
+  // 引き上げ、復帰直後に休みが集中しないようにする
+  returnNumbers.forEach(p => initialRestCounts[p] = Math.max(creditedRestCounts[p], minCont));
+  newNumbers.forEach(p => initialRestCounts[p] = minCont);
+  // 以前の変更で途中参加し、まだ一度も休んでいない人も初休みを周の最後尾に回す。
+  // 今回の追加者だけを渡すと、2回目の変更（何も変えない作り直しを含む）で
+  // 最大番号の前回参加者が休み待ちの先頭に割り込み、参加直後に休んでいた
+  const joinedAtRound = {};
+  session.changes.forEach(c => c.added.forEach(p => joinedAtRound[p] = c.atRound));
+  const notYetRested = continuing.filter(p => joinedAtRound[p] !== undefined &&
+    !kept.some(r => r.round >= joinedAtRound[p] && r.resting.includes(p)));
+  const deferredNew = notYetRested.concat(newNumbers);
+
+  const restCount = newPlayers.length - newCourts * 4;
+  const prevResting = kept.length > 0 ? kept[kept.length - 1].resting : [];
+  const initialRestStreaks = {};
+  for (const p of newPlayers) {
+    let streak = 0;
+    for (let i = kept.length - 1; i >= 0 && kept[i].resting.includes(p); i--) streak++;
+    initialRestStreaks[p] = streak;
+  }
+  // コート数や人数が変わって休み枠が減ると、残り区間の指定を全部は反映できないことがある。
+  // 黙って一部を捨てると気づけないので、どの節が入り切らないかを見せて確認する
+  const overflow = [];
+  for (const rn in (session.forcedRests || {})) {
+    const n = Number(rn);
+    if (n <= consumed) continue;   // 消化済みの節は作り直さないので関係ない
+    const want = session.forcedRests[rn].filter(p => newPlayers.indexOf(p) !== -1);
+    if (want.length > restCount) overflow.push(`・第${n}節：指定${want.length}人 ／ 休み枠${restCount}人`);
+  }
+  if (overflow.length > 0 &&
+      !confirm(`休み枠が足りないため、次の休み指定は一部しか反映できません。\n${overflow.join('\n')}\n\nこのまま作り直しますか？`)) {
+    return;
+  }
+
+  // 休み指定は絶対節番号で持っているので、これから作り直す区間（consumed以降）だけを渡す。
+  // 離脱した人の指定は generateRestSchedule 側で在籍チェックにより無視される
+  const forcedIdx = forcedByIndexOf(session.forcedRests, consumed);
+  const restSchedule = generateRestSchedule(newPlayers, restCount, remaining, initialRestCounts, prevResting, session.restOrder === 'desc', deferredNew, forcedIdx, consumed, initialRestStreaks);
+
+  // 種目別モードの性別マップ（3・4コート以外へ変更したときは通常生成に戻る）
+  let genders = null;
+  if (session.genderMode && (newCourts === 3 || newCourts === 4)) {
+    genders = {};
+    for (const p of newPlayers) genders[p] = genderOfNum(p);
+    addNames.forEach((nm, i) => { genders[newNumbers[i]] = GENDER[nm]; });
+    guestGenderSeq.forEach((g, i) => { genders[newNumbers[addNames.length + i]] = g; });
+    // 性別不明が混ざっていたら安全側で通常生成に（GENDER未同期の名簿追加など）。黙って外さずに確かめる（2026-11-10）
+    const unknown = newPlayers.filter(p => genders[p] !== 'M' && genders[p] !== 'F');
+    if (unknown.length) {
+      if (!confirm(`${unknown.map(pname).join('、')} の性別が名簿に無いため、種目別コートにできません。\n通常の組み方で残りの節を作り直しますか？`)) return;
+      genders = null;
+    }
+  }
+
+  // 残りの節を、引き継いだ履歴をもとに再生成
+  const newRounds = [];
+  for (let r = 0; r < remaining; r++) {
+    const resting = restSchedule[r];
+    const restSet = new Set(resting);
+    const active = newPlayers.filter(p => !restSet.has(p));
+
+    resting.forEach(p => restHistory[p]++);
+
+    let assignments = assignCourts(active, newCourts, pairHistory, opponentHistory, genders, mixDiff, genders ? null : courtHistory);
+    assignments = genders
+      ? balanceCourtsSameType(assignments, courtHistory, genders)
+      : balanceCourts(assignments, courtHistory);
+    updateHistories(assignments, pairHistory, opponentHistory);
+    updateCourtHistory(assignments, courtHistory);
+    if (genders) updateMixDiff(assignments, genders, mixDiff);
+
+    newRounds.push({ round: consumed + r + 1, resting, assignments });
+  }
+
+  session.rounds = kept.concat(newRounds);
+  session.players = newPlayers;
+  session.everPlayers = session.everPlayers.concat(newNumbers);
+  // 名簿から追加した人に新しい番号の名前を割当（ゲストは番号のみ）
+  if (addNames.length > 0) {
+    if (!session.names) session.names = {};
+    addNames.forEach((nm, i) => { session.names[newNumbers[i]] = nm; });
+  }
+  // 種目別モードのゲストは選んだ性別を記録（表示ラベル・以降の再生成に使用）
+  if (session.genderMode && guestGenderSeq.length > 0) {
+    if (!session.guestGenders) session.guestGenders = {};
+    guestGenderSeq.forEach((g, i) => { session.guestGenders[newNumbers[addNames.length + i]] = g; });
+  }
+  session.maxNumber += addCount;
+  session.courts = newCourts;
+  session.changes.push({ atRound: consumed + 1, added: newNumbers, removed: removeNumbers, returned: returnNumbers, courts: newCourts });
+
+  lastRounds = session.rounds;
+  restoredAt = null;
+  // 完了のalertは、プレーの合間に毎回OKを押す手間になるので、結果の上の案内に置き換えた（2026-10-22）
+  changeNotice = consumed + 1;
+  saveSession();
+  renderResults();
+}
+
+// --- 描画 ---
+// メンバー変更欄の選びかけ（セレクトの値・選んだチップ）を控える／戻す
+function captureChangeForm() {
+  const sec = document.getElementById('changeSection');
+  if (!sec) return null;
+  const values = {}, chips = {};
+  sec.querySelectorAll('select[id]').forEach(el => { values[el.id] = el.value; });
+  sec.querySelectorAll('.chips[id]').forEach(box => {
+    chips[box.id] = [...box.querySelectorAll('.chip.selected')].map(b => b.dataset.num || b.dataset.name);
+  });
+  return { values, chips };
+}
+function restoreChangeForm(saved) {
+  const sec = document.getElementById('changeSection');
+  if (!saved || !sec) return;
+  for (const id in saved.values) {
+    const el = document.getElementById(id);
+    if (el && sec.contains(el) && [...el.options].some(o => o.value === saved.values[id] && !o.disabled)) el.value = saved.values[id];
+  }
+  for (const id in saved.chips) {
+    const box = document.getElementById(id);
+    if (!box || !sec.contains(box)) continue;
+    box.querySelectorAll('.chip').forEach(b => b.classList.toggle('selected', saved.chips[id].includes(b.dataset.num || b.dataset.name)));
+  }
+  updateChangeButton();
+}
+
+// opts.keepView: 画面を動かさず、メンバー変更欄の選びかけも残す（練習日だけ変えたとき）
+function renderResults(opts = {}) {
+  stopSpeech(); // 再描画で節構成が変わりうるので読み上げは止める
+  const keptForm = opts.keepView ? captureChangeForm() : null;
+  const rounds = session.rounds;
+  const hasChanges = session.changes.length > 0;
+
+  // 履歴を全節から再計算（途中変更後も常に正確に）
+  const pairHistory = {};
+  const opponentHistory = {};
+  const restHistory = {};
+  session.everPlayers.forEach(p => restHistory[p] = 0);
+  for (const round of rounds) {
+    round.resting.forEach(p => restHistory[p]++);
+    updateHistories(round.assignments, pairHistory, opponentHistory);
+  }
+
+  // 途中参加・離脱・復帰の情報（同じ人が複数回出入りしたら最新の状態を採用）
+  const joinedAt = {};   // 番号 → 参加開始節
+  const departedAt = {}; // 番号 → 離脱節（この節から不参加）
+  const returnedAt = {}; // 番号 → 復帰節
+  for (const c of session.changes) {
+    c.added.forEach(p => joinedAt[p] = c.atRound);
+    c.removed.forEach(p => { departedAt[p] = c.atRound; delete returnedAt[p]; });
+    (c.returned || []).forEach(p => returnedAt[p] = c.atRound);
+  }
+
+  let html = '';
+
+  if (viewerMode) {
+    let ts = '';
+    if (sharedAt) {
+      const d = new Date(sharedAt);
+      ts = `（${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} 作成）`;
+    }
+    html += `<div class="viewer-banner">🔗 共有された対戦表${ts}`;
+    html += `<button onclick="exitViewerMode()">自分のコート割を作る</button></div>`;
+  }
+
+  if (restoredAt) {
+    const d = new Date(restoredAt);
+    const ts = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    html += `<div class="restore-banner">💾 前回のコート割を復元しました（${ts} 保存）`;
+    html += `<button onclick="clearSavedSession()">消去して最初から</button></div>`;
+  }
+
+  // 画像は縦に長くなりすぎて文字が読めなくなるので10節ごとに分ける（上と下のボタンで共通）
+  const imgChunks = imageChunks(lastRounds.length);
+
+  // 結果のいちばん上に、よく使う「画像で送る」「来た・帰る」を置く（2026-10-22）。
+  // どちらも全節カードの下にあり、作成直後とメンバー変更のたびに4画面以上スクロールしていた。
+  // 閲覧モードはメンバー変更ができず、表を見るだけなので出さない
+  if (!viewerMode) {
+    if (changeNotice) {
+      html += `<div class="change-notice"><span>✅ 第${changeNotice}節から組み直しました。画像を送り直してください</span>`;
+      html += `<button onclick="jumpToRound(${changeNotice})">第${changeNotice}節へ ↓</button></div>`;
+    }
+    html += `<div class="top-actions">`;
+    imgChunks.forEach((c, i) => {
+      const range = imgChunks.length > 1
+        ? `<small>${i + 1}枚目・第${lastRounds[c.from].round}〜${lastRounds[c.to - 1].round}節</small>`
+        : '';
+      html += `<button class="btn-top btn-top-image" onclick="saveAsImage(${i}, 'top')">📷 画像で送る${range}</button>`;
+    });
+    html += `<button class="btn-top btn-top-change" onclick="jumpToChange()">👥 来た・帰る</button>`;
+    html += `</div>`;
+    html += `<div id="imagePreviewTopSlot"></div>`;
+  }
+
+  // 番号表（名簿モードのみ）：誰が何番かを最初に確認できるように
+  if (session.names) {
+    const activeSet = new Set(session.players);
+    html += `<div class="roster-map"><h2>🔢 番号表</h2><div class="roster-map-grid">`;
+    for (const p of session.everPlayers.slice().sort((a, b) => a - b)) {
+      if (!session.names[p]) continue;
+      html += `<span${activeSet.has(p) ? '' : ' class="departed"'}>${escHtml(pname(p))}</span>`;
+    }
+    html += `</div></div>`;
+  }
+
+  let prevCourts = session.initialCourts;
+  for (const round of rounds) {
+    const change = session.changes.find(c => c.atRound === round.round);
+    if (change) {
+      html += `<div class="change-divider" id="change-at-${round.round}">${escHtml(changeLabel(change, prevCourts))}</div>`;
+      prevCourts = change.courts;
+    }
+
+    html += `<div class="round-card" id="round-${round.round}">`;
+    if (session.practiceDate) html += `<div class="round-date">${practiceDateLabel(session.practiceDate)}</div>`;
+    html += `<div class="round-header">`;
+    html += `<span class="round-title">第${round.round}節`;
+    html += `<button class="btn-speak" data-round="${round.round}" onclick="speakRound(${round.round})" aria-label="この節を読み上げ">🔊</button></span>`;
+    if (round.resting.length > 0) {
+      // 指定休みの人には * を付ける（保存画像も同じ表記）
+      const fset = forcedRestSetOf(round.round);
+      const mark = p => fset.has(p) ? '*' : '';
+      const restLabel = session.names
+        ? round.resting.map(p => escHtml(pname(p)) + mark(p)).join('・')
+        : round.resting.map(p => p + '番' + mark(p)).join(' ');
+      html += `<span class="rest-badge">休み: ${restLabel}</span>`;
+    } else {
+      html += `<span class="rest-badge rest-none">休みなし</span>`;
+    }
+    html += `</div>`;
+
+    const showTypes = session.genderMode && round.assignments.length >= 3;
+    round.assignments.forEach((court, idx) => {
+      const p1 = [...court.pair1].sort((a, b) => a - b);
+      const p2 = [...court.pair2].sort((a, b) => a - b);
+      const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
+      html += `<div class="court-match">`;
+      html += `<span class="court-label">${COURT_LABELS[idx]}</span>`;
+      if (showTypes) {
+        const t = courtTypeLabel(court, idx, round.assignments.length);
+        if (t) html += `<span class="court-type ${t.cls}">${t.label}</span>`;
+      }
+      html += `<span class="match-detail${session.names ? ' md-names' : ''}">`;
+      html += `<span class="pair">${escHtml(pname(left[0]))}</span>`;
+      html += `<span class="pair-sep">・</span>`;
+      html += `<span class="pair">${escHtml(pname(left[1]))}</span>`;
+      html += `<span class="vs"> VS </span>`;
+      html += `<span class="pair">${escHtml(pname(right[0]))}</span>`;
+      html += `<span class="pair-sep">・</span>`;
+      html += `<span class="pair">${escHtml(pname(right[1]))}</span>`;
+      html += `</span>`;
+      html += `</div>`;
+    });
+
+    html += `</div>`;
+  }
+
+  // 共有ボタン（URLにセッションを埋め込んだリンクを配る）
+  html += `<button class="btn-share" onclick="shareLink()">🔗 対戦表のリンクを共有</button>`;
+  html += `<div class="save-hint">リンクを開いた人のスマホにも同じ対戦表が表示されます</div>`;
+
+  // 画像保存ボタン（10節ごとの分け方は上の「画像で送る」と共通の imgChunks）
+  if (imgChunks.length === 1) {
+    html += `<button class="btn-save" onclick="saveAsImage(0)">📷 対戦表を画像として保存</button>`;
+  } else {
+    html += `<div class="save-hint">画像は${imgChunks.length}枚に分かれます（1枚10節まで）</div>`;
+    imgChunks.forEach((c, i) => {
+      const from = lastRounds[c.from].round;
+      const to = lastRounds[c.to - 1].round;
+      html += `<button class="btn-save" onclick="saveAsImage(${i})">📷 ${i + 1}枚目を保存（第${from}〜${to}節）</button>`;
+    });
+  }
+  html += `<div class="save-hint">スマホは画像長押し、PCは右クリックでも保存可</div>`;
+  // プレビューは1つだけで、押したボタンの近く（上か下の枠）へ移して出す
+  html += `<div id="imagePreviewBottomSlot"><div id="imagePreview"></div></div>`;
+
+  // メンバー変更UI（閲覧モードでは出さない）
+  if (!viewerMode) {
+    const minConsumed = hasChanges
+      ? session.changes[session.changes.length - 1].atRound
+      : 1;
+    html += `<div class="change-section" id="changeSection">`;
+    html += `<h2>⚙ メンバー変更（途中追加・離脱）</h2>`;
+    // 残り1節以下だと作り直せる節が無い。UIを出さず案内だけにする（空セレクトでの誤操作防止）
+    const canChange = minConsumed <= session.totalRounds - 1;
+    if (!canChange) {
+      html += `<div class="change-info">全${session.totalRounds}節のうち最後の節まで来ているため、これ以上作り直せる節はありません。</div>`;
+      html += `</div>`;
+    } else {
+    html += `<div class="change-info">途中で人が増えた・帰ったとき、消化済みの節はそのままに残りを作り直します。これまでのペア・対戦・休みは引き継がれます。</div>`;
+    // 初期値は置かない（選ぶまで作り直せない。updateChangeButton 参照）
+    html += `<div class="input-row"><label>消化済み</label><select id="consumedRound" onchange="updateChangeButton()">`;
+    html += `<option value="" selected disabled>選んでください</option>`;
+    for (let k = minConsumed; k <= session.totalRounds - 1; k++) {
+      html += `<option value="${k}">第${k}節まで終了</option>`;
+    }
+    html += `</select></div>`;
+    if (session.names) {
+      // 名簿からの途中追加（名前付き・新しい番号が振られる）
+      const usedNames = new Set();
+      for (const p of session.everPlayers) if (session.names[p]) usedNames.add(session.names[p]);
+      const avail = ROSTER.filter(nm => !usedNames.has(nm));
+      if (avail.length > 0) {
+        html += `<div class="chips-label">追加する人（名簿から・タップで選択）</div>`;
+        html += `<div class="chips" id="addNameChips">`;
+        for (const nm of avail) {
+          html += `<button class="chip chip-add${genderChipClass(nm)}" data-name="${nm}" onclick="toggleChip(this)">${nm}</button>`;
+        }
+        html += `</div>`;
+      }
+    }
+    if (session.genderMode) {
+      // 種目別モードはゲストにも性別が必要なので、男女別に人数を選ぶ
+      for (const [id, glabel] of [['addCountM', '男性ゲスト'], ['addCountF', '女性ゲスト']]) {
+        html += `<div class="input-row"><label>${glabel}</label><select id="${id}">`;
+        for (let i = 0; i <= 8; i++) {
+          html += `<option value="${i}">${i === 0 ? 'なし' : `+${i}人（名簿外）`}</option>`;
+        }
+        html += `</select></div>`;
+      }
+    } else {
+    const addLabel = session.names ? 'ゲスト追加' : '追加人数';
+    html += `<div class="input-row"><label>${addLabel}</label><select id="addCount">`;
+    for (let i = 0; i <= 8; i++) {
+      const label = i === 0
+        ? 'なし'
+        : session.names
+          ? `+${i}人（名簿外）`
+          : i === 1
+            ? `+1人（${session.maxNumber + 1}番）`
+            : `+${i}人（${session.maxNumber + 1}〜${session.maxNumber + i}番）`;
+      html += `<option value="${i}">${label}</option>`;
+    }
+    html += `</select></div>`;
+    }
+    html += `<div class="chips-label">離脱する人（タップで選択）</div>`;
+    html += `<div class="chips" id="removeChips">`;
+    const byRoster = (a, b) => rosterOrderOf(a) - rosterOrderOf(b);
+    for (const p of session.players.slice().sort(byRoster)) {
+      html += `<button class="chip" data-num="${p}" onclick="toggleChip(this)">${escHtml(pname(p))}</button>`;
+    }
+    html += `</div>`;
+    const currentPlayersSet = new Set(session.players);
+    const departedNow = session.everPlayers.filter(p => !currentPlayersSet.has(p)).sort(byRoster);
+    if (departedNow.length > 0) {
+      html += `<div class="chips-label">復帰する人（タップで選択・同じ番号で戻ります）</div>`;
+      html += `<div class="chips" id="returnChips">`;
+      for (const p of departedNow) {
+        html += `<button class="chip chip-return" data-num="${p}" onclick="toggleChip(this)">${escHtml(pname(p))}</button>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="input-row"><label>コート数</label><select id="changeCourtCount">`;
+    for (let c = 2; c <= 4; c++) {
+      html += `<option value="${c}"${c === session.courts ? ' selected' : ''}>${c}コート</option>`;
+    }
+    html += `</select></div>`;
+    html += `<button class="btn btn-change" id="changeApplyBtn" onclick="applyMemberChange()" disabled>↑ 終わった節（消化済み）を選んでください</button>`;
+    html += `</div>`;
+    }
+  }
+
+  // 休み履歴
+  html += `<div class="stats-section">`;
+  html += `<h2>休み回数</h2>`;
+  html += `<table class="stats-table">`;
+  html += `<tr><th>番号</th><th>休み回数</th><th>休んだ節</th></tr>`;
+
+  const currentSet = new Set(session.players);
+  const currentRestValues = session.players.map(p => restHistory[p]);
+  const minRest = currentRestValues.length > 0 ? Math.min(...currentRestValues) : 0;
+  const maxRest = currentRestValues.length > 0 ? Math.max(...currentRestValues) : 0;
+
+  for (const p of session.everPlayers) {
+    const restRounds = rounds
+      .filter(r => r.resting.includes(p))
+      .map(r => r.round);
+    let note = '';
+    if (!currentSet.has(p)) {
+      if (departedAt[p]) note = `<span class="player-note">（第${departedAt[p]}節〜離脱）</span>`;
+    } else if (returnedAt[p]) {
+      note = `<span class="player-note">（第${returnedAt[p]}節〜復帰）</span>`;
+    } else if (joinedAt[p]) {
+      note = `<span class="player-note">（第${joinedAt[p]}節〜参加）</span>`;
+    }
+    html += `<tr${currentSet.has(p) ? '' : ' class="departed-row"'}>`;
+    html += `<td>${escHtml(pname(p))}${note}</td>`;
+    html += `<td>${restHistory[p]}</td>`;
+    html += `<td style="font-size:0.8em">${restRounds.length > 0 ? restRounds.join(', ') : '-'}</td>`;
+    html += `</tr>`;
+  }
+  html += `</table>`;
+  html += `<div style="margin-top:8px;font-size:0.82em;color:#666">`;
+  if (maxRest > 0) {
+    html += `休み回数（現メンバー）: 最小${minRest}回 〜 最大${maxRest}回（差: ${maxRest - minRest}回）`;
+    if (hasChanges) {
+      html += `<br>※ 途中参加・離脱があるため、在籍期間によって回数に差が出ることがあります`;
+    }
+  }
+  // 指定休みがあると、その人だけ休みが増えて差が広がることがあるので理由を明示する
+  if (hasForcedRests()) {
+    html += `${maxRest > 0 ? '<br>' : ''}※ <b>*</b> は指定した休み。指定した人はその分だけ休みが多くなることがあります`;
+  }
+  html += `</div>`;
+  html += `</div>`;
+
+  // ペア統計
+  html += `<div class="pair-stats-section">`;
+  html += `<h2>ペア回数統計</h2>`;
+  html += `<div class="pair-stats-info">`;
+
+  const pairCounts = {};
+  let occurredPairs = 0;
+  for (const a in pairHistory) {
+    for (const b in pairHistory[a]) {
+      if (parseInt(a) < parseInt(b)) {
+        const count = pairHistory[a][b];
+        if (!pairCounts[count]) pairCounts[count] = 0;
+        pairCounts[count]++;
+        occurredPairs++;
+      }
+    }
+  }
+  const everCount = session.everPlayers.length;
+  const totalPossiblePairs = everCount * (everCount - 1) / 2;
+  const neverPaired = totalPossiblePairs - occurredPairs;
+
+  html += `<strong>同じペアの回数分布:</strong><br>`;
+  if (neverPaired > 0) {
+    html += `0回ペア: ${neverPaired}組（一度も組めなかったペア）<br>`;
+  }
+  const sortedCounts = Object.keys(pairCounts).sort((a, b) => parseInt(a) - parseInt(b));
+  for (const count of sortedCounts) {
+    html += `${count}回ペア: ${pairCounts[count]}組<br>`;
+  }
+  html += `<br><em>※ 全${totalPossiblePairs}組中、組めたのは${occurredPairs}組（ペア回数が少ないほど偏りが小さい）</em>`;
+  if (hasChanges) {
+    html += `<br><em>※ 途中参加・離脱した人を含むため、組めない組み合わせがあります</em>`;
+  }
+  html += `</div></div>`;
+
+  document.getElementById('results').innerHTML = html;
+  if (opts.keepView) restoreChangeForm(keptForm);
+  else document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+// --- 画像保存 ---
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// 1枚の画像に入れる節数。20節などを1枚にすると縦に細長い画像になり、
+// スマホで画面に収めたときに文字が読めないほど小さくなるため分割する（2026-07-25）
+const IMAGE_CHUNK_ROUNDS = 10;
+
+function imageChunks(total) {
+  const out = [];
+  for (let s = 0; s < total; s += IMAGE_CHUNK_ROUNDS) {
+    out.push({ from: s, to: Math.min(s + IMAGE_CHUNK_ROUNDS, total) });
+  }
+  return out;
+}
+
+// iOS Safariは <a download> でのダウンロードに対応しておらず、押しても
+// 「外部アプリケーションを開こうとしています」と出て何も起きない。
+// そのためiOSではダウンロードを試みず、プレビュー長押し／共有シートで保存させる
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// 共有シートで写真アプリに保存する（iOSはこれが最も確実）
+async function sharePhoto() {
+  if (!lastImageFile) return;
+  try {
+    await navigator.share({ files: [lastImageFile] });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // ユーザーが閉じただけ
+    alert('共有できませんでした。画像を長押しして保存してください。');
+  }
+}
+
+function saveAsImage(chunkIndex, where) {
+  if (!lastRounds || lastRounds.length === 0) return;
+  placeImagePreview(where === 'top' ? 'imagePreviewTopSlot' : 'imagePreviewBottomSlot');
+  // スマホ実機で途中失敗すると「何も起きない」ように見えるため、例外は必ず知らせる
+  try {
+    saveAsImageImpl(chunkIndex || 0);
+  } catch (e) {
+    alert('画像の作成に失敗しました。もう一度お試しください。\n(' + e.message + ')');
+  }
+}
+
+// プレビューは押したボタンの近くに出す（上の「画像で送る」なら上、下の保存ボタンなら下。2026-10-22）。
+// 場所を移すときは別の場所の古いプレビューを消す。作成中の古い画像は imageRequestId で捨てられる
+function placeImagePreview(slotId) {
+  const preview = document.getElementById('imagePreview');
+  const slot = document.getElementById(slotId);
+  if (!preview || !slot || preview.parentNode === slot) return;
+  preview.replaceChildren();
+  slot.appendChild(preview);
+}
+
+// 上に出したプレビュー（縦に長い）が節カードを押し下げたままにならないよう閉じられるようにする
+function closeImagePreview() {
+  const preview = document.getElementById('imagePreview');
+  if (preview) preview.replaceChildren();
+}
+
+// プレビュー表示中のblob URL。次の保存まで解放しない（時間を置いた長押し保存を保証）
+let lastImageUrl = null;
+// 共有シート（写真に保存）用に、直近に作った画像を保持する
+let lastImageFile = null;
+let imageRequestId = 0;
+
+function saveAsImageImpl(chunkIndex) {
+  const requestId = ++imageRequestId;
+  const sessionAtStart = session;
+  const dateLabel = practiceDateLabel(session && session.practiceDate);
+  const chunks = imageChunks(lastRounds.length);
+  const chunk = chunks[chunkIndex] || chunks[0];
+  const rounds = lastRounds.slice(chunk.from, chunk.to);
+  const split = chunks.length > 1;
+  const partNo = chunks.indexOf(chunk) + 1;
+
+  // 10/15節向け最適化：節数が少ないときはレイアウト寸法を拡大して可読性UP
+  // 15節以下は2倍、16-25節は1.2倍、26節以上は等倍（Canvas寸法上限内で最大化）
+  const n = rounds.length;
+  const SCALE = n <= 15 ? 2.0 : (n <= 25 ? 1.2 : 1.0);
+
+  const W = 600 * SCALE;
+  const PAD = 16 * SCALE;
+  const CARD_GAP = 12 * SCALE;
+  const CARD_R = 12 * SCALE;
+  const HEADER_H = 44 * SCALE;
+  const COURT_H = 38 * SCALE;
+  const TITLE_H = (dateLabel ? 80 : 56) * SCALE;
+  const MARK_H = 34 * SCALE; // メンバー変更マーカー帯の高さ
+  const FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
+
+  const changes = (session && session.changes) || [];
+  const names = (session && session.names) || null;
+  const iname = p => names && names[p] ? p + ' ' + names[p] : p + '番';
+
+  // 番号表（名簿モードのみ、タイトル直下に3列で並べる）
+  const mapEntries = names
+    ? session.everPlayers.filter(p => names[p]).sort((a, b) => a - b)
+    : [];
+  const MAP_COLS = 3;
+  const MAP_HEAD = 30 * SCALE;
+  const MAP_ROW_H = 24 * SCALE;
+  const mapRows = Math.ceil(mapEntries.length / MAP_COLS);
+  const mapH = mapEntries.length > 0 ? MAP_HEAD + mapRows * MAP_ROW_H + 10 * SCALE : 0;
+
+  // 画像は10節ごとに分割されるので、この画像に含まれる節に実際に * が付くときだけ凡例を出す
+  // （指定が第3節だけなら、第11〜20節の画像には凡例を出さない）
+  const legendH = rounds.some(r => {
+    const fs = forcedRestSetOf(r.round);
+    return fs.size > 0 && r.resting.some(p => fs.has(p));
+  }) ? 24 * SCALE : 0;
+
+  // メンバー変更の帯：収まらなければ文字を縮め（13→11）、それでも長ければ折り返して帯を高くする。
+  // 以前は9まで縮めて止まり、1回の変更で9〜10人が動くと右端が切れていた（2026-11-10）。
+  // 折り返すのは「・」「：」の後と「 ／ 」の前だけ（「12 田中」の番号と名前は割らない）
+  const markMaxW = W - PAD * 2 - 28 * SCALE;
+  const MARK_LINE_H = 18 * SCALE;
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const layoutMark = label => {
+    let size = 13 * SCALE;
+    measureCtx.font = `bold ${size}px ${FONT}`;
+    const w = measureCtx.measureText(label).width;
+    if (w <= markMaxW) return { lines: [label], size, h: MARK_H };
+    if (size * markMaxW / w >= 11 * SCALE) return { lines: [label], size: size * markMaxW / w, h: MARK_H };
+    size = 11 * SCALE;
+    measureCtx.font = `bold ${size}px ${FONT}`;
+    const fits = t => measureCtx.measureText(t).width <= markMaxW;
+    const tokens = [];
+    let cur = '';
+    for (let i = 0; i < label.length; i++) {
+      if (cur && label.startsWith(' ／ ', i)) { tokens.push(cur); cur = ''; }
+      cur += label[i];
+      if (label[i] === '・' || label[i] === '：') { tokens.push(cur); cur = ''; }
+    }
+    if (cur) tokens.push(cur);
+    const lines = [];
+    let line = '';
+    for (const t of tokens) {
+      if (line && !fits(line + t)) { lines.push(line); line = t.replace(/^ +/, ''); } else line += t;
+    }
+    if (line) lines.push(line);
+    // 1つの名前でも入らないとき（極端に長い名前）は文字の途中で折る
+    const out = [];
+    for (const l of lines) {
+      if (fits(l)) { out.push(l); continue; }
+      let part = '';
+      for (const ch of l) { if (part && !fits(part + ch)) { out.push(part); part = ch; } else part += ch; }
+      if (part) out.push(part);
+    }
+    return { lines: out, size, h: Math.max(MARK_H, 12 * SCALE + out.length * MARK_LINE_H) };
+  };
+  const markOf = {};
+  {
+    let pc = session ? session.initialCourts : rounds[0].assignments.length;
+    for (const c of changes) if (c.atRound < rounds[0].round) pc = c.courts;
+    for (const round of rounds) {
+      const change = changes.find(c => c.atRound === round.round);
+      if (!change) continue;
+      markOf[round.round] = layoutMark(changeLabel(change, pc));
+      pc = change.courts;
+    }
+  }
+
+  // 高さ計算
+  let totalH = PAD + TITLE_H + PAD;
+  if (mapH > 0) totalH += mapH + CARD_GAP;
+  rounds.forEach((round, i) => {
+    if (markOf[round.round]) {
+      totalH += markOf[round.round].h + CARD_GAP;
+    }
+    totalH += HEADER_H + round.assignments.length * COURT_H;
+    if (i < rounds.length - 1) totalH += CARD_GAP;
+  });
+  totalH += legendH;
+  totalH += PAD;
+
+  // モバイルCanvasの寸法上限に収まる範囲で最大解像度を確保
+  // iOS Safariは「総ピクセル数 16,777,216 (=4096×4096)」が上限で、超えると
+  // 描画バッファが無効化・低解像度化して出力がぼやける／toBlobがnullになる。
+  // 上限ちょうどだと実機のメモリ状況次第で失敗するため、1割の余裕を持たせる
+  const MAX_DIM = 16384;
+  const MAX_AREA = 16777216 * 0.9;
+  const dimScale = Math.min(MAX_DIM / W, MAX_DIM / totalH);
+  const areaScale = Math.sqrt(MAX_AREA / (W * totalH));
+  const idealDpr = Math.max(1, Math.min(4, window.devicePixelRatio || 1, dimScale, areaScale));
+
+  const draw = dpr => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(totalH * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas context unavailable');
+    ctx.scale(dpr, dpr);
+
+    // 背景
+    ctx.fillStyle = '#f0f4f8';
+    ctx.fillRect(0, 0, W, totalH);
+
+    // タイトル
+    ctx.fillStyle = '#c6e3d6';
+    roundRectPath(ctx, PAD, PAD, W - PAD * 2, TITLE_H - 8 * SCALE, 10 * SCALE);
+    ctx.fill();
+    ctx.fillStyle = '#1a5276';
+    // 分割したときは何節目の画像か分かるようにタイトルへ範囲を入れる
+    const title = split
+      ? `🏸 ダブルス コート割（第${rounds[0].round}〜${rounds[rounds.length - 1].round}節）`
+      : '🏸 ダブルス コート割';
+    let titleFont = 22 * SCALE;
+    ctx.font = `bold ${titleFont}px ${FONT}`;
+    const titleMaxW = W - PAD * 2 - 24 * SCALE;
+    const titleW = ctx.measureText(title).width;
+    if (titleW > titleMaxW) {
+      titleFont = Math.max(12 * SCALE, titleFont * titleMaxW / titleW);
+      ctx.font = `bold ${titleFont}px ${FONT}`;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(title, W / 2, PAD + 24 * SCALE);
+    if (dateLabel) {
+      ctx.font = `bold ${15 * SCALE}px ${FONT}`;
+      ctx.fillText(dateLabel, W / 2, PAD + 54 * SCALE);
+    }
+
+    // 番号表カード
+    let y = PAD + TITLE_H;
+    if (mapH > 0) {
+      ctx.fillStyle = '#fff';
+      roundRectPath(ctx, PAD, y, W - PAD * 2, mapH, CARD_R);
+      ctx.fill();
+      ctx.fillStyle = '#1a5276';
+      ctx.font = `bold ${14 * SCALE}px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('番号表', PAD + 14 * SCALE, y + MAP_HEAD / 2 + 3 * SCALE);
+      ctx.font = `${13 * SCALE}px ${FONT}`;
+      ctx.fillStyle = '#2c3e50';
+      const colW = (W - PAD * 2 - 28 * SCALE) / MAP_COLS;
+      mapEntries.forEach((p, i) => {
+        const mx = PAD + 14 * SCALE + (i % MAP_COLS) * colW;
+        const my = y + MAP_HEAD + Math.floor(i / MAP_COLS) * MAP_ROW_H + MAP_ROW_H / 2;
+        ctx.fillText(iname(p), mx, my);
+      });
+      y += mapH + CARD_GAP;
+    }
+
+    // 各節カード（変更の帯の文字と高さは上の markOf で決めてある）
+    for (let ri = 0; ri < rounds.length; ri++) {
+      const round = rounds[ri];
+      const cardH = HEADER_H + round.assignments.length * COURT_H;
+      const cardW = W - PAD * 2;
+
+      // メンバー変更マーカー帯
+      const mark = markOf[round.round];
+      if (mark) {
+        ctx.fillStyle = '#fff3e0';
+        roundRectPath(ctx, PAD, y, cardW, mark.h, 8 * SCALE);
+        ctx.fill();
+        ctx.fillStyle = '#ff9800';
+        ctx.fillRect(PAD, y + 4 * SCALE, 4 * SCALE, mark.h - 8 * SCALE);
+        ctx.font = `bold ${mark.size}px ${FONT}`;
+        ctx.fillStyle = '#e65100';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const top = y + mark.h / 2 - (mark.lines.length - 1) * MARK_LINE_H / 2;
+        mark.lines.forEach((line, li) => ctx.fillText(line, PAD + 14 * SCALE, top + li * MARK_LINE_H));
+
+        y += mark.h + CARD_GAP;
+      }
+
+      // カード背景（白角丸）+ シャドウ
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.08)';
+      ctx.shadowBlur = 6 * SCALE;
+      ctx.shadowOffsetY = 2 * SCALE;
+      ctx.fillStyle = '#fff';
+      roundRectPath(ctx, PAD, y, cardW, cardH, CARD_R);
+      ctx.fill();
+      ctx.restore();
+
+      // ヘッダー（カード上部のみ）
+      ctx.save();
+      roundRectPath(ctx, PAD, y, cardW, HEADER_H + 1, CARD_R);
+      ctx.clip();
+      ctx.fillStyle = '#34495e';
+      ctx.fillRect(PAD, y, cardW, HEADER_H);
+      ctx.restore();
+
+      // "第N節"
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${16 * SCALE}px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`第${round.round}節`, PAD + 14 * SCALE, y + HEADER_H / 2);
+
+      // 休みバッジ（名前入りで長いときはフォントを縮小、それでも入らなければ番号のみ）
+      const restingSorted = [...round.resting].sort((a, b) => a - b);
+      const hasRest = restingSorted.length > 0;
+      // 指定休みには * を付ける（画面の休みバッジと同じ表記）
+      const fset = forcedRestSetOf(round.round);
+      const fmark = p => fset.has(p) ? '*' : '';
+      let badgeText = hasRest
+        ? `休み: ${restingSorted.map(p => iname(p) + fmark(p)).join(names ? '・' : ' ')}`
+        : '休みなし';
+      const badgePadX = 10 * SCALE;
+      const maxBadgeW = cardW - 110 * SCALE; // 左の「第N節」と重ならない範囲
+      let badgeFont = 13 * SCALE;
+      ctx.font = `bold ${badgeFont}px ${FONT}`;
+      let badgeTextW = ctx.measureText(badgeText).width;
+      if (badgeTextW + badgePadX * 2 > maxBadgeW) {
+        const fit = badgeFont * (maxBadgeW - badgePadX * 2) / badgeTextW;
+        if (fit < 9 * SCALE && names && hasRest) {
+          badgeText = `休み: ${restingSorted.map(p => p + '番' + fmark(p)).join(' ')}`;
+          badgeFont = 13 * SCALE;
+        } else {
+          badgeFont = Math.max(9 * SCALE, fit);
+        }
+        ctx.font = `bold ${badgeFont}px ${FONT}`;
+        badgeTextW = ctx.measureText(badgeText).width;
+        if (badgeTextW + badgePadX * 2 > maxBadgeW) {
+          badgeFont = Math.max(8 * SCALE, badgeFont * (maxBadgeW - badgePadX * 2) / badgeTextW);
+          ctx.font = `bold ${badgeFont}px ${FONT}`;
+          badgeTextW = ctx.measureText(badgeText).width;
+        }
+      }
+      const badgeW = badgeTextW + badgePadX * 2;
+      const badgeH = 22 * SCALE;
+      // 「第N節」と重ならない範囲（areaL〜areaR）の中央に置く（2026-07-25。従来は右寄せ）。
+      // 入り切らない長さのときは従来どおり右端に寄せる
+      const areaR = PAD + cardW - 14 * SCALE;
+      const areaL = areaR - maxBadgeW;
+      const badgeX = badgeW >= maxBadgeW ? areaR - badgeW : areaL + (areaR - areaL - badgeW) / 2;
+      const badgeY = y + HEADER_H / 2 - badgeH / 2;
+      ctx.fillStyle = hasRest ? '#e74c3c' : '#27ae60';
+      roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeText, badgeX + badgeW / 2, y + HEADER_H / 2);
+
+      // コート行
+      let cy = y + HEADER_H;
+      round.assignments.forEach((court, idx) => {
+        // 区切り線（最後以外）
+        if (idx < round.assignments.length - 1) {
+          ctx.fillStyle = '#ecf0f1';
+          ctx.fillRect(PAD + 14 * SCALE, cy + COURT_H - 1, cardW - 28 * SCALE, 1);
+        }
+
+        // コートラベル
+        const labelW = 34 * SCALE;
+        const labelH = 26 * SCALE;
+        const labelX = PAD + 14 * SCALE;
+        const labelY = cy + COURT_H / 2 - labelH / 2;
+        ctx.fillStyle = '#3498db';
+        roundRectPath(ctx, labelX, labelY, labelW, labelH, 6 * SCALE);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${15 * SCALE}px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(COURT_LABELS[idx], labelX + labelW / 2, cy + COURT_H / 2);
+
+        // 種目タグ（種目別モード時のみ。色はCSSの .ct-m / .ct-f / .ct-x と揃える）
+        let typeW = 0;
+        const typeInfo = session && session.genderMode && round.assignments.length >= 3
+          ? courtTypeLabel(court, idx, round.assignments.length) : null;
+        if (typeInfo) {
+          ctx.font = `bold ${10 * SCALE}px ${FONT}`;
+          const tw = ctx.measureText(typeInfo.label).width;
+          const th = 16 * SCALE;
+          const tx = labelX + labelW + 5 * SCALE;
+          ctx.fillStyle = typeInfo.cls === 'ct-m' ? '#2980b9' : typeInfo.cls === 'ct-f' ? '#e0619b'
+            : typeInfo.cls === 'ct-x' ? '#8e44ad' : '#27ae60';
+          roundRectPath(ctx, tx, cy + COURT_H / 2 - th / 2, tw + 8 * SCALE, th, 4 * SCALE);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'center';
+          ctx.fillText(typeInfo.label, tx + (tw + 8 * SCALE) / 2, cy + COURT_H / 2);
+          typeW = tw + 8 * SCALE + 5 * SCALE;
+        }
+
+        // 対戦表示（小さい番号を左に）
+        const p1 = [...court.pair1].sort((a, b) => a - b);
+        const p2 = [...court.pair2].sort((a, b) => a - b);
+        const [left, right] = p1[0] <= p2[0] ? [p1, p2] : [p2, p1];
+
+        const segs = [
+          { t: iname(left[0]),  c: '#2c3e50' },
+          { t: '・',            c: '#7f8c8d' },
+          { t: iname(left[1]),  c: '#2c3e50' },
+          { t: '  VS  ',        c: '#e74c3c' },
+          { t: iname(right[0]), c: '#2c3e50' },
+          { t: '・',            c: '#7f8c8d' },
+          { t: iname(right[1]), c: '#2c3e50' },
+        ];
+        let segFont = 16 * SCALE;
+        ctx.font = `bold ${segFont}px ${FONT}`;
+        let segW = 0;
+        for (const s of segs) segW += ctx.measureText(s.t).width;
+
+        // コートラベルのすぐ右から左寄せで描く（画面と同じ。名前入りで長ければ縮小。2026-09-26に中央から変更）
+        const areaLeft = labelX + labelW + typeW + 10 * SCALE;
+        const areaRight = PAD + cardW - 14 * SCALE;
+        if (segW > areaRight - areaLeft) {
+          segFont = Math.max(10 * SCALE, segFont * (areaRight - areaLeft) / segW);
+          ctx.font = `bold ${segFont}px ${FONT}`;
+          segW = 0;
+          for (const s of segs) segW += ctx.measureText(s.t).width;
+        }
+        let tx = areaLeft;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        for (const s of segs) {
+          ctx.fillStyle = s.c;
+          ctx.fillText(s.t, tx, cy + COURT_H / 2);
+          tx += ctx.measureText(s.t).width;
+        }
+
+        cy += COURT_H;
+      });
+
+      y += cardH + CARD_GAP;
+    }
+
+    // 指定休みの凡例（* 印の意味。画面の休み回数表と同じ説明）
+    if (legendH > 0) {
+      ctx.fillStyle = '#5a6b78';
+      ctx.font = `${12 * SCALE}px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('* は指定した休み（その分だけ休みが多くなることがあります）',
+        PAD + 4 * SCALE, y - CARD_GAP + legendH / 2);
+    }
+
+    // 描画バッファが生きているか確認（iOSは上限超過・メモリ不足時に例外なしで
+    // 無効化され、真っ白なCanvasになることがある）
+    const px = ctx.getImageData(0, 0, 1, 1).data;
+    if (px[3] === 0) throw new Error('canvas buffer lost');
+    return canvas;
+  };
+
+  // 理想解像度で失敗する端末（メモリ不足等）は解像度を下げて再試行
+  let canvas = null;
+  for (const dpr of [...new Set([idealDpr, Math.max(1, idealDpr * 0.7), 1])]) {
+    try { canvas = draw(dpr); break; } catch (e) { canvas = null; }
+  }
+  if (!canvas) {
+    alert('画像の作成に失敗しました。端末のメモリ不足の可能性があります。\nブラウザ（アプリ）を再起動してもう一度お試しください。');
+    return;
+  }
+
+  // ダウンロード & プレビュー
+  // 画像を作っている間に作り直し・消去されたら、古い表の画像は出さない
+  // （新しい画面のプレビューに古い表が出て、そのまま保存されるのを防ぐ）
+  const roundsAtStart = lastRounds;
+  const finalize = (url, isBlobUrl, blob) => {
+    if (lastRounds !== roundsAtStart || session !== sessionAtStart) {
+      if (isBlobUrl) URL.revokeObjectURL(url);
+      return;
+    }
+    const d = new Date();
+    const pad2 = v => String(v).padStart(2, '0');
+    const ts = `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+    const fileName = `badminton_${ts}${split ? '_' + partNo : ''}.png`;
+
+    // iOSは <a download> が効かず「外部アプリケーションを開こうとしています」と出るだけなので
+    // ダウンロードは試みない（プレビュー長押し／共有シートで保存してもらう）
+    const onIOS = isIOSDevice();
+    if (!onIOS) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      try { a.click(); } catch (e) { /* ダウンロード非対応のアプリ内ブラウザでもプレビューは出す */ }
+      document.body.removeChild(a);
+    }
+
+    // 複数枚を続けて保存した場合、古いPNGの処理が後から終わっても最新の
+    // プレビュー・写真共有用ファイルを上書きしない。PCの各ダウンロードは維持する。
+    if (requestId !== imageRequestId) {
+      if (isBlobUrl) {
+        if (onIOS) URL.revokeObjectURL(url);
+        else setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      return;
+    }
+
+    // 共有シート（「画像を保存」で写真アプリに入る）が使える端末はボタンを出す
+    lastImageFile = null;
+    if (blob && typeof File === 'function' && navigator.canShare) {
+      try {
+        const f = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare({ files: [f] })) lastImageFile = f;
+      } catch (e) { lastImageFile = null; }
+    }
+
+    // プレビュー表示（スマホ長押し保存用）
+    const preview = document.getElementById('imagePreview');
+    if (preview) {
+      preview.textContent = '';
+      const close = document.createElement('button');
+      close.className = 'btn-preview-close';
+      close.textContent = '✕ プレビューを閉じる';
+      close.onclick = closeImagePreview;
+      preview.appendChild(close);
+      if (split) {
+        const label = document.createElement('div');
+        label.className = 'preview-label';
+        label.textContent = `${partNo}枚目（第${rounds[0].round}〜${rounds[rounds.length - 1].round}節）`;
+        preview.appendChild(label);
+      }
+      if (lastImageFile) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-photo';
+        // 共有シートでSlackやLINEを選べば、写真アプリを経由せずにそのまま投稿できる（2026-10-22 文言変更）
+        btn.textContent = '📤 Slackなどに送る / 写真に保存';
+        btn.onclick = sharePhoto;
+        preview.appendChild(btn);
+      }
+      if (onIOS) {
+        const guide = document.createElement('div');
+        guide.className = 'preview-guide';
+        guide.textContent = lastImageFile
+          ? '上のボタンからSlackなどへそのまま送れます（「画像を保存」を選ぶと写真に入ります）。下の画像を長押しして「"写真"に追加」でも保存できます。'
+          : '下の画像を長押しして「"写真"に追加」で保存してください。';
+        preview.appendChild(guide);
+      }
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '対戦表';
+      preview.appendChild(img);
+    }
+
+    // 前回のURLだけ解放し、今回のURLはプレビュー長押し保存のため残す
+    if (lastImageUrl) URL.revokeObjectURL(lastImageUrl);
+    lastImageUrl = isBlobUrl ? url : null;
+  };
+
+  // toBlobがコールバックを返さない端末でも「無反応」にならないよう15秒で見切る。
+  // 15秒は重い端末の正常なPNGエンコードが終わる想定時間より長め（誤作動しにくい値）
+  let settled = false;
+  const fallback = () => {
+    if (settled) return;
+    settled = true;
+    try {
+      finalize(canvas.toDataURL('image/png'), false, null);
+    } catch (e) {
+      alert('画像の作成に時間がかかっています。\nもう一度お試しいただくか、節数を減らしてお試しください。');
+    }
+  };
+  const watchdog = setTimeout(fallback, 15000);
+
+  canvas.toBlob(blob => {
+    if (settled) return; // 監視タイマー側で既に表示済み
+    settled = true;
+    clearTimeout(watchdog);
+    try {
+      if (blob) {
+        finalize(URL.createObjectURL(blob), true, blob);
+      } else {
+        // iOSでtoBlobがnullを返す（PNGエンコード失敗）ときはdataURLで再挑戦
+        finalize(canvas.toDataURL('image/png'), false, null);
+      }
+    } catch (e) {
+      alert('画像の保存に失敗しました。もう一度お試しください。\n(' + e.message + ')');
+    }
+  }, 'image/png');
+}
+
+// --- 統合版：出欠・コート割の画面（today.html）からの引き継ぎ（2026-11-11） ---
+// today.html が localStorage に置いた内容（全員ごちゃまぜの日の出席者・ゲスト・コート数・節数）を入力欄に入れて、
+// そのまま作成する。出欠を選び直さなくてよい。名簿に無いゲストは、その場だけの名簿チップとして足し、
+// 性別は dayGuests に覚える（種目別コートと、作った表の guestGenders に使う）
+const HANDOFF_KEY = 'kalidia-handoff-v1';
+let dayGuests = {};
+function genderOfName(nm) {
+  return ownValue(GENDER, nm) || ownValue(dayGuests, nm);
+}
+function dayGuestGendersOf(names) {
+  const out = {};
+  for (const num in names) {
+    const g = !ownValue(GENDER, names[num]) && ownValue(dayGuests, names[num]);
+    if (g) out[num] = g;
+  }
+  return out;
+}
+// 引き継ぎの内容を確かめて返す（今日の分だけ。形が違えば null）
+function readHandoff() {
+  let d;
+  try { d = JSON.parse(localStorage.getItem(HANDOFF_KEY)); } catch (e) { return null; }
+  if (!d || d.v !== 1 || d.t !== 'mix' || d.date !== todayPracticeDate()) return null;
+  if (![2, 3, 4].includes(d.courts) || ![10, 15, 20, 25, 30].includes(d.rounds)) return null;
+  if (!Array.isArray(d.names) || !Array.isArray(d.guests)) return null;
+  const names = [...new Set(d.names.filter(nm => typeof nm === 'string' && ROSTER.includes(nm)))];
+  const seen = new Set(names), guests = [];
+  for (const g of d.guests) {
+    if (!g || typeof g.name !== 'string' || (g.g !== 'M' && g.g !== 'F')) continue;
+    const name = g.name.trim();
+    if (!name || name.length > 20 || ROSTER.includes(name) || seen.has(name)) continue;
+    seen.add(name);
+    guests.push({ name, g: g.g });
+  }
+  return { courts: d.courts, rounds: d.rounds, date: d.date, names, guests };
+}
+function importFromToday() {
+  if (location.hash !== '#today') return false;
+  // 再読み込みしても作り直さないよう、目印を消す（履歴だけ書き換えるので hashchange は起きない）
+  history.replaceState(null, '', location.pathname + location.search);
+  const d = readHandoff();
+  if (!d) {
+    alert('出欠の画面からの引き継ぎを読み込めませんでした。\n出欠・コート割の画面で、もう一度「対戦表を作る」を押してください。');
+    return false;
+  }
+  const courtSel = document.getElementById('courtCount');
+  courtSel.value = String(d.courts);
+  courtSel.dispatchEvent(new Event('change')); // 人数の選択肢を再構築
+  const roundSel = document.getElementById('roundCount');
+  roundSel.value = String(d.rounds);
+  roundSel.dispatchEvent(new Event('change'));
+  // 全員ごちゃまぜなので、種目別コートは使わない設定で作る（使うときは、この画面で選び直して作成する）
+  document.getElementById('genderMode').value = 'off';
+  // ゲストのチップ（前に足したものは消してから足す）
+  const box = document.getElementById('rosterChips');
+  box.querySelectorAll('.chip-guest').forEach(b => b.remove());
+  dayGuests = {};
+  for (const g of d.guests) {
+    dayGuests[g.name] = g.g;
+    const b = document.createElement('button');
+    b.className = 'chip chip-roster chip-guest ' + (g.g === 'M' ? 'gender-m' : 'gender-f');
+    b.dataset.name = g.name;
+    b.textContent = g.name;
+    b.onclick = () => { b.classList.toggle('selected'); onRosterChange(); };
+    box.appendChild(b);
+  }
+  const picked = new Set(d.names.concat(d.guests.map(g => g.name)));
+  box.querySelectorAll('.chip').forEach(b => b.classList.toggle('selected', picked.has(b.dataset.name)));
+  // 前の表の休み指定は引き継がない（今日の表に効かないように）
+  document.getElementById('forcedRestList').replaceChildren();
+  onRosterChange();
+  updateForcedRestNote();
+  document.getElementById('practiceDate').value = d.date;
+  practiceDateTouched = todayPracticeDate();
+  // 表示中の表が前の練習日のものなら、確かめずに作り直す。今日の表なら、消してよいか確かめる
+  generate({ skipConfirm: !!(session && session.practiceDate && session.practiceDate < todayPracticeDate()) });
+  return true;
+}
+
+// 起動（固定ペア版の短いリンクで開かれたときは、移る前に自分の保存データを読み込まない）
+if (!window.__toSingles) {
+  initUI();
+  // 共有リンクで開かれたら閲覧モード、そうでなければ自分の保存データを復元。
+  // 出欠・コート割の画面（today.html）から来たときは、復元のあとに引き継いだ内容で作る
+  if (!loadFromShareLink()) { restoreSession(); importFromToday(); }
+}
+// 開いたままのタブに別の共有リンクが渡されたとき（ハッシュだけの遷移）も反映する
+window.addEventListener('hashchange', () => location.reload());
+</script>
+
+</body>
+</html>

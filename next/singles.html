@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>シングルス・固定ペア コート割</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: auto; padding: 12px; max-width: 600px; background: #f0f4f8; color: #263c4c; font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', Meiryo, sans-serif; }
+h1 { margin: 0 0 12px; padding: 18px 10px; font-size: 1.3rem; text-align: center; border-radius: 12px; background: linear-gradient(135deg,#d4efdf,#aed6f1); }
+h2 { font-size: 1.1rem; margin: 0 0 12px; }
+p { line-height: 1.7; }
+a { color: #17618c; }
+.panel,.round-card { background: white; border-radius: 12px; margin: 12px 0; padding: 16px; box-shadow: 0 2px 8px #0000000d; }
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.row label { flex: 0 0 90px; font-weight: bold; }
+select,textarea,input[type="date"] { min-width: 0; width: 100%; padding: 10px; border: 2px solid #aed6f1; border-radius: 8px; background: white; color: #263c4c; font: inherit; }
+textarea { margin-top: 8px; }
+button { cursor: pointer; font: inherit; border: 0; border-radius: 8px; padding: 12px; background: #eaf2f8; color: #245370; }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible,a:focus-visible { outline: 3px solid #ed9e28; outline-offset: 3px; }
+.primary { width: 100%; font-weight: bold; color: white; background: linear-gradient(135deg,#218c50,#27ae60); font-size: 1.08rem; }
+.note { background: #eaf2f8; border-radius: 8px; padding: 10px; font-size: .87rem; line-height: 1.6; }
+.muted { font-size: .85rem; color: #536875; line-height: 1.6; }
+#status { color: #98421b; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.actions button { flex: 1 1 130px; }
+.round-card { padding: 0; overflow: hidden; }
+.round-date { padding: 7px 14px; background: #eaf2f8; color: #245370; font-size: .85rem; font-weight: bold; }
+.round-header { display: flex; align-items: center; justify-content: space-between; background: #2c4558; color: white; padding: 10px 14px; }
+.round-header h2 { margin: 0; }
+.round-header button { padding: 6px 10px; background: #ffffff22; color: white; }
+.court-match { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid #ecf0f1; }
+.court-label { background: #2381b7; color: white; border-radius: 6px; padding: 5px 10px; font-weight: bold; }
+/* 「A」のすぐ右に番号・名前を並べる（中央寄せより目で追いやすい。2026-09-26ユーザー要望） */
+.match { flex: 1; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 4px 10px; font-size: 1.12rem; font-weight: bold; }
+.vs { color: #748796; font-size: .8rem; font-weight: normal; }
+.rest { padding: 10px 14px; background: #fff1e9; line-height: 1.7; font-size: .9rem; }
+.rest-number { display: inline-block; white-space: nowrap; }
+.chips { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin: 12px 0; }
+.chips label { padding: 8px 2px; border-radius: 6px; background: #eaf2f8; text-align: center; }
+.chips input { accent-color: #218c50; }
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; font-size: .87rem; }
+.stats div { padding: 8px; border-radius: 6px; background: #f0f4f8; text-align: center; }
+.stats strong,.stats span { display: block; white-space: nowrap; line-height: 1.6; }
+summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
+.change-note { border-left: 4px solid #ed9e28; padding: 8px 12px; margin: 16px 0 8px; background: #fff6df; }
+.roster-box { margin-bottom: 12px; }
+.roster-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.roster-head button { padding: 6px 12px; font-size: .85rem; }
+.roster-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.roster-chips button { position: relative; min-width: 64px; padding: 10px 12px; border: 2px solid #aed6f1; background: white; color: #263c4c; }
+/* 名簿チップの色は通常版（index.html の .chip-roster / .chip-add）と同じ：男性＝薄い青・女性＝薄いピンク・選んだら濃い緑（2026-11-10） */
+.roster-chips button.gender-m { border-color: #9cc8ec; background: #e3f0fb; }
+.roster-chips button.gender-f { border-color: #f3a9c2; background: #fde7ef; }
+.roster-chips button.selected { border-color: #1e8449; background: #27ae60; color: #fff; font-weight: bold; }
+.roster-chips .order { display: inline-block; min-width: 1.5em; margin-right: 4px; padding: 0 4px; border-radius: 10px; background: #218c50; color: white; font-size: .78rem; line-height: 1.5em; }
+.roster-chips button.selected .order { background: #fff; color: #1e8449; }
+.pair-preview { margin: 4px 0 0; padding-left: 0; list-style: none; font-size: .9rem; line-height: 1.8; }
+.pair-preview .pending { color: #98421b; }
+.join-box { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: #f4faf6; }
+.join-box p { margin: 0 0 8px; }
+.stats .names { white-space: normal; font-weight: bold; }
+.stats .names span { display: inline-block; white-space: nowrap; }
+.chips label { overflow-wrap: anywhere; font-size: .85rem; }
+.image-preview { margin-top: 12px; text-align: center; }
+.image-preview img { max-width: 100%; border: 1px solid #ccd6dd; border-radius: 6px; }
+.image-preview .preview-label { font-weight: bold; margin: 4px 0; }
+.image-preview .preview-guide { margin: 8px 0; padding: 8px 10px; border: 1.5px solid #7fb6e0; border-radius: 8px; background: #e8f4fd; color: #1a5276; font-size: .87rem; line-height: 1.6; }
+.image-preview .photo-button { width: 100%; margin: 4px 0 8px; font-weight: bold; color: white; background: linear-gradient(135deg,#2381b7,#2e9bd6); }
+/* 大会練習の点数（2026-10-24追加） */
+.tour-box { margin: 0 0 10px; padding: 10px 12px; border: 1.5px solid #f3d27a; border-radius: 8px; background: #fff8e1; font-size: .87rem; line-height: 1.6; }
+.tour-box strong { display: block; }
+.tour-box ul { display: flex; flex-wrap: wrap; gap: 0 14px; margin: 2px 0 6px; padding: 0; list-style: none; }
+.tour-box li { white-space: nowrap; }
+.tour-box li.formed { color: #1e7a45; font-weight: bold; }
+.tour-box button { padding: 6px 10px; font-size: .85rem; margin-left: 6px; }
+.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; font-size: .9rem; line-height: 1.5; }
+.check-row input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: #218c50; }
+.pair-preview .kind { color: #536875; font-size: .82rem; }
+.score-bar { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #eef8f1; font-size: .87rem; line-height: 1.6; }
+.score-bar .check-row { margin: 0 0 4px; }
+.score-bar .bar-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.score-bar button { padding: 6px 10px; font-size: .85rem; }
+.score-bar .error { color: #98421b; }
+.court-match.has-score { border-bottom: 0; padding-bottom: 4px; }
+.score-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 14px 12px 58px; border-bottom: 1px solid #ecf0f1; }
+/* 16px未満だと iPhone で入力するときに画面が拡大される */
+.score-row input { width: 3.2em; padding: 6px 4px; border: 2px solid #aed6f1; border-radius: 6px; font-size: 16px; text-align: center; color: #263c4c; }
+.score-row button { padding: 7px 12px; font-size: .9rem; }
+.score-row button.save { background: #218c50; color: white; font-weight: bold; }
+.score-saved { margin-right: 4px; color: #1e7a45; font-size: 1.05rem; font-weight: bold; }
+.score-error { flex-basis: 100%; color: #98421b; font-size: .82rem; }
+.score-wait { flex-basis: 100%; color: #6b5300; font-size: .82rem; }
+.score-missing { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #fff1e9; color: #98421b; }
+.score-bar .score-missing button { margin: 3px 4px 0 0; padding: 4px 8px; background: white; color: #98421b; border: 1.5px solid #e8b89a; }
+[hidden] { display: none !important; }
+@media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
+</style>
+</head>
+<body>
+<h1>🏸 シングルス・固定ペア<br>コート割</h1>
+<nav><a href="index.html">通常のダブルス版へ</a></nav>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="setup" class="panel">
+  <div class="row"><label for="practiceDate">練習日</label><input id="practiceDate" type="date" min="0001-01-01" max="9999-12-31"></div>
+  <div class="row"><label for="mode">種目</label><select id="mode"><option value="singles">シングルス</option><option value="pairs">固定ペア番号</option></select></div>
+  <div class="row"><label for="courtCount">コート数</label><select id="courtCount"><option value="1">1コート</option><option value="2">2コート</option><option value="3">3コート</option><option value="4" selected>4コート</option></select></div>
+  <div class="roster-box">
+    <div class="tour-box" id="tourBox" role="status" hidden></div>
+    <div class="roster-head"><strong>参加メンバー（名簿から・任意）</strong><button type="button" id="rosterClear">全解除</button></div>
+    <div class="roster-chips" id="rosterChips"></div>
+    <p class="muted" id="rosterInfo"></p>
+    <ol class="pair-preview" id="pairPreview" hidden></ol>
+    <label class="check-row" id="scoringRow" hidden><input type="checkbox" id="scoring"><span>点数を記録する（各試合に点数欄を出し、スプシに練習日ごとの記録を残します。大会の練習期間は大会ペアの勝率も集計します）</span></label>
+  </div>
+  <div class="row" id="playerCountRow"><label for="playerCount" id="countLabel">参加人数</label><select id="playerCount"></select></div>
+  <div class="row"><label for="roundCount">節数</label><select id="roundCount"><option>10</option><option>15</option><option>20</option><option>25</option><option>30</option></select></div>
+  <div class="row"><label for="restOrder">休み順</label><select id="restOrder"><option value="desc">最後の番号から休む</option><option value="asc">1番から休む</option></select></div>
+  <p class="note" id="infoBox"></p>
+  <details id="forcedBox"><summary>休みを指定する（任意）</summary><label for="forcedRests" class="muted">1行に「節番号: 休む番号」を入力。例：3: 2,5（第3節は2番と5番が休み）。名簿からメンバーを選んだときは名前でも書けます（例：3: 田中。固定ペアはその人のペアが休み）。指定した番号は休みが増えることがあります。</label><textarea id="forcedRests" rows="3" placeholder="3: 2,5"></textarea></details>
+  <p class="muted">休み回数を均等にし、対戦相手と使用コートの偏りを抑えます。休む順番は通常のダブルス版と同じで、1周目は番号順（最後の番号から休む：大きい番号から／1番から休む：1番から）、2周目以降は並びをずらします。毎節の休みが参加番号の半分以上になる構成では、対戦相手が固定されないよう番号順は1周目だけにし、連続して休みになる場合があります。「最後の番号から休む」では、第1節を1対2・3対4…の番号順に配置します。</p>
+  <button class="primary" id="generateBtn">コート割を作成</button>
+</section>
+<section id="summary" class="panel" hidden></section>
+<section id="changePanel" class="panel" hidden>
+  <details><summary>途中で参加番号・コート数を変更</summary>
+    <p class="muted">終了した節を残して、それ以降を作り直します。参加する番号にチェックしてください。固定ペアではペア単位で変更します。</p>
+    <div class="row"><label for="consumedRound">終了した節</label><select id="consumedRound"></select></div>
+    <div class="chips" id="memberChips"></div>
+    <div class="join-box" id="joinBox" hidden>
+      <p class="muted"><strong>途中から来た人・組み直す人（名簿から）</strong><br>タップした順に2人ずつペアになり、空いている番号が付きます。名前がスプシの記録に残ります。<br>相方が帰ったときは、上でそのペアのチェックを外すと、残った人もここから選べます。</p>
+      <div class="roster-chips" id="joinChips"></div>
+      <ol class="pair-preview" id="joinPreview" hidden></ol>
+    </div>
+    <div class="row"><label for="changeCourts">コート数</label><select id="changeCourts"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+    <p class="muted">休み指定は作成時の設定を引き継ぎます。途中参加・復帰のある場合、休み回数は参加していた期間で集計します。</p>
+    <button class="primary" id="changeBtn">残りの節を作り直す</button>
+  </details>
+</section>
+<div id="results"></div>
+<script>
+'use strict';
+const STORAGE_KEY = 'badminton-singles-pairs-session-v1';
+const SHARE_PREFIX = '#sp1=';
+// 短い共有リンク：点数を記録する表は表IDだけを入れる（2026-10-25。表を丸ごと入れると2,000〜4,000文字あった）。
+// リンクは通常版のURL（…/badminton-doubles-court/#t=表ID）にして短くし、index.html がこのページへ渡す（2026-11-10）
+const SHORT_PREFIX = '#t=';
+const COURTS = ['A','B','C','D'];
+const ROUND_OPTIONS = [10,15,20,25,30];
+// KALIDIAの名簿（原本 バドミントン系/members.txt から update_members.py が自動生成。直接編集しない）
+const ROSTER = [
+  // 男性
+  '大野','上條','唐澤祐','唐澤郁','北原','越野','小林','善志','髙橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
+  // 女性
+  '濱島','内田','北澤','黒河内','後藤','酒井','下平','田中','中原','根津真','宮下','依田',
+];
+// 読み上げ用フリガナ（原本から自動生成。対応がない名前は漢字のまま読み上げエンジンに渡す）
+const KANA = {
+  '大野':'おおの','上條':'かみじょう','唐澤祐':'からさわゆうじ','唐澤郁':'からさわふみや','北原':'きたはら','越野':'こしの','小林':'こばやし','善志':'ぜんし','髙橋':'たかはし','原':'はら','バレ':'ばれ','根津':'ねづ','細井':'ほそい','松武':'まつたけ','宮澤輝':'みやざわてる','渡辺':'わたなべ',
+  '濱島':'はましま','内田':'うちだ','北澤':'きたざわ','黒河内':'くろごうち','後藤':'ごとう','酒井':'さかい','下平':'しもだいら','田中':'たなか','中原':'なかはら','根津真':'ねづまほ','宮下':'みやした','依田':'よだ',
+};
+// 性別（原本の[男性]/[女性]セクションから自動生成。名簿チップの色分けで使用＝2026-11-10追加）
+const GENDER = {
+  '大野':'M','上條':'M','唐澤祐':'M','唐澤郁':'M','北原':'M','越野':'M','小林':'M','善志':'M','髙橋':'M','原':'M','バレ':'M','根津':'M','細井':'M','松武':'M','宮澤輝':'M','渡辺':'M',
+  '濱島':'F','内田':'F','北澤':'F','黒河内':'F','後藤':'F','酒井':'F','下平':'F','田中':'F','中原':'F','根津真':'F','宮下':'F','依田':'F',
+};
+// 名簿チップに男女の色を付けるクラス（名簿に無い名前は付けない）
+function genderClass(nm) {
+  const g=Object.prototype.hasOwnProperty.call(GENDER,nm) ? GENDER[nm] : '';
+  return g==='M' ? 'gender-m' : g==='F' ? 'gender-f' : '';
+}
+// 読み上げ専用の表記上書き（手動管理。index.html の SPEECH_KANA と同じ内容にする。test_singles_names.js が一致を確認）
+const SPEECH_KANA = {
+  'バレ': 'バレ',     // 'ばれ'だと平板で「バレる」のように聞こえる → カタカナで頭高に（2026-08-13）
+  '濱島': 'ハマシマ', // 'はましま'だとスマホで頭の「は」が飲まれ「マシマ」に聞こえる（2026-08-13）
+};
+let session = null;
+let viewerMode = false;
+// 名簿から選んだ順（固定ペアはこの順に2人ずつペアにする）
+let rosterPicks = [];
+const $ = id => document.getElementById(id);
+function todayPracticeDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function validPracticeDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  return y >= 1 && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+function practiceDateLabel(value) {
+  if (!validPracticeDate(value)) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  const day = new Date(value + 'T12:00:00').getDay();
+  return `${y}年${m}月${d}日（${'日月火水木金土'[day]}）`;
+}
+// 練習日の入力欄を手で選んだ日（'YYYY-MM-DD'。選んでいなければ ''）。index.html と同じ考え方。
+// 今日のうちに手で選んだ日付なら、過去の日付でも作り直したときにそのまま使う（2026-11-10。以前は作成のたびに
+// 「選んでいない」に戻し、2回目の作成で今日に変わっていた）。日をまたいだら選んでいない扱い
+let practiceDateTouched = '';
+const touchedToday = () => practiceDateTouched === todayPracticeDate();
+// 表示中の表には付けないと答えた日付（同じ日付で change がもう一度来ても聞き直さない）
+let keptPracticeDate = null;
+function changePracticeDate() {
+  practiceDateTouched = todayPracticeDate();
+  // その日の大会（練習期間）で大会ペアと「点数を記録する」の初期値が変わる
+  scoringTouched = false; renderRoster(); loadTournaments();
+  const value = $('practiceDate').value;
+  if (viewerMode || !session || (value && !validPracticeDate(value))) return;
+  // 同じ日付で change が来ても（端末によっては欄を離れたときにも来る）スプシに送り直さない
+  if (value === (session.practiceDate || '') || value === keptPracticeDate) return;
+  // 点数を記録した表は、日付を変えるとスプシの試合（入力済みの点数も）が新しい日付に移る。前回の表を復元した
+  // まま、新しい表を作るつもりで欄を変えたときに前回の点数まで動かさないよう確かめる（2026-10-24）
+  if (session.scoreId && session.practiceDate && scoreApi() && (!value || !confirm(`表示中の対戦表の練習日も${practiceDateLabel(value)}に変えますか？\n入力済みの点数も、スプシで新しい日付になります。\n\n新しい表を作るときは「キャンセル」を押してください（欄の日付で作られます）。`))) {
+    keptPracticeDate = value;
+    notify('表示中の対戦表の練習日はそのままです。新しく作る表は欄の日付になります。');
+    return;
+  }
+  keptPracticeDate = null;
+  session = revised({ ...session, practiceDate: value });
+  persist(); registerScores(); render();
+}
+// 前回の表を復元すると入力欄も前回の練習日になる。触らずに別の日に作ると新しい表まで
+// 前回の日付になっていた（2026-10-22修正）。手で選んでいない過去の日付なら今日で作る
+function freshPracticeDate() {
+  const value = $('practiceDate').value;
+  return !touchedToday() && value && value < todayPracticeDate() ? todayPracticeDate() : value;
+}
+const unit = mode => mode === 'pairs' ? 'ペア' : '人';
+const own = (table, k) => table && Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined;
+// 番号の名前（シングルス: '田中'、固定ペア: ['田中','鈴木']）。名簿を使っていなければ undefined
+const namesOf = p => session ? own(session.names, p) : undefined;
+// 休みの並びの区切り。名前付きの固定ペアは「宮澤輝・濱島」の中の「・」と見分けるため「／」にする
+const restSeparator = () => session && session.mode === 'pairs' && session.names ? ' ／ ' : '・';
+const label = (p, mode) => {
+  const nm = namesOf(p);
+  if (!nm) return `${p}番${mode === 'pairs' ? 'ペア' : ''}`;
+  return `${p} ${Array.isArray(nm) ? nm.join('・') : nm}`;
+};
+// 読み上げ用の呼び名（名前はフリガナ、番号のみなら「5番」「5番ペア」）
+const speechName = nm => own(SPEECH_KANA, nm) || own(KANA, nm) || nm;
+const speechLabel = (p, mode) => {
+  const nm = namesOf(p);
+  if (!nm) return label(p, mode);
+  return Array.isArray(nm) ? nm.map(speechName).join('、') : speechName(nm);
+};
+const key = (a,b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+const sequence = n => Array.from({length:n}, (_,i) => i+1);
+const isInt = (n,min,max) => Number.isInteger(n) && n >= min && n <= max;
+function validPlayers(players) {
+  return Array.isArray(players) && players.length >= 2 && players.length <= 12 && players.every(p => isInt(p,1,12)) && new Set(players).size === players.length;
+}
+// 名前は共有リンク経由で細工されうるので形だけでなく長さも見る（表示は textContent のみで innerHTML には入れない）
+function validNames(names, mode) {
+  if (names === undefined) return true;
+  if (!names || typeof names !== 'object' || Array.isArray(names)) return false;
+  const okName = s => typeof s === 'string' && s.trim().length > 0 && s.length <= 20;
+  return Object.entries(names).every(([k, v]) => /^[1-9]\d*$/.test(k) && isInt(Number(k),1,12) &&
+    (mode === 'pairs' ? Array.isArray(v) && v.length === 2 && v.every(okName) : okName(v)));
+}
+function checkConfig(c) {
+  if (c && c.practiceDate !== undefined && c.practiceDate !== '' && !validPracticeDate(c.practiceDate)) throw Error('練習日を確認してください。');
+  if (!c || !['singles','pairs'].includes(c.mode) || !validPlayers(c.players) || !isInt(c.courts,1,4) || c.players.length < c.courts*2 || !ROUND_OPTIONS.includes(c.totalRounds) || !['asc','desc'].includes(c.restOrder)) throw Error('人数・ペア数は2〜12、コート数は1〜4で、1コートにつき2番号が必要です。');
+  if (!validNames(c.names, c.mode)) throw Error('参加メンバーの名前の形式が正しくありません。');
+  if (c.scoring !== undefined && typeof c.scoring !== 'boolean') throw Error('点数の記録の設定が正しくありません。');
+  if (c.scoreId !== undefined && (typeof c.scoreId !== 'string' || !SCORE_ID_RE.test(c.scoreId))) throw Error('点数の表IDが正しくありません。');
+  if (c.rev !== undefined && !isInt(c.rev,0,1000000)) throw Error('対戦表の更新番号が正しくありません。');
+  if (!c.forced || typeof c.forced !== 'object' || Array.isArray(c.forced)) throw Error('休み指定の形式が正しくありません。');
+  for (const [rn, ids] of Object.entries(c.forced)) {
+    if (!/^[1-9]\d*$/.test(rn) || !isInt(Number(rn),1,c.totalRounds) || !Array.isArray(ids) || ids.length > 12 || ids.some(p => !isInt(p,1,12)) || new Set(ids).size !== ids.length) throw Error('休み指定の節番号・参加番号を確認してください。');
+  }
+}
+// Imposed rests must name participating numbers and fit the rest slots of each regenerated round.
+function checkForced(config, from=1) {
+  const restSize=config.players.length-config.courts*2;
+  for (let rn=from;rn<=config.totalRounds;rn++) {
+    const forced=config.forced[rn] || [];
+    if (forced.some(p => !config.players.includes(p))) throw Error(`第${rn}節の休み指定に参加していない番号があります。`);
+    if (forced.length > restSize) throw Error(`第${rn}節の休み指定が休み枠（${restSize}${unit(config.mode)}）を超えています。`);
+  }
+}
+// 休み指定。番号のほか名前でも書ける（名簿から選んだとき。シングルスは番号が作成時に決まるため）。
+// 名前はそのまま文字列で返し、resolveForcedNames で番号に直す
+function parseForced(text) {
+  const forced = {};
+  for (const line of text.split(/\r?\n/).filter(s => s.trim())) {
+    const normalized = line.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/：/g,':').replace(/[、，]/g,',');
+    const m = normalized.match(/^\s*(\d+)\s*:\s*(.+?)\s*$/);
+    const items = m ? m[2].split(',').map(s => s.trim()) : [];
+    if (!m || items.some(s => !s || (/^[\d.]+$/.test(s) && !/^\d+$/.test(s)))) throw Error('休み指定は「3: 2,5」の形式で入力してください。');
+    const rn = Number(m[1]);
+    forced[rn] = [...new Set([...(forced[rn] || []), ...items.map(s => /^\d+$/.test(s) ? Number(s) : s)])];
+  }
+  return forced;
+}
+// 休み指定の名前を番号に直す（固定ペアはその人を含むペアの番号）
+function resolveForcedNames(forced, names, mode) {
+  const out = {};
+  for (const [rn, items] of Object.entries(forced)) {
+    out[rn] = [...new Set(items.map(item => {
+      if (typeof item === 'number') return item;
+      if (!names) throw Error(`休み指定の「${item}」は番号で入力してください（名前で書けるのは名簿からメンバーを選んだときです）。`);
+      const hit = Object.keys(names).find(k => mode === 'pairs' ? names[k].includes(item) : names[k] === item);
+      if (!hit) throw Error(`第${rn}節の休み指定の「${item}」は参加メンバーにいません。`);
+      return Number(hit);
+    }))];
+  }
+  return out;
+}
+function shuffled(list) {
+  const out = list.slice();
+  for (let i=out.length-1;i>0;i--) { const j=Math.floor(Math.random()*(i+1)); [out[i],out[j]]=[out[j],out[i]]; }
+  return out;
+}
+// ===== ここから通常のダブルス版（index.html）の休み順と同じ処理 =====
+// 休みが参加番号の半分未満のときは、ダブルス版と全く同じ休み順にする（2026-09-23ユーザー要望）。
+// index.html の makeStrideGroups〜generateRestSchedule をそのまま写したもの。
+// 片方だけ直さないこと（test_singles_rest_order.js が両方の関数の一致を確認する）
+function makeStrideGroups(N, cycle, restCount) {
+  const stride = cycle;
+  const used = new Set();
+  const groups = [];
+
+  for (let offset = 0; offset < stride; offset++) {
+    const candidates = [];
+    for (let i = 0; offset + 1 + i * stride <= N; i++) {
+      candidates.push(offset + 1 + i * stride);
+    }
+    for (let i = 0; i + restCount <= candidates.length; i += restCount) {
+      const group = candidates.slice(i, i + restCount);
+      groups.push(group);
+      group.forEach(p => used.add(p));
+    }
+  }
+
+  const leftovers = [];
+  for (let p = 1; p <= N; p++) {
+    if (!used.has(p)) leftovers.push(p);
+  }
+  for (let i = 0; i < leftovers.length; i += restCount) {
+    groups.push(leftovers.slice(i, i + restCount));
+  }
+
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups;
+}
+
+function strideLinearOrder(N, cycle, restCount) {
+  return makeStrideGroups(N, cycle, restCount).flat();
+}
+
+// players: 参加者番号の配列（欠番可）
+// initialRestCounts: 引き継ぐ休み回数（途中変更時）。省略時は全員0
+// prevResting: 直前節の休み（境目の連続休み回避に使用）。省略可
+// reverse: trueなら最後の番号から休む（並び位置の基準を降順にするだけで公平性は同一）
+// deferredNew: 途中追加者の番号。初回の休みを現在の周回の最後尾に回す（降順で末尾番号が
+//   キュー先頭に割り込み、追加直後に休みになるのを防ぐ）。省略可
+// forcedByIndex: 指定休み { 0始まりの節index: [番号,…] }。その節で必ず休ませる人。
+//   公平性（差≤1）より指定を優先するので、指定された人だけ休みが増えることがある。
+//   残りの枠は従来どおり「休み回数が最少の人から」公平に埋める。省略可
+// roundOffset: この休み表より前に消化した節数（途中変更時）。出場順の周回を続きから数える。省略可
+// initialRestStreaks: 消化済みの最終節まで続いた休みの長さ（番号→連続節数）。省略可
+function generateRestSchedule(players, restCount, numRounds, initialRestCounts, prevResting, reverse, deferredNew, forcedByIndex, roundOffset, initialRestStreaks) {
+  if (restCount === 0) return Array.from({length: numRounds}, () => []);
+
+  const allPlayers = players.slice().sort((a, b) => reverse ? b - a : a - b);
+  const M = allPlayers.length;
+  // 欠番があってもストライドが機能するよう、番号順の並び位置(1..M)で組んで番号に戻す
+  const playerAt = pos => allPlayers[pos - 1];
+  const playerSet = new Set(allPlayers);
+
+  const restCounts = {};
+  const initialOf = {};
+  const boundaryHits = {};
+  const deferred = new Set(deferredNew || []);
+  allPlayers.forEach(p => {
+    restCounts[p] = (initialRestCounts && initialRestCounts[p]) || 0;
+    initialOf[p] = restCounts[p];
+    boundaryHits[p] = 0;
+  });
+
+  const restSchedule = [];
+  let prevSet = new Set(prevResting || []);
+
+  // 指定休みを先に確定する。在籍していない番号・重複・枠あふれは無視（入力側でも弾く）
+  const forcedAt = rIdx => {
+    const forcedHere = [];
+    const forcedSet = new Set();
+    for (const p of (forcedByIndex && forcedByIndex[rIdx]) || []) {
+      if (playerSet.has(p) && !forcedSet.has(p) && forcedHere.length < restCount) {
+        forcedSet.add(p);
+        forcedHere.push(p);
+      }
+    }
+    return { forcedHere, forcedSet };
+  };
+  // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）
+  const nearForcedAt = rIdx => new Set([
+    ...((forcedByIndex && forcedByIndex[rIdx - 1]) || []),
+    ...((forcedByIndex && forcedByIndex[rIdx + 1]) || []),
+  ]);
+
+  // 休みが参加人数の半分以上のときは「出場する順番」で回す（2026-09-23）。
+  // 休む順のストライドは休み人数ぶんの組を作れず毎周同じ番号順に戻るため、
+  // 出場する顔ぶれが固定されていた（例: 2コート24人で1〜8・9〜16・17〜24番がずっと同じ組）。
+  // 休み回数が多い人から出場させるのは、少ない人から休ませるのと同じなので公平性は変わらない。
+  // 1周目は番号順（最後の番号から休む＝小さい番号から出場）、2周目以降は周ごとに並びを入れ替える
+  if (restCount * 2 >= M) {
+    const playCount = M - restCount;
+    const playRankCache = {};
+    const playRank = cycle => {
+      if (!playRankCache[cycle]) {
+        // 並び位置（1=最初に休む）を逆にしたものが出場順。2周目以降は周ごとに決まった乱数列で並べ替える
+        const pos = Array.from({length: M}, (_, i) => M - i);
+        if (cycle > 1) {
+          let seed = (cycle * 7919 + M * 131 + playCount) >>> 0;
+          const rand = () => {
+            seed = (seed + 0x6D2B79F5) >>> 0;
+            let t = seed;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+          for (let i = pos.length - 1; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            [pos[i], pos[j]] = [pos[j], pos[i]];
+          }
+        }
+        playRankCache[cycle] = new Map(pos.map((p, i) => [playerAt(p), i]));
+      }
+      return playRankCache[cycle];
+    };
+    // 休みが半分を超える構成では、周ごとの並べ替えで同じ人が何節も続けて休むことがあった
+    // （例: 2コート26人30節で6節連続。避けられない長さは3節）。避けられない長さ+1節を
+    // 超えそうな人を同じ休み回数の中で先に出場させる。下限ちょうどに抑えると出場する
+    // 顔ぶれが固定に戻るので+1節までは許す。ちょうど半分の構成は対象外（交互に固定されるため）
+    const streak = {};
+    // 再生成でも消化済み節からの連続休みを引き継ぐ。直前の1節だけに戻すと、
+    // 2コート20人で第5節後に作り直した際、上限3節を超えて4節連続で休んでいた。
+    allPlayers.forEach(p => streak[p] = prevSet.has(p)
+      ? Math.max(1, (initialRestStreaks && initialRestStreaks[p]) || 0) : 0);
+    const streakCap = restCount * 2 > M ? Math.ceil(restCount / playCount) : Infinity;
+    for (let rIdx = 0; rIdx < numRounds; rIdx++) {
+      const { forcedSet } = forcedAt(rIdx);
+      const cycle = 1 + Math.floor(((roundOffset || 0) + rIdx) * playCount / M);
+      const rank = playRank(cycle);
+      const nearForced = nearForcedAt(rIdx);
+      // 途中追加者は初休みまで、指定休みの前後の人はその節で、なるべく出場させる
+      const playFirst = p => (deferred.has(p) && restCounts[p] === initialOf[p] ? 2 : 0) + (nearForced.has(p) ? 1 : 0);
+      const overCap = p => streak[p] > streakCap ? 1 : 0;
+      const playing = new Set(allPlayers
+        .filter(p => !forcedSet.has(p))
+        .sort((a, b) => restCounts[b] - restCounts[a] || playFirst(b) - playFirst(a) || overCap(b) - overCap(a) || rank.get(a) - rank.get(b))
+        .slice(0, playCount));
+      const picks = allPlayers.filter(p => !playing.has(p));
+      allPlayers.forEach(p => streak[p] = playing.has(p) ? 0 : streak[p] + 1);
+      picks.forEach(p => restCounts[p]++);
+      restSchedule.push(picks.sort((a, b) => a - b));
+    }
+    return restSchedule;
+  }
+
+  const linearOrderCache = {};
+  const getLinearOrder = (cycle) => {
+    if (!linearOrderCache[cycle]) {
+      linearOrderCache[cycle] = strideLinearOrder(M, cycle, restCount).map(playerAt);
+    }
+    return linearOrderCache[cycle];
+  };
+
+  while (restSchedule.length < numRounds) {
+    const rIdx = restSchedule.length;
+    const { forcedHere, forcedSet } = forcedAt(rIdx);
+    const need = restCount - forcedHere.length;
+
+    let picks;
+    let fillersFromB = [];
+
+    if (need <= 0) {
+      picks = forcedHere.slice();
+    } else {
+      // 残り枠は従来どおりの公平ロジック。指定済みの人は候補から外す
+      // （外さないと curMin が指定者の回数に引きずられ、poolBが空になって枠が埋まらない）
+      let curMin = Infinity;
+      for (const p of allPlayers) {
+        if (!forcedSet.has(p) && restCounts[p] < curMin) curMin = restCounts[p];
+      }
+      const poolA = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin);
+      const poolB = allPlayers.filter(p => !forcedSet.has(p) && restCounts[p] === curMin + 1);
+
+      const cycleA = curMin + 1;
+      const linearA = getLinearOrder(cycleA);
+      const rankA = new Map();
+      linearA.forEach((p, i) => rankA.set(p, i));
+
+      // 途中追加者の並び補正: 初休みは周回の最後尾（重み2）、
+      // 初休み直後の節は連続休み回避で後ろへ（重み1・軟制約）
+      const deferWeight = p => {
+        if (!deferred.has(p)) return 0;
+        if (restCounts[p] === initialOf[p]) return 2;
+        if (prevSet.has(p)) return 1;
+        return 0;
+      };
+
+      // 指定休みの前後の節では、その人をなるべく休ませない（2節続けて休みになるのを避ける）。
+      // あくまで同じ休み回数グループ内の並び替えなので公平性は変わらず、
+      // 指定が無いときは常に0＝従来とまったく同じ並びになる
+      const nearForced = nearForcedAt(rIdx);
+      const softWeight = p => deferWeight(p) + (nearForced.has(p) ? 1 : 0);
+
+      const orderedA = poolA.slice().sort((a, b) => {
+        const wa = softWeight(a);
+        const wb = softWeight(b);
+        if (wa !== wb) return wa - wb;
+        const ra = rankA.has(a) ? rankA.get(a) : 0;
+        const rb = rankA.has(b) ? rankA.get(b) : 0;
+        return ra - rb;
+      });
+
+      let selected;
+      if (orderedA.length >= need) {
+        // ストライド順を守りつつ、直前の節に休んだ人は同じ回数の中で後ろへ回す（2026-09-23）。
+        // 周の切り替わりで、新しい周の先頭に直前の休みの人が来て2節続けて休むのを防ぐ。
+        // 1周目は全員が未休みなので影響せず、番号順のまま
+        const fresh = orderedA.filter(p => !prevSet.has(p));
+        selected = fresh.concat(orderedA.filter(p => prevSet.has(p))).slice(0, need);
+      } else {
+        const shortfall = need - orderedA.length;
+        const cycleB = curMin + 2;
+        const linearB = getLinearOrder(cycleB);
+        const rankB = new Map();
+        linearB.forEach((p, i) => rankB.set(p, i));
+
+        const orderedB = poolB.slice().sort((a, b) => {
+          if (boundaryHits[a] !== boundaryHits[b]) {
+            return boundaryHits[a] - boundaryHits[b];
+          }
+          const ra = rankB.has(a) ? rankB.get(a) : 0;
+          const rb = rankB.has(b) ? rankB.get(b) : 0;
+          return ra - rb;
+        });
+
+        const nonPrevB = orderedB.filter(p => !prevSet.has(p));
+        fillersFromB = (nonPrevB.length >= shortfall ? nonPrevB : orderedB).slice(0, shortfall);
+        selected = orderedA.concat(fillersFromB);
+      }
+      // 指定休みが続くと、指定された人の回数だけが先に伸びて curMin と curMin+1 の
+      // 2グループでは枠を埋めきれないことがある。埋まらないまま返すと出場者が
+      // 4の倍数にならず、出場も休みもしない人が出る／コート割の生成が失敗する。
+      // 残りは休み回数が少ない順に補充して、必ず枠ちょうどにする（2026-09-04修正）
+      if (selected.length < need) {
+        const chosen = new Set(selected);
+        const spare = allPlayers
+          .filter(p => !forcedSet.has(p) && !chosen.has(p))
+          .sort((a, b) => restCounts[a] - restCounts[b]); // 同数はストライド側の並び順を維持
+        selected = selected.concat(spare.slice(0, need - selected.length));
+      }
+      picks = forcedHere.concat(selected);
+    }
+
+    fillersFromB.forEach(p => boundaryHits[p]++);
+    picks.forEach(p => restCounts[p]++);
+    restSchedule.push(picks.slice().sort((a, b) => a - b));
+    prevSet = new Set(picks);
+  }
+
+  return restSchedule;
+}
+// ===== ここまで通常のダブルス版と同じ処理 =====
+// At most eight active numbers: enumerate all 105 matchings and 24 court orders.
+function bestMatches(active, opponents, courtHistory, previous, fixed, planned) {
+  if (fixed) return Array.from({length:active.length/2}, (_,i) => active.slice(i*2,i*2+2));
+  let best = Infinity, candidates = [];
+  function match(rest, pairs, score) {
+    if (!rest.length) {
+      if (score < best) { best=score; candidates=[]; }
+      if (score === best) candidates.push(pairs);
+      return;
+    }
+    const a=rest[0];
+    for (let i=1;i<rest.length;i++) {
+      const b=rest[i], k=key(a,b), count=opponents[k] || 0;
+      // Never repeat the previous round's opponents when another matching exists (rests may be fixed in advance).
+      const cost=100*(count+1)**2 + (previous.has(k) ? 1000000 : 0);
+      match(rest.slice(1,i).concat(rest.slice(i+1)), pairs.concat([[a,b]]), score+cost);
+    }
+  }
+  if (planned) candidates=[planned];
+  else match(active,[],0);
+  let courtBest=Infinity, result;
+  function order(rest, pairs, score) {
+    if (!rest.length) { if (score < courtBest) { courtBest=score; result=pairs; } return; }
+    for (let i=0;i<rest.length;i++) {
+      const pair=rest[i], ci=pairs.length;
+      const cost=pair.reduce((sum,p) => sum+((courtHistory[p]?.[ci] || 0)+1)**2,0);
+      order(rest.slice(0,i).concat(rest.slice(i+1)),pairs.concat([pair]),score+cost);
+    }
+  }
+  for (const pairs of shuffled(candidates)) order(shuffled(pairs),[],0);
+  return result;
+}
+function roundRobin(players, offset) {
+  const sorted=players.slice().sort((a,b)=>a-b);
+  const ring=sorted.filter((_,i)=>i%2===0).concat(sorted.filter((_,i)=>i%2===1).reverse());
+  for (let i=0;i<offset%(ring.length-1);i++) ring.splice(1,0,ring.pop());
+  return Array.from({length:ring.length/2},(_,i)=>[ring[i],ring[ring.length-1-i]]);
+}
+// Choose rest and opponents together. Giving consecutive-rest avoidance priority
+// over opponents locks half-capacity sessions into two permanent groups.
+function chooseRest(players, courts, forced, restCounts, opponents, previousMatches, previousRest) {
+  const slots=players.length-courts*2-forced.length;
+  if (!slots) return forced.slice();
+  const available=players.filter(p=>!forced.includes(p));
+  const cutoff=available.map(p=>restCounts[p] || 0).sort((a,b)=>a-b)[slots-1];
+  const mandatoryRest=available.filter(p=>(restCounts[p] || 0)<cutoff);
+  const pool=shuffled(available.filter(p=>!mandatoryRest.includes(p)));
+  const mustPlay=pool.reduce((mask,p,i)=>(restCounts[p] || 0)>cutoff ? mask | (1<<i) : mask,0);
+  const cache=new Map();
+  function solve(mask, remaining) {
+    const id=mask*5+remaining;
+    if (cache.has(id)) return cache.get(id);
+    if (!mask) return {score:remaining ? Infinity : 0,active:[]};
+    const i=31-Math.clz32(mask & -mask), bit=1<<i, tail=mask^bit;
+    let best={score:Infinity,active:[]};
+    function consider(score,active) {
+      if (score<best.score || (score===best.score && Math.random()<0.5)) best={score,active};
+    }
+    if (!(mustPlay & bit)) {
+      const next=solve(tail,remaining);
+      consider(next.score+(previousRest.has(pool[i]) ? 1 : 0),next.active);
+    }
+    if (remaining>0) for (let j=i+1;j<pool.length;j++) if(tail & (1<<j)) {
+      const next=solve(tail^(1<<j),remaining-1), k=key(pool[i],pool[j]);
+      const cost=1000000*((opponents[k] || 0)+1)**2+(previousMatches.has(k) ? 100 : 0);
+      consider(next.score+cost,next.active.concat(pool[i],pool[j]));
+    }
+    cache.set(id,best); return best;
+  }
+  const result=solve((1<<pool.length)-1,courts);
+  if (!Number.isFinite(result.score)) throw Error('参加番号の割り当てを作成できませんでした。');
+  return players.filter(p=>!result.active.includes(p));
+}
+function cycleMatches(players, courts, offset, order) {
+  const sorted=players.slice().sort((a,b)=>order==='desc' ? a-b : b-a), n=sorted.length;
+  if (n%2===0 && n%(courts*2)===0) {
+    const batches=n/(courts*2), cycle=Math.floor(offset/batches);
+    const ring=sorted.filter((_,i)=>i%2===0).concat(sorted.filter((_,i)=>i%2===1).reverse());
+    for (let i=0;i<cycle%(n-1);i++) ring.splice(1,0,ring.pop());
+    const pairs=Array.from({length:n/2},(_,i)=>[ring[i],ring[n-1-i]]);
+    return pairs.slice((offset%batches)*courts,(offset%batches+1)*courts);
+  }
+  if (n%2===1 && n%courts===0) {
+    // Walecki Hamilton-cycle decomposition, with disjoint edges in fair order.
+    const batches=n/courts, k=Math.floor(offset/batches)%((n-1)/2);
+    const mod=n-1;
+    function vertices(shift) {
+      const out=[0,1+shift];
+      for(let d=1;d<=(n-1)/2;d++) {
+        out.push(1+(shift-d+mod)%mod);
+        if(d<(n-1)/2) out.push(1+(shift+d)%mod);
+      }
+      return out;
+    }
+    const names={}; vertices(0).forEach((v,i)=>names[v]=sorted[i]);
+    const ring=vertices(k).map(v=>names[v]);
+    return Array.from({length:courts},(_,i)=>{
+      const edge=((offset%batches)*courts+i)*2%n;
+      return [ring[edge],ring[(edge+1)%n]];
+    });
+  }
+  return null;
+}
+function scheduleQuality(s) {
+  const counts={}, history={}; let repeated=0, last=new Set();
+  for(const r of s.rounds) {
+    const now=new Set();
+    r.matches.forEach((pair,ci)=>{
+      const k=key(...pair); counts[k]=(counts[k] || 0)+1; now.add(k);if(last.has(k)) repeated++;
+      pair.forEach(p=>{const ck=p+'-'+ci;history[ck]=(history[ck] || 0)+1;});
+    });last=now;
+  }
+  const values=Object.values(counts);
+  return [Math.max(...values),values.reduce((sum,n)=>sum+n*n,0),repeated,Object.values(history).reduce((sum,n)=>sum+n*n,0)];
+}
+function buildSession(config, kept=[]) {
+  checkConfig(config);
+  let best=null, bestQuality=null;
+  const total=config.totalRounds*config.courts, pairs=config.players.length*(config.players.length-1)/2;
+  const q=Math.floor(total/pairs), extra=total%pairs, lowerSquares=(pairs-extra)*q*q+extra*(q+1)*(q+1);
+  const trials=!kept.length && !Object.values(config.forced).some(ids=>ids.length) ? 32 : 8;
+  for(let trial=0;trial<trials;trial++) {
+    const candidate=buildCandidate(config,kept), quality=scheduleQuality(candidate);
+    if(!best || quality.some((value,i)=>value<bestQuality[i] && quality.slice(0,i).every((v,j)=>v===bestQuality[j]))) {best=candidate;bestQuality=quality;}
+    // This bound ignores imposed rests/changes; only use it for unchanged sessions.
+    if(!kept.length && quality[0]===Math.ceil(total/pairs) && quality[1]===lowerSquares && quality[2]===(config.players.length===2 ? config.totalRounds-1 : 0)) break;
+  }
+  return best;
+}
+function buildCandidate(config, kept=[]) {
+  checkConfig(config);
+  if (kept.length >= config.totalRounds) throw Error('作り直す節がありません。');
+  const restCounts={}, courtHistory={}, opponents={}, rounds=kept.slice();
+  let previousRest=new Set(), previousMatches=new Set();
+  let priorPlayers=[];
+  function preparePlayers(players) {
+    const continuing=players.filter(p=>priorPlayers.includes(p));
+    const base=continuing.length ? Math.min(...continuing.map(p=>restCounts[p] || 0)) : 0;
+    players.forEach(p=>{ if (!priorPlayers.includes(p)) restCounts[p]=base; });
+    priorPlayers=players;
+  }
+  function record(round) {
+    round.rest.forEach(p => restCounts[p]=(restCounts[p] || 0)+1);
+    round.matches.forEach((pair,ci) => {
+      const k=key(...pair); opponents[k]=(opponents[k] || 0)+1;
+      pair.forEach(p => { if (!courtHistory[p]) courtHistory[p]=[0,0,0,0]; courtHistory[p][ci]++; });
+    });
+    previousRest=new Set(round.rest); previousMatches=new Set(round.matches.map(pair => key(...pair)));
+  }
+  // Replay every historical join/return to retain its rest credit on later edits.
+  kept.forEach(round=>{ preparePlayers(round.players); record(round); });
+  preparePlayers(config.players);
+  // Continue the current round-robin segment when only regenerating its future.
+  let segmentStart=kept.length;
+  while (segmentStart>0) {
+    const r=kept[segmentStart-1];
+    if (r.courts!==config.courts || r.players.length!==config.players.length || !r.players.every(p=>config.players.includes(p))) break;
+    segmentStart--;
+  }
+  const restSize=config.players.length-config.courts*2;
+  checkForced(config,kept.length+1);
+  // Rest order (2026-09-23): when fewer than half rest, use exactly the doubles version's order.
+  // Otherwise that order locks opponents to nearby numbers, so only the first lap follows number order.
+  const doublesOrder=restSize>0 && restSize*2<config.players.length;
+  let doublesRest=null;
+  if (doublesOrder) {
+    const seen=new Set(kept.flatMap(r=>r.players)), forcedByIndex={};
+    for (let rn=kept.length+1;rn<=config.totalRounds;rn++) if ((config.forced[rn] || []).length) forcedByIndex[rn-kept.length-1]=config.forced[rn];
+    // Earlier late joiners that have not rested yet keep their first rest at the end of the lap; otherwise a
+    // second change (or a plain regeneration) lets the highest number cut to the front right after joining.
+    const lateUnrested=p=>kept.length>0 && !kept[0].players.includes(p) && !kept.some(r=>r.rest.includes(p));
+    doublesRest=generateRestSchedule(config.players,restSize,config.totalRounds-kept.length,
+      Object.fromEntries(config.players.map(p=>[p,restCounts[p] || 0])),[...previousRest],config.restOrder==='desc',
+      kept.length ? config.players.filter(p=>!seen.has(p) || lateUnrested(p)) : null,forcedByIndex,kept.length);
+  }
+  const joinedAt={};
+  kept.forEach((r,i)=>r.players.forEach(p=>{ if (joinedAt[p]===undefined) joinedAt[p]=i; }));
+  config.players.forEach(p=>{ if (joinedAt[p]===undefined) joinedAt[p]=kept.length; });
+  // Saved schedules from earlier versions may not follow this decomposition.
+  const useCycle=!doublesOrder && segmentStart===0 && !Object.values(config.forced).some(ids=>ids.length) && kept.every(r=>{
+    const expected=cycleMatches(config.players,config.courts,r.round-1,config.restOrder);
+    return expected && expected.map(pair=>key(...pair)).sort().join(',')===r.matches.map(pair=>key(...pair)).sort().join(',');
+  });
+  // After a change into an all-play segment, start the round robin where its first round does not repeat
+  // the last completed round. Kept rounds of the segment decide the start, so regenerations continue it.
+  let rrShift=0;
+  if (restSize===0 && segmentStart>0) {
+    const inSegment=kept.slice(segmentStart), last=new Set(kept[segmentStart-1].matches.map(m=>key(...m)));
+    const same=(a,b)=>a.map(m=>key(...m)).sort().join()===b.map(m=>key(...m)).sort().join();
+    const fits=s=>inSegment.every((r,j)=>same(r.matches,roundRobin(config.players,j+s)));
+    const shifts=sequence(Math.max(1,config.players.length-1)).map(s=>s-1);
+    rrShift=shifts.find(s=>fits(s) && !roundRobin(config.players,s).some(m=>last.has(key(...m)))) ?? shifts.find(fits) ?? 0;
+  }
+  // First lap: numbers that have not rested yet rest in number order (late joiners after the original numbers).
+  // A number with an imposed rest within this lap takes that rest as its turn.
+  function firstLapRest(rn, forced) {
+    const slots=restSize-forced.length;
+    if (slots<=0) return forced.slice();
+    const unrested=config.players.filter(p=>!forced.includes(p) && !(restCounts[p] || 0));
+    const lapEnd=rn-1+Math.ceil(unrested.length/restSize);
+    const pending=new Set(unrested.filter(p=>Object.entries(config.forced).some(([f,ids])=>Number(f)>rn && Number(f)<=lapEnd && ids.includes(p))));
+    const queue=unrested.filter(p=>!pending.has(p)).sort((a,b)=>joinedAt[a]-joinedAt[b] || (config.restOrder==='desc' ? b-a : a-b));
+    if (queue.length>=slots) return forced.concat(queue.slice(0,slots));
+    const counts={...restCounts};
+    pending.forEach(p=>counts[p]=1);
+    return chooseRest(config.players,config.courts,forced.concat(queue),counts,opponents,previousMatches,previousRest);
+  }
+  for (let rn=kept.length+1;rn<=config.totalRounds;rn++) {
+    const forced=config.forced[rn] || [];
+    const cycle=useCycle ?
+      cycleMatches(config.players,config.courts,rn-1,config.restOrder) : null;
+    const rest=(doublesRest ? doublesRest[rn-kept.length-1].slice() :
+      cycle ? config.players.filter(p=>!cycle.flat().includes(p)) :
+      firstLapRest(rn,forced)).sort((a,b)=>a-b);
+    const active=config.players.filter(p => !rest.includes(p)).sort((a,b)=>a-b);
+    const planned=cycle || (restSize===0 && segmentStart>0 ? roundRobin(active,rn-segmentStart-1+rrShift) : null);
+    const matches=bestMatches(active,opponents,courtHistory,previousMatches,rn===1 && config.restOrder==='desc',planned);
+    const round={round:rn,players:config.players.slice(),courts:config.courts,rest,matches};
+    rounds.push(round); record(round);
+  }
+  return {...config,version:1,completedThrough:kept.length,rounds};
+}
+function validSession(s) {
+  try {
+    checkConfig(s);
+    if (s.version!==1 || !Array.isArray(s.rounds) || s.rounds.length!==s.totalRounds) return false;
+    if (s.completedThrough!==undefined && !isInt(s.completedThrough,0,s.totalRounds-1)) return false;
+    for (let i=0;i<s.rounds.length;i++) {
+      const r=s.rounds[i];
+      if (!r || r.round!==i+1 || !validPlayers(r.players) || !isInt(r.courts,1,4) || r.players.length<r.courts*2 || !Array.isArray(r.matches) || r.matches.length!==r.courts || !Array.isArray(r.rest)) return false;
+      if (r.matches.some(m => !Array.isArray(m) || m.length!==2)) return false;
+      const all=r.matches.flat().concat(r.rest);
+      if (all.length!==r.players.length || new Set(all).size!==all.length || all.some(p => !r.players.includes(p))) return false;
+      if ((s.forced[r.round] || []).some(p => !r.rest.includes(p))) return false;
+    }
+    const last=s.rounds[s.rounds.length-1]; // not .at(-1): iOS 14.0-15.3 Safari lacks it
+    return last.courts===s.courts && last.players.length===s.players.length && last.players.every(p => s.players.includes(p));
+  } catch { return false; }
+}
+// 名前（日本語）を含むので UTF-8 にしてから base64 にする（btoa は日本語をそのまま扱えない）。
+// 名前の無い従来のリンクは ASCII だけなので、同じ手順でそのまま読める
+function encodeShare(s) {
+  let bin = '';
+  for (const b of new TextEncoder().encode(JSON.stringify(s))) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+function fromBase64Utf8(data) {
+  return new TextDecoder().decode(Uint8Array.from(atob(data), c => c.charCodeAt(0)));
+}
+function decodeShare(data) {
+  if (data.length>24000) throw Error('共有リンクが長すぎます。');
+  // Links cut off by mail or chat apps, or with "=" percent-encoded, must not surface browser errors in English.
+  let s;
+  try { s=JSON.parse(fromBase64Utf8(decodeURIComponent(data))); }
+  catch { throw Error('共有リンクが途中で切れているか、壊れています。共有した人にリンクをもう一度送ってもらってください。'); }
+  if (!validSession(s)) throw Error('共有リンクの対戦表が正しくありません。');
+  return s;
+}
+function notify(message) { $('status').textContent=message; }
+function persist() {
+  if (viewerMode) return;
+  try { localStorage.setItem(STORAGE_KEY,JSON.stringify(session)); }
+  catch { notify('対戦表は作成できましたが、このブラウザでは保存できません。画像または共有リンクを保存してください。'); }
+}
+// ===== 大会練習の点数（スプシ＋GAS。2026-10-24追加） =====
+// 固定ペア＋名簿のときだけ。練習日が大会の練習期間なら大会ペアを自動で組み、各試合の点数をスプシに送る。
+// 成績・勝率はスプシだけで見る（集計は gas/main.js）。「点数を記録する」がオフの表は何も送らない。
+// 表ID（scoreId）は共有リンクに入れて誰でも点数を入れられるようにし、作り直しの鍵（hostKey）は作った端末にだけ置く
+const SCORE_API = 'https://script.google.com/macros/s/AKfycbwwYPljkI-6oMhpUZkCY3oohtZFEM6uxlMrtZUEAoq3AJS0zq3e0Nj31ZyMQshIsKM2Zw/exec';
+const SCORE_KEYS = 'badminton-singles-score-keys-v1';
+const SCORE_PENDING = 'badminton-singles-score-pending-v1';
+// 表IDは英数字8文字（2026-11-10。以前の23文字の表IDもそのまま使える）
+const SCORE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
+const SCORE_POLL_MS = 30000;
+// 保存（POST）の返事はスプシ側の順番待ち（最大45秒）より長く待つ。20秒だと、8人が同時に保存したときに
+// 後ろの人が「送信できませんでした」になった（2026-10-25 check_score_concurrent.js で実測）。テストは window.SCORE_POST_TIMEOUT_MS で短くする
+const SCORE_GET_TIMEOUT_MS = 20000, SCORE_POST_TIMEOUT_MS = 60000;
+// 保存がこれより長くかかったら、押し直さずに待つよう知らせる
+const SCORE_SLOW_MS = 5000;
+// 公開ページ以外（手元のファイル・テスト）では通信しない。テストは window.SCORE_API_URL で偽の窓口に向ける
+function scoreApi() {
+  if (typeof window==='undefined') return '';
+  if (typeof window.SCORE_API_URL==='string') return window.SCORE_API_URL;
+  return location.hostname==='sasukewebjob-ai.github.io' ? SCORE_API : '';
+}
+// テスト版（公開サイトの next/ フォルダ。統合版の確認用）で開かれているか。テスト版では、試しに作った表や点数が
+// 本物のスプシに混ざらないよう「点数を記録する」を最初はオフにする（2026-11-11 ユーザー選択。チェックを入れれば記録できる）
+const testBuild = () => typeof location!=='undefined' && /\/next\//.test(location.pathname);
+// スプシの名前と名簿の名前を同じ人とみなす比べ方（gas/core.js の canonicalName と同じ）
+const canonName = s => String(s).normalize('NFKC').replace(/\s+/g,'').replace(/[髙﨑]/g,c=>({'髙':'高','﨑':'崎'})[c]);
+const shortDate = v => validPracticeDate(v) ? `${Number(v.slice(5,7))}/${Number(v.slice(8,10))}` : '';
+function randomId(prefix) {
+  const bytes=new Uint8Array(16); crypto.getRandomValues(bytes);
+  return prefix+btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+// 表ID（共有リンクに入る）：英数字8文字＝約2百兆通り。偏りが出ないよう248以上の値は使わない
+function newScoreId() {
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let id='';
+  while (id.length<8) {
+    const bytes=new Uint8Array(16); crypto.getRandomValues(bytes);
+    for (const b of bytes) if (b<248 && id.length<8) id+=chars[b%62];
+  }
+  return id;
+}
+// 返事でつながらなかったときの失敗（送り直せば通る見込みがある）
+const RETRYABLE = ['network','timeout','busy','server_error'];
+// 点数の保存で成績の計算が後回しになったら、スプシに片付けを頼む（返事は待たない）。最終節を入れてすぐ
+// 全員が画面を閉じても、成績・練習日シートが計算待ちのまま残らないようにする（2026-11-10）
+function requestStatsFlush() {
+  const url=scoreApi();
+  if (!url) return;
+  try {
+    fetch(url,{method:'POST',keepalive:true,headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'flush'})}).catch(()=>{});
+  } catch { /* 送れなくても、次の読み込みやスプシを開いたときに片付く */ }
+}
+// GAS の窓口を呼ぶ。GET は Google が一時的にエラーページを返すことがあるので1回だけやり直す（POST は二重に送らない）
+async function scoreRequest(method, body) {
+  const url=scoreApi();
+  if (!url) throw Error('このページでは点数を記録できません。');
+  const limit=method==='GET' ? SCORE_GET_TIMEOUT_MS : typeof window.SCORE_POST_TIMEOUT_MS==='number' ? window.SCORE_POST_TIMEOUT_MS : SCORE_POST_TIMEOUT_MS;
+  for (let attempt=1;;attempt++) {
+    const ctrl=typeof AbortController==='function' ? new AbortController() : null;
+    let timedOut=false;
+    const timer=ctrl ? setTimeout(()=>{ timedOut=true; ctrl.abort(); },limit) : 0;
+    let r=null;
+    try {
+      // GET の表IDは id（c・sid は Google の予約語で、URLに入れると400になる）。POST は本文なので sid のまま
+      const res=method==='GET' ? await fetch(url+'?'+new URLSearchParams(body),{cache:'no-store',signal:ctrl && ctrl.signal})
+        : await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body),signal:ctrl && ctrl.signal});
+      r=JSON.parse(await res.text());
+    } catch { r=null; }
+    finally { clearTimeout(timer); }
+    if (r && typeof r==='object') {
+      if (r.ok) return r;
+      const e=Error(typeof r.error==='string' ? r.error : 'エラーが起きました。'); e.code=r.code; throw e;
+    }
+    // timeout は返事を待ちきれなかった（混雑のことが多い）。network は届かなかった・読めなかった
+    if (method!=='GET' || attempt>=2) { const e=Error('通信できませんでした。電波の良い所でもう一度お試しください。'); e.code=timedOut ? 'timeout' : 'network'; throw e; }
+    await new Promise(done=>setTimeout(done,1500));
+  }
+}
+// --- 作成前：その日の大会と大会ペア（練習日ごとに1回読む） ---
+const tourCache={};
+let scoringTouched=false;
+function setupTours() { const t=own(tourCache,freshPracticeDate()); return t && t.status==='ok' ? t.list : []; }
+// 名簿から固定ペアを選んでいて大会ペアを読み込み中なら、作成を待つ（待たずに作るとタップ順のペア・記録オフの表になる）。
+// 読み込めなかったときは待たない（大会ペアなしで作れる）
+const waitingTours = () => $('mode').value==='pairs' && rosterPicks.length>0 && !!scoreApi() && (own(tourCache,freshPracticeDate()) || {}).status==='loading';
+async function loadTournaments(force) {
+  const date=freshPracticeDate(), cached=own(tourCache,date);
+  if (!scoreApi() || viewerMode || $('mode').value!=='pairs' || !validPracticeDate(date)) return;
+  if (cached && (cached.status==='loading' || (cached.status==='ok' && !force))) return;
+  tourCache[date]={status:'loading',list:[]}; renderRoster();
+  try {
+    const r=await scoreRequest('GET',{action:'tournaments',date});
+    const list=(Array.isArray(r.tournaments) ? r.tournaments : []).filter(t=>t && typeof t.name==='string' && Array.isArray(t.pairs))
+      .map(t=>({...t,pairs:t.pairs.filter(p=>p && Array.isArray(p.names) && p.names.length===2 && p.names.every(x=>typeof x==='string' && x))}))
+      .sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    tourCache[date]={status:'ok',list};
+  } catch { tourCache[date]={status:'error',list:[]}; }
+  renderRoster();
+}
+function renderTourBox(slots) {
+  const box=$('tourBox'), t=own(tourCache,freshPracticeDate());
+  box.hidden=!(scoreApi() && $('mode').value==='pairs' && t && (t.status!=='ok' || t.list.length));
+  if (box.hidden) return;
+  if (t.status==='loading') { box.replaceChildren('大会ペアを確認しています…'); return; }
+  if (t.status==='error') { box.replaceChildren('大会ペアを読み込めませんでした（通信できません）。',button('もう一度読み込む',()=>loadTournaments(true))); return; }
+  const pairId=(tour,names)=>tour+'|'+names.map(canonName).sort().join('・');
+  const formed=new Set(slots.filter(s=>s.tournament).map(s=>pairId(s.tournament,s.names)));
+  box.replaceChildren(...t.list.flatMap(tour=>{
+    const head=document.createElement('strong'); head.textContent=`🏆 ${tour.name}の練習期間（${shortDate(tour.start)}〜${shortDate(tour.end)}）`;
+    const list=document.createElement('ul');
+    if (!tour.pairs.length) list.append('大会ペアはまだ登録されていません。');
+    tour.pairs.forEach(p=>{
+      const li=document.createElement('li'), done=formed.has(pairId(tour.name,p.names));
+      li.textContent=`${p.category ? p.category+' ' : ''}${p.names.join('・')}${done ? ' ✓' : ''}`; if (done) li.className='formed';
+      list.append(li);
+    });
+    return [head,list];
+  }),'大会ペアは2人とも選ぶと自動でペアになります（✓）。');
+}
+// --- 作成後：点数の登録・読み込み・入力 ---
+let scoreState={id:null};
+let scoreDrafts={}, scoreErrors={}, scoreEditing=new Set(), scoreSaving=new Set(), scoreSlow=new Set();
+let registerChain=Promise.resolve(), scoreTimer=null;
+const scoringOn = () => !!(session && session.scoring && session.mode==='pairs' && session.scoreId && scoreApi());
+// 閲覧者は記録オフの間も表の変更を読む。幹事がオンに戻したときに自動で追従するため。
+const scoreSyncOn = () => !!(session && session.mode==='pairs' && session.scoreId && scoreApi() && (session.scoring || viewerMode));
+// 表が替わったら（新しく作った・消した）点数の状態を捨てる
+function ensureScoreState() {
+  const id=session && session.scoreId || null;
+  if (scoreState.id!==id) {
+    scoreState={id,version:0,scores:{},loading:false,checkedAt:0,registering:0,registerMsg:'',syncMsg:'',healed:false,readToken:0,scoreEpoch:0,matchKeys:{}};
+    scoreDrafts={}; scoreErrors={}; scoreEditing=new Set(); scoreSaving=new Set(); scoreSlow=new Set();
+  }
+  const st=scoreState;
+  if (st.owner===session) return;
+  const next={};
+  if (id) scoreMatches(session).forEach(m=>{ next[m.round+m.court]=matchKey(m.a,m.b); });
+  // 同じ節・コートでも対戦が替わったら、前の対戦の点数・入力途中の値を持ち越さない。
+  // 対戦が同じ欄は送信中のまま（練習日の変更などで表が替わっても、二重に送れないように）
+  Object.keys(st.matchKeys || {}).forEach(k=>{
+    if (st.matchKeys[k]!==next[k]) { delete st.scores[k]; delete scoreDrafts[k]; delete scoreErrors[k]; scoreEditing.delete(k); scoreSaving.delete(k); scoreSlow.delete(k); }
+  });
+  st.owner=session; st.matchKeys=next; st.readToken=(st.readToken || 0)+1; st.loading=false;
+}
+// 対戦の顔ぶれ（左右の順は区別、ペアの中の並びと名前の書き方の違いは区別しない）
+const matchKey = (a,b) => JSON.stringify([a,b].map(side=>side.map(canonName).sort()));
+// スプシから届いた点数のうち、自分の表と同じ対戦のものだけ（作り直しの登録がまだ届いていないときの古い点数を出さない）。
+// 顔ぶれの無い応答（古い窓口）はそのまま使う
+function serverScores(list) {
+  const out={};
+  (Array.isArray(list) ? list : []).forEach(m=>{
+    const k=m.round+m.court;
+    if (Array.isArray(m.a) && Array.isArray(m.b) && scoreState.matchKeys[k]!==matchKey(m.a,m.b)) return;
+    out[k]=[m.scoreA,m.scoreB];
+  });
+  return out;
+}
+const sideNames = (s,p) => { const nm=own(s.names,p); return Array.isArray(nm) ? nm.slice() : [`${p}番ペア`]; };
+const scoreMatches = s => s.rounds.flatMap(r=>r.matches.map((m,i)=>({round:r.round,court:COURTS[i],a:sideNames(s,m[0]),b:sideNames(s,m[1])})));
+function pendingScoreRegistration() {
+  try {
+    const p=JSON.parse(localStorage.getItem(SCORE_PENDING) || 'null');
+    return !!(session && p && p.id===session.scoreId && p.data===encodeShare(session));
+  } catch { return false; }
+}
+function clearPendingRegistration(id, data) {
+  try {
+    const pending=JSON.parse(localStorage.getItem(SCORE_PENDING) || 'null');
+    if (pending && pending.id===id && pending.data===data) localStorage.removeItem(SCORE_PENDING);
+  } catch { /* 保存不可 */ }
+}
+// 作り直しの鍵は作った端末にだけ置く（共有リンクには入れない）。古い表の鍵は30件まで
+const memoryKeys={};
+function hostKeyFor(id) {
+  let keys={};
+  try { keys=JSON.parse(localStorage.getItem(SCORE_KEYS) || '{}'); } catch { keys={}; }
+  if (!keys || typeof keys!=='object' || Array.isArray(keys)) keys={};
+  const known=own(keys,id) || own(memoryKeys,id);
+  if (typeof known==='string' && SCORE_ID_RE.test(known)) return known;
+  const k=randomId('K'); memoryKeys[id]=k; keys[id]=k;
+  const ids=Object.keys(keys); ids.slice(0,Math.max(0,ids.length-30)).forEach(x=>delete keys[x]);
+  try { localStorage.setItem(SCORE_KEYS,JSON.stringify(keys)); } catch { /* 保存できない端末は、この画面を開いている間だけ作り直せる */ }
+  return k;
+}
+// 表をスプシに登録する（作成・途中変更・練習日の変更・記録をオンにしたとき）。作った端末だけ。
+// force はオフにしたことを共有リンクの人に伝えるための最後の1回
+function registerScores(force) {
+  ensureScoreState();
+  if (viewerMode || !session || !session.scoreId || !(session.scoring || force) || !scoreApi()) return registerChain;
+  if (!validPracticeDate(session.practiceDate)) { scoreState.registerMsg='練習日を入れると点数を記録できます。'; paintScoreBar(); return registerChain; }
+  const owner=session, st=scoreState, data=encodeShare(owner);
+  // 送信に失敗したまま閉じても、保存した表を次回起動時に再送できるようにする。
+  try { localStorage.setItem(SCORE_PENDING,JSON.stringify({id:owner.scoreId,data})); } catch { /* 保存不可でも今回の送信は続ける */ }
+  st.registering++; st.registerMsg='スプシに登録しています…'; paintScoreBar();
+  registerChain=registerChain.then(async()=>{
+    let ok=false;
+    try {
+      // 待っている間にさらに変わったら、あとから積んだ新しい方だけ送る
+      if (session!==owner) return;
+      const r=await scoreRequest('POST',{action:'register',sid:owner.scoreId,hostKey:hostKeyFor(owner.scoreId),date:owner.practiceDate,
+        data,matches:scoreMatches(owner),roster:ROSTER.slice()});
+      clearPendingRegistration(owner.scoreId,data);
+      st.version=Math.max(st.version,r.version); st.registerMsg=''; st.registerFailed=false; st.registerFatal=false; ok=true;
+    } catch(e) {
+      st.registerMsg=e.code==='forbidden' ? 'この表は別の端末で作られたため、この端末からは登録できません。' : `スプシに登録できませんでした。${e.message}`;
+      st.registerFailed=true;
+      // 送り直しても通らない失敗（鍵が違う・内容がおかしい）は再送の予定から外す。
+      // 残すと読み込みのたびに登録を送り続け、点数を読まなくなる。返事を待ちきれなかった（timeout）は
+      // スプシに届いていないこともあるので送り直す（2026-11-10。以前は再送の予定から外していた）
+      st.registerFatal=!RETRYABLE.includes(e.code);
+      if (st.registerFatal) clearPendingRegistration(owner.scoreId,data);
+    } finally { st.registering--; if (scoreState===st) paintScoreBar(); }
+    if (ok && scoreState===st && !st.registering && scoringOn()) await syncScores();
+  });
+  return registerChain;
+}
+// 点数を読む（30秒ごと・🔄）。共有リンクの人は、幹事が作り直したら最新の表に切り替える
+async function syncScores() {
+  ensureScoreState();
+  const st=scoreState, id=st.id;
+  if (!scoreSyncOn() || st.loading || st.registering || scoreSaving.size) return;
+  if (!viewerMode && pendingScoreRegistration()) { registerScores(true); return; }
+  const owner=session, token=++st.readToken, epoch=st.scoreEpoch;
+  st.loading=true; paintScoreBar();
+  try {
+    const r=await scoreRequest('GET',{action:'get',id,since:st.version});
+    if (scoreState!==st || session!==owner || st.readToken!==token || st.scoreEpoch!==epoch) return;
+    let replaced=false;
+    if (viewerMode && typeof r.data==='string') {
+      let next=null;
+      try { next=decodeShare(r.data); } catch { next=null; }
+      // スプシの表の方が古いとき（幹事の作り直しの登録がまだ届いていない・失敗した）は、開いたリンクの表のままにする
+      if (next && next.scoreId===id && (next.rev || 0)>=(session.rev || 0) && encodeShare(next)!==encodeShare(session)) { session=next; ensureScoreState(); replaced=true; }
+    }
+    if (!viewerMode || typeof r.data==='string') st.version=Math.max(st.version,r.version);
+    st.scores=serverScores(r.matches);
+    st.checkedAt=Date.now(); st.syncMsg='';
+    if (replaced) { notify('幹事が対戦表を作り直したので、最新の表にしました。'); render(); }
+  } catch(e) {
+    if (scoreState!==st || session!==owner || st.readToken!==token) return;
+    if (e.code==='not_found' && !viewerMode && !st.healed) { st.healed=true; st.loading=false; registerScores(); return; }
+    st.syncMsg=e.code==='not_found' ? 'この表はまだスプシに登録されていません（作った端末で登録されると点数を入れられます）。' : `点数を読み込めませんでした。${e.message}`;
+  } finally { if (st.readToken===token) { st.loading=false; if (scoreState===st) paintScoreBar(); } }
+  paintScoreBar(); paintScores();
+}
+function updateScoreSync() {
+  const on=scoreSyncOn();
+  if (on && !scoreTimer) { scoreTimer=setInterval(()=>{ if (!document.hidden) syncScores(); },SCORE_POLL_MS); syncScores(); }
+  if (!on && scoreTimer) { clearInterval(scoreTimer); scoreTimer=null; }
+}
+// 幹事の端末で「点数を記録する」を切り替える（オンにしたときに登録。オフは共有リンクの人の点数欄も消える）
+function toggleScoring(on) {
+  if (!session || viewerMode) return;
+  const next=revised({...session,scoring:on}), firstTime=on && !next.scoreId;
+  if (firstTime) next.scoreId=newScoreId();
+  session=next; persist(); registerScores(!on); render();
+  // オフで作った表の共有リンクには表IDが無いので、送ったリンクを開いた人には点数欄が出ない
+  notify(!on ? '点数の記録をやめました（入力済みの点数はスプシに残ります）。'
+    : firstTime ? '点数を記録します。共有リンクをもう送っていた場合は、送り直してください（前のリンクでは点数欄が出ません）。'
+    : '点数を記録します。各試合の下に点数欄が出ます。');
+}
+// 幹事が表を変えるたびに番号を1つ進める。共有リンクを開いた人は、スプシの表がこれより古ければ置き換えない
+const revised = s => ({...s,rev:(s.rev || 0)+1});
+function scoreBar() {
+  const bar=document.createElement('div'); bar.className='score-bar';
+  if (!viewerMode) {
+    const l=document.createElement('label'); l.className='check-row';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.id='scoringNow'; cb.checked=!!session.scoring; cb.onchange=()=>toggleScoring(cb.checked);
+    const text=document.createElement('span'); text.textContent='点数を記録する（各試合に点数欄を出し、スプシに記録）';
+    l.append(cb,text); bar.append(l);
+  }
+  if (scoringOn()) {
+    const head=document.createElement('div'); head.className='bar-head';
+    const info=document.createElement('span'); info.id='scoreInfo';
+    head.append(info,button('🔄 最新の点数',()=>syncScores())); bar.append(head);
+  }
+  const status=document.createElement('div'); status.id='scoreStatus'; bar.append(status);
+  const missing=document.createElement('div'); missing.id='scoreMissing'; missing.className='score-missing'; missing.hidden=true; bar.append(missing);
+  return bar;
+}
+// 点数の入れ忘れ：点数が入った最後の節より前に、点数の無い試合があれば並べる（最後の節は試合中のことがあるので出さない）。
+// 入れ忘れはスプシを見るまで気づけなかった（2026-11-10）
+function missingScores() {
+  if (!scoringOn() || !scoreState.checkedAt) return [];
+  let last=0;
+  session.rounds.forEach(r=>r.matches.forEach((m,i)=>{ if (own(scoreState.scores,r.round+COURTS[i])) last=Math.max(last,r.round); }));
+  return session.rounds.filter(r=>r.round<last).flatMap(r=>r.matches.map((m,i)=>r.round+COURTS[i])).filter(k=>!own(scoreState.scores,k));
+}
+function jumpToScore(k) {
+  const row=document.querySelector(`.score-row[data-key="${k}"]`);
+  if (!row) return;
+  row.scrollIntoView({behavior:'smooth',block:'center'});
+  const input=row.querySelector('input');
+  if (input) input.focus({preventScroll:true});
+}
+function paintMissing() {
+  const box=$('scoreMissing');
+  if (!box) return;
+  const list=missingScores();
+  box.hidden=!list.length;
+  box.replaceChildren();
+  if (!list.length) return;
+  box.append(`⚠️ 点数が入っていない試合が${list.length}試合あります：`);
+  list.slice(0,8).forEach(k=>{ const b=button(`第${parseInt(k,10)}節 ${k.slice(-1)}`,()=>jumpToScore(k)); b.type='button'; box.append(b); });
+  if (list.length>8) box.append(`ほか${list.length-8}試合`);
+}
+function paintScoreBar() {
+  const info=$('scoreInfo'), status=$('scoreStatus');
+  if (info) {
+    const time=scoreState.checkedAt ? new Date(scoreState.checkedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}) : '';
+    info.textContent=scoreState.loading ? '点数を読み込んでいます…' : time ? `点数 ${Object.keys(scoreState.scores).length}試合入力済み（${time}更新）` : '';
+  }
+  paintMissing();
+  if (!status) return;
+  status.replaceChildren();
+  [scoreState.registerMsg,scoreState.syncMsg].filter(Boolean).forEach(msg=>{
+    const p=document.createElement('div'); p.textContent=msg; if (!/しています…$/.test(msg)) p.className='error'; status.append(p);
+  });
+  // 記録をオフにしたときの登録（共有リンクの人の点数欄を消す）が失敗した場合も送り直せるよう force で呼ぶ
+  if (scoreState.registerFailed && !scoreState.registering && !viewerMode) status.append(button('もう一度登録する',()=>registerScores(true)));
+}
+function paintScores(force) { document.querySelectorAll('.score-row').forEach(el=>paintScoreRow(el,force)); }
+function paintScoreRow(el, force) {
+  const k=el.dataset.key, saved=own(scoreState.scores,k), saving=scoreSaving.has(k);
+  // 入力中の欄は、ほかの人の点数が届いても書き換えない（タップしただけでまだ打っていなくても。
+  // 書き換えるとカーソルが外れ、スマホではキーボードが閉じる）
+  if (!force && el.contains(document.activeElement) && document.activeElement.tagName==='INPUT') return;
+  el.replaceChildren();
+  if (saved && !scoreEditing.has(k)) {
+    const text=document.createElement('span'); text.className='score-saved'; text.textContent=`${saved[0]} - ${saved[1]} ✓`;
+    el.append(text,button('直す',()=>{ scoreEditing.add(k); scoreDrafts[k]={a:String(saved[0]),b:String(saved[1])}; delete scoreErrors[k]; paintScoreRow(el,true); el.querySelector('input').focus(); }));
+  } else {
+    const draft=own(scoreDrafts,k) || {a:'',b:''};
+    const [nameA,nameB]=[el.dataset.a,el.dataset.b];
+    const box=(value,who)=>{ const i=document.createElement('input'); i.type='text'; i.inputMode='numeric'; i.maxLength=2; i.autocomplete='off'; i.value=value; i.disabled=saving; i.setAttribute('aria-label',`第${el.dataset.round}節 ${el.dataset.court}コート ${who}の点数`); return i; };
+    const a=box(draft.a,nameA), b=box(draft.b,nameB);
+    const keep=()=>{ scoreDrafts[k]={a:a.value,b:b.value}; };
+    // 左の欄に2桁入れたら右の欄へ（「21」と打てばそのまま相手の点数を打てる。2026-11-10）。Enter でも右へ
+    a.oninput=()=>{ keep(); if (/^[0-9０-９]{2}$/.test(a.value)) b.focus(); };
+    b.oninput=keep;
+    a.onkeydown=e=>{ if (e.key==='Enter') { e.preventDefault(); b.focus(); } };
+    b.onkeydown=e=>{ if (e.key==='Enter') saveScore(k); };
+    const save=button(saving ? '送信中…' : '保存',()=>saveScore(k)); save.className='save'; save.disabled=saving;
+    el.append(a,'-',b,save);
+    if (scoreEditing.has(k) && !saving) el.append(button('やめる',()=>{ scoreEditing.delete(k); delete scoreDrafts[k]; delete scoreErrors[k]; paintScoreRow(el,true); }));
+    if (saving && scoreSlow.has(k)) { const w=document.createElement('span'); w.className='score-wait'; w.setAttribute('role','status'); w.textContent='混み合っています。押し直さずに、そのままお待ちください…'; el.append(w); }
+  }
+  const err=own(scoreErrors,k);
+  if (err) { const e=document.createElement('span'); e.className='score-error'; e.setAttribute('role','alert'); e.textContent=err; el.append(e); }
+}
+// 保存の返事が届かなかったとき、スプシにその点数が入ったかを読んで確かめる（確かめられなければ false）
+async function reachedServer(st, owner, k, want) {
+  try {
+    const r=await scoreRequest('GET',{action:'get',id:owner.scoreId,since:st.version});
+    if (scoreState!==st) return false;
+    const got=own(serverScores(r.matches),k);
+    return want ? !!got && Number(got[0])===want[0] && Number(got[1])===want[1] : !got;
+  } catch { return false; }
+}
+async function saveScore(k) {
+  const el=document.querySelector(`.score-row[data-key="${k}"]`);
+  if (!el || scoreSaving.has(k) || !scoringOn()) return;
+  const round=Number(el.dataset.round), ci=COURTS.indexOf(el.dataset.court), r=session.rounds[round-1], m=r && r.matches[ci];
+  if (!m) return;
+  const draft=own(scoreDrafts,k) || {a:'',b:''};
+  const half=s=>String(s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).trim();
+  const a=half(draft.a), b=half(draft.b);
+  // 両方空で保存すると、入っていた点数を消す
+  const problem=a==='' && b==='' ? (own(scoreState.scores,k) ? '' : '点数を入れてください。')
+    : !/^\d{1,2}$/.test(a) || !/^\d{1,2}$/.test(b) || Number(a)>30 || Number(b)>30 ? '点数は0〜30の数字で入れてください。'
+    : Number(a)===Number(b) ? '同点は保存できません。' : '';
+  if (problem) { scoreErrors[k]=problem; paintScoreRow(el,true); return; }
+  const st=scoreState, owner=session, saving=scoreSaving, slow=scoreSlow, sent=st.matchKeys[k];
+  // 返事を待つ間に表が替わっても、この欄の対戦が同じなら返事を使う（練習日の変更など）。対戦が替わったら使わない
+  const current=()=>scoreState===st && st.matchKeys[k]===sent;
+  const want=a==='' ? null : [Number(a),Number(b)];
+  let needsSync=false;
+  st.scoreEpoch++; saving.add(k); delete scoreErrors[k]; paintScoreRow(el,true);
+  // 何人も同時に保存すると、スプシ側の順番待ちで時間がかかる。押し直さずに待つよう知らせる
+  const slowTimer=setTimeout(()=>{
+    if (!saving.has(k) || !current()) return;
+    slow.add(k); const now=document.querySelector(`.score-row[data-key="${k}"]`); if (now) paintScoreRow(now,true);
+  },SCORE_SLOW_MS);
+  try {
+    const body={action:'score',sid:owner.scoreId,round,court:el.dataset.court,a:sideNames(owner,m[0]),b:sideNames(owner,m[1]),
+      scoreA:a==='' ? '' : Number(a),scoreB:b==='' ? '' : Number(b)};
+    let res=null;
+    for (let attempt=1;;attempt++) {
+      try {
+        res=await scoreRequest('POST',body);
+        if (res.took && res.took.stats===false) requestStatsFlush();
+        break;
+      }
+      catch(e) {
+        // 混み合っていたら、押し直してもらわずに1回だけ送り直す
+        if (e.code==='busy' && attempt===1 && current()) { await new Promise(done=>setTimeout(done,1500)); continue; }
+        // 返事が届かなくても、スプシには入っていることがある（混んでいて待ちきれなかった・返事だけ途中で切れた）
+        if ((e.code==='timeout' || e.code==='network') && current() && await reachedServer(st,owner,k,want)) break;
+        throw e;
+      }
+    }
+    if (current()) {
+      // 同時に別の試合も保存できるので、この返事では保存した試合だけを更新する。
+      const result=res ? serverScores(res.matches) : want ? {[k]:want} : {};
+      if (own(result,k)) st.scores[k]=result[k]; else delete st.scores[k];
+      st.checkedAt=Date.now(); delete scoreDrafts[k]; scoreEditing.delete(k);
+    }
+  } catch(e) {
+    if (current()) {
+      scoreErrors[k]=e.code==='stale' ? '対戦表が作り直されています。最新の表で入れ直してください。'
+        : e.code==='timeout' ? '混み合っていて、保存できたか確かめられませんでした。もう一度「保存」を押してください。'
+        : e.code==='network' ? '送信できませんでした。電波の良い所でもう一度「保存」を押してください。' : e.message;
+      needsSync=e.code==='stale' || e.code==='not_found';
+    }
+  } finally { clearTimeout(slowTimer); slow.delete(k); saving.delete(k); st.scoreEpoch++; }
+  if (needsSync) await syncScores();
+  const now=document.querySelector(`.score-row[data-key="${k}"]`);
+  if (now) paintScoreRow(now,true);
+  paintScoreBar(); paintScores();
+}
+// --- 名簿から選ぶ（シングルス: 番号は作成時にランダム／固定ペア: 大会ペアは自動、残りはタップした順に2人ずつ） ---
+const maxPicks = mode => mode === 'pairs' ? 24 : 12;
+// 固定ペアの組み方：選んだ順に見て、大会ペアは2人そろった時点でペアにし、残りはタップした順に2人ずつ（臨時ペア）。
+// 練習期間が重なる大会で相方が2人いるときは大会日の早い方。大会の情報がなければ従来どおりタップ順だけ
+function planPairs(picks, tours) {
+  const slots=[], used=new Set(), reserved=new Map(); let open=null;
+  // タップ順で番号を付ける前に、大会の優先順でペアを確保する。
+  for (const t of tours) for (const p of t.pairs) {
+    const names=p.names.map(n=>picks.find(x=>!reserved.has(x) && canonName(x)===canonName(n)));
+    if (names.some(n=>!n) || names[0]===names[1]) continue;
+    const hit={names,tournament:t.name,category:p.category};
+    names.forEach(n=>reserved.set(n,hit));
+  }
+  for (const nm of picks) {
+    if (used.has(nm)) continue;
+    const hit=reserved.get(nm);
+    if (hit) { hit.names.forEach(x=>used.add(x)); slots.push(hit); continue; }
+    used.add(nm);
+    if (open) { open.names.push(nm); open=null; } else { open={names:[nm]}; slots.push(open); }
+  }
+  return slots;
+}
+function renderRoster() {
+  const mode=$('mode').value, pairs=mode==='pairs', tours=pairs ? setupTours() : [];
+  const slots=pairs ? planPairs(rosterPicks,tours) : [];
+  $('rosterChips').replaceChildren(...ROSTER.map(nm => {
+    const b=document.createElement('button'); b.type='button'; b.dataset.name=nm;
+    if (genderClass(nm)) b.classList.add(genderClass(nm));
+    const i=rosterPicks.indexOf(nm);
+    b.classList.toggle('selected',i>=0); b.setAttribute('aria-pressed',String(i>=0));
+    if (i>=0 && pairs) { const o=document.createElement('span'); o.className='order'; o.textContent=String(slots.findIndex(s=>s.names.includes(nm))+1); b.append(o); }
+    b.append(nm); b.onclick=()=>toggleRosterPick(nm); return b;
+  }));
+  const n=rosterPicks.length, waiting=slots.some(s=>s.names.length<2);
+  $('playerCountRow').hidden=n>0;
+  $('rosterInfo').textContent=!n ? '未選択（番号のみで作成します）'
+    : pairs ? `選択中: ${n}人${waiting ? `（あと1人でペアになります）` : `＝${slots.length}ペア`}。${tours.length ? '大会ペアは2人そろうと自動でペアになります。ほかの人は' : ''}タップした順に2人ずつペアになり、その順にペア番号が付きます。`
+    : `選択中: ${n}人。番号は作成時にランダムで決まります。`;
+  const list=$('pairPreview');
+  list.hidden=!(pairs && n);
+  list.replaceChildren(...slots.map((s,i)=>{
+    const li=document.createElement('li');
+    li.textContent=`${i+1}番ペア：${s.names[0]}・${s.names[1] || '（あと1人）'}`;
+    if (s.names.length<2) li.className='pending';
+    else if (tours.length) {
+      const kind=document.createElement('span'); kind.className='kind';
+      kind.textContent=s.tournament ? `（🏆 ${tours.length>1 ? s.tournament+' ' : ''}${s.category || '大会ペア'}）` : '（臨時）';
+      li.append(' ',kind);
+    }
+    return li;
+  }));
+  renderTourBox(slots);
+  $('scoringRow').hidden=!(scoreApi() && pairs && n);
+  // 練習日ごとの記録をスプシに残すため、大会の練習期間でなくても最初からオン（2026-10-25 ユーザー要望：体育館のノートの代わり）
+  if (!scoringTouched) $('scoring').checked=!testBuild();
+  updateInfo();
+}
+function toggleRosterPick(nm) {
+  const i=rosterPicks.indexOf(nm);
+  if (i>=0) rosterPicks.splice(i,1);
+  else if (rosterPicks.length>=maxPicks($('mode').value)) { notify(`名簿から選べるのは${$('mode').value==='pairs' ? '24人（12ペア）' : '12人'}までです。`); return; }
+  else rosterPicks.push(nm);
+  renderRoster();
+}
+// 名簿から選んでいるときの番号数（固定ペアで人数が奇数なら null＝まだ作れない）
+function rosterCount(mode) {
+  if (!rosterPicks.length) return undefined;
+  if (mode!=='pairs') return rosterPicks.length;
+  const slots=planPairs(rosterPicks,setupTours());
+  return slots.some(s=>s.names.length<2) ? null : slots.length;
+}
+function updateInfo() {
+  const mode=$('mode').value, courts=Number($('courtCount').value), fromRoster=rosterCount(mode);
+  const n=fromRoster===undefined ? Number($('playerCount').value) : fromRoster;
+  $('countLabel').textContent=mode==='pairs' ? '参加ペア数' : '参加人数';
+  [...$('playerCount').options].forEach(o => o.textContent=`${o.value}${unit(mode)}`);
+  const explanation=mode==='pairs' ? '1番号＝固定ペア1組。最大12ペア（24名）です。ペアの組み替えは行いません。' : '1番号＝1人。最大12名です。';
+  $('infoBox').textContent=explanation+(n===null ? ' ペアは2人ずつ選んでください。'
+    : n<2 ? ' 名簿から2番号以上になるように選んでください。'
+    : n>12 ? ` シングルスは12人までです（${n}人選択中）。`
+    : n<courts*2 ? ' 選んだコート数では人数・ペア数が不足しています。' : ` 毎節${courts*2}${unit(mode)}が対戦し、${n-courts*2}${unit(mode)}が休みます。`);
+  if (waitingTours()) $('infoBox').textContent+=' 大会ペアを確認しています。少しお待ちください。';
+  $('generateBtn').disabled=n===null || n<2 || n>12 || n<courts*2 || waitingTours();
+}
+function inputConfig() {
+  const mode=$('mode').value, fromRoster=rosterCount(mode);
+  if (fromRoster===null) throw Error('固定ペアは2人ずつ選んでください（あと1人）。');
+  if (waitingTours()) throw Error('大会ペアを確認しています。少しお待ちください。');
+  const config={mode,players:sequence(fromRoster===undefined ? Number($('playerCount').value) : fromRoster),courts:Number($('courtCount').value),totalRounds:Number($('roundCount').value),restOrder:$('restOrder').value};
+  const date=freshPracticeDate();
+  if (date) config.practiceDate=date;
+  if (fromRoster!==undefined) {
+    const names={};
+    if (mode==='pairs') planPairs(rosterPicks,setupTours()).forEach((s,i) => names[i+1]=s.names.slice());
+    else shuffled(rosterPicks).forEach((nm,i) => names[i+1]=nm);
+    config.names=names;
+    if (mode==='pairs' && scoreApi() && $('scoring').checked) config.scoring=true;
+  }
+  config.forced=resolveForcedNames(parseForced($('forcedRests').value),config.names,mode);
+  return config;
+}
+function generate() {
+  try {
+    const config=inputConfig();
+    checkConfig(config); checkForced(config);
+    if (session && !confirm('表示中の対戦表を作り直しますか？')) return;
+    // 点数を記録する表は新しい表IDでスプシに登録する（前の表と点数は混ざらない）
+    if (config.scoring) config.scoreId=newScoreId();
+    const next=buildSession(config);
+    // 手で選んだ練習日はそのまま残す（作り直しても、今日に戻さない。2026-11-10）
+    session=next; joinPicks=[]; if (next.practiceDate) $('practiceDate').value=next.practiceDate; keptPracticeDate=null;
+    notify('対戦表を作成しました。'); persist(); registerScores(); render();
+  } catch(e) { notify(e.message); }
+}
+// --- 途中から来た人（固定ペア＋名簿のとき。2026-10-25 ユーザー要望：名前のない「9番ペア」だと記録に残らない） ---
+// 名簿から選んだ順に2人ずつペアにし（大会ペアは2人そろったら）、まだ使っていない番号を小さい順に付ける
+let joinPicks=[];
+const joinOn = () => !!(session && !viewerMode && session.mode==='pairs' && session.names);
+function joinPlan() {
+  if (!joinOn() || !joinPicks.length) return [];
+  const t=own(tourCache,session.practiceDate), slots=planPairs(joinPicks,t && t.status==='ok' ? t.list : []);
+  const used=new Set([...session.rounds.flatMap(r=>r.players),...Object.keys(session.names || {}).map(Number),
+    ...[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value))]);
+  const free=sequence(12).filter(p=>!used.has(p));
+  return slots.map((s,i)=>({...s,number:free[i]}));
+}
+function renderJoin() {
+  $('joinBox').hidden=!joinOn();
+  if (!joinOn()) return;
+  // 選べないのは、作り直したあとも表に残る（チェックの付いた）ペアの人だけ。相方が帰ったペアのチェックを外すと、
+  // 残った人もここから選んで、ほかの人と新しい番号のペアを組める（2026-11-10。元の番号の記録はそのまま）
+  const staying=[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value));
+  const taken=new Set(staying.flatMap(p=>[].concat(own(session.names,p) || [])).map(canonName));
+  joinPicks=joinPicks.filter(nm=>!taken.has(canonName(nm)));
+  const plan=joinPlan();
+  $('joinChips').replaceChildren(...ROSTER.filter(nm=>!taken.has(canonName(nm))).map(nm=>{
+    const b=document.createElement('button'); b.type='button'; b.dataset.name=nm;
+    if (genderClass(nm)) b.classList.add(genderClass(nm));
+    const i=joinPicks.indexOf(nm), slot=plan.find(s=>s.names.includes(nm));
+    b.classList.toggle('selected',i>=0); b.setAttribute('aria-pressed',String(i>=0));
+    if (slot) { const o=document.createElement('span'); o.className='order'; o.textContent=slot.number ? String(slot.number) : '-'; b.append(o); }
+    b.append(nm);
+    b.onclick=()=>{ if (i>=0) joinPicks.splice(i,1); else joinPicks.push(nm); renderJoin(); };
+    return b;
+  }));
+  $('joinPreview').hidden=!plan.length;
+  $('joinPreview').replaceChildren(...plan.map(s=>{
+    const li=document.createElement('li');
+    li.textContent=`${s.number ? `${s.number}番ペア` : '番号なし（12ペアまで）'}：${s.names[0]}・${s.names[1] || '（あと1人）'}${s.tournament ? `（🏆 ${s.category || '大会ペア'}）` : ''}`;
+    if (s.names.length<2 || !s.number) li.className='pending';
+    return li;
+  }));
+}
+function applyChange() {
+  try {
+    const consumed=Number($('consumedRound').value);
+    if (!isInt(consumed,1,session.totalRounds-1)) throw Error('終了した節を選んでください。');
+    const joins=joinPlan();
+    if (joins.some(s=>s.names.length<2)) throw Error('途中から来た人は2人ずつ選んでください（あと1人）。');
+    if (joins.some(s=>!s.number)) throw Error('参加できるのは12ペアまでです。');
+    const players=[...document.querySelectorAll('#memberChips input:checked')].map(e=>Number(e.value)).concat(joins.map(s=>s.number)).sort((a,b)=>a-b);
+    const names=joins.length ? {...session.names,...Object.fromEntries(joins.map(s=>[s.number,s.names.slice()]))} : session.names;
+    const next=buildSession({...session,names,players,courts:Number($('changeCourts').value)},session.rounds.slice(0,consumed));
+    if (!confirm(`第${consumed+1}節以降を作り直しますか？`)) return;
+    joinPicks=[];
+    session=revised(next); notify(`第${consumed}節までを残して更新しました。`); persist(); registerScores(); render();
+  } catch(e) { notify(e.message); }
+}
+function speechText(r) {
+  return `第${r.round}節。`+r.matches.map((m,i)=>`${COURTS[i]}コート、${speechLabel(m[0],session.mode)} 対 ${speechLabel(m[1],session.mode)}。`).join('')+`休み、${r.rest.length ? r.rest.map(p=>speechLabel(p,session.mode)).join('、') : 'なし'}。`;
+}
+function speak(r) {
+  if (!('speechSynthesis' in window)) { notify('このブラウザは読み上げに対応していません。'); return; }
+  speechSynthesis.cancel(); const utterance=new SpeechSynthesisUtterance(speechText(r)); utterance.lang='ja-JP';
+  // 速度・音量はダブルス版（index.html の speakRound）に合わせる。体育館で聞き取りやすいよう調整した値（2026-10-22）
+  utterance.rate=0.89; utterance.volume=1.0;
+  speechSynthesis.speak(utterance);
+}
+// 点数を記録する表は、スプシへの登録が終わる前でも短いリンクにする。作ってすぐ共有すると登録（数秒）が
+// 間に合わず、ほぼ毎回長いリンクになっていた（2026-11-10。11/8に実際に共有されたリンクで確認）。
+// 開いた人の画面は、登録が終わるまで待って読み直す（openShortLink）。送り直しても通らない失敗で、
+// まだ一度も登録できていない表だけ長いリンクにする。共有リンクを開いた人は、スプシから読めた表なら短いリンク
+function shortLinkReady() {
+  ensureScoreState();
+  const st=scoreState;
+  if (!session || !session.scoreId || !scoreApi()) return false;
+  if (viewerMode) return st.version>0;
+  return scoringOn() && !(st.registerFatal && !(st.version>0));
+}
+// 短いリンクは通常版のURL（…/badminton-doubles-court/#t=表ID）にする。index.html がこのページへ渡す
+function shortLinkUrl(id) {
+  const url=new URL('./',location.href);
+  url.hash=SHORT_PREFIX+id;
+  return url.href;
+}
+async function shareLink() {
+  if (!['https:','http:'].includes(location.protocol)) { notify('共有リンクはWeb公開したページで利用できます。今は画像保存を利用してください。'); return; }
+  const short=shortLinkReady(), url=new URL(location.href);
+  if (short) url.href=shortLinkUrl(session.scoreId); else url.hash=SHARE_PREFIX+encodeShare(session);
+  const note=!short && !viewerMode && scoringOn() ? 'スプシに登録できないため、長いリンクにしました。' : '';
+  try {
+    if (navigator.share) { await navigator.share({title:'シングルス・固定ペア コート割',url:url.href}); if (note) notify(note); return; }
+    await navigator.clipboard.writeText(url.href); notify('共有リンクをコピーしました。'+note);
+  } catch(e) { if (e.name!=='AbortError') prompt('共有リンクをコピーしてください。',url.href); }
+}
+// 短い共有リンクを開いたとき：表と点数をスプシから読む。
+// 作った人がすぐ共有すると、スプシへの登録がまだのことがある。見つからなければ少し待って読み直す（2026-11-10）
+const SHORT_LINK_WAIT_MS = 90000;
+async function openShortLink(id, waited=0) {
+  const fail=(message, retry) => {
+    notify(message);
+    if (retry) $('status').append(' ',button('もう一度読み込む',()=>openShortLink(id)));
+    const a=document.createElement('a'); a.href=location.pathname+location.search; a.textContent='自分の対戦表に戻る';
+    $('status').append(' ',a);
+  };
+  if (!SCORE_ID_RE.test(id)) { fail('共有リンクが途中で切れているか、壊れています。共有した人にリンクをもう一度送ってもらってください。'); return; }
+  if (!scoreApi()) { fail('このページでは読み込めない共有リンクです。'); return; }
+  if (!waited) notify('対戦表を読み込んでいます…');
+  let r, next;
+  try {
+    r=await scoreRequest('GET',{action:'get',id,since:0});
+    next=decodeShare(String(r.data || ''));
+    if (next.scoreId!==id) throw Error('共有リンクの対戦表が正しくありません。');
+  } catch(e) {
+    const limit=typeof window.SHORT_LINK_WAIT_MS==='number' ? window.SHORT_LINK_WAIT_MS : SHORT_LINK_WAIT_MS;
+    if (e.code==='not_found' && waited<limit) {
+      notify('共有した人の端末が、対戦表をスプシに登録しているところです。少しお待ちください…');
+      const step=waited<15000 ? 3000 : 6000;
+      await new Promise(done=>setTimeout(done,typeof window.SHORT_LINK_STEP_MS==='number' ? window.SHORT_LINK_STEP_MS : step));
+      return openShortLink(id,waited+step);
+    }
+    if (e.code==='not_found') fail('この対戦表はまだスプシにありません。共有した人の画面で「スプシに登録できませんでした」と出ていないか確かめてもらい、「もう一度読み込む」を押してください。',true);
+    else if (e.code==='network' || e.code==='timeout') fail('対戦表を読み込めませんでした。電波の良い所で「もう一度読み込む」を押してください。',true);
+    else fail(e.message,!!e.code);
+    return;
+  }
+  session=next; ensureScoreState();
+  scoreState.version=r.version; scoreState.scores=serverScores(r.matches); scoreState.checkedAt=Date.now();
+  notify('共有された対戦表です。'); render();
+}
+// 名前が入ると行が長くなるので、対戦は文字を縮めて1行に収め、休みは幅に合わせて折り返す
+function fitText(ctx, text, x, y, maxWidth, size, weight='') {
+  let px=size;
+  do { ctx.font=`${weight}${px}px sans-serif`; } while (ctx.measureText(text).width>maxWidth && --px>11);
+  ctx.fillText(text,x,y);
+}
+function wrapItems(ctx, head, items, maxWidth, sep) {
+  const lines=[]; let line=head;
+  items.forEach((item,i)=>{
+    const piece=(i ? sep : '')+item;
+    if (i && ctx.measureText(line+piece).width>maxWidth) { lines.push(line); line='　'+item; }
+    else line+=piece;
+  });
+  lines.push(line);
+  return lines;
+}
+function makeImage(start) {
+  const dateLabel=practiceDateLabel(session.practiceDate), dateHeight=dateLabel ? 28 : 0;
+  const rounds=session.rounds.slice(start,start+10), canvas=document.createElement('canvas');
+  const measure=canvas.getContext('2d'); measure.font='18px sans-serif';
+  const restLines=rounds.map(r=>wrapItems(measure,'休み：',r.rest.length ? r.rest.map(p=>label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : '')) : ['なし'],740,restSeparator()));
+  const height=110+dateHeight+rounds.reduce((n,r,i)=>n+72+r.courts*46+(restLines[i].length-1)*24,0);
+  // 2倍の解像度で描く（幅1600px。スマホで拡大しても文字がぼやけない）。
+  // iOSのCanvas上限（約1,677万画素）に余裕を持たせ、超えそうなら倍率を下げる
+  const scale=Math.min(2,Math.sqrt(15000000/(800*height)));
+  canvas.width=Math.round(800*scale); canvas.height=Math.round(height*scale);
+  const ctx=canvas.getContext('2d'); ctx.scale(scale,scale);
+  const hasForced=rounds.some(r=>r.rest.some(p=>(session.forced[r.round] || []).includes(p)));
+  ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,800,height);
+  ctx.fillStyle='#263c4c'; ctx.font='bold 25px sans-serif';
+  ctx.fillText(session.mode==='pairs' ? 'ダブルス 固定ペア番号 コート割' : 'シングルス コート割',24,38);
+  if (dateLabel) { ctx.font='bold 20px sans-serif'; ctx.fillText(dateLabel,24,72); }
+  ctx.font='18px sans-serif'; ctx.fillText(`第${start+1}〜${start+rounds.length}節 ／ 1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}${hasForced ? ' ／ * は指定休み' : ''}`,24,72+dateHeight);
+  let y=100+dateHeight;
+  rounds.forEach((r,ri)=>{
+    ctx.fillStyle='#2c4558'; ctx.fillRect(16,y,768,36); ctx.fillStyle='white'; ctx.font='bold 21px sans-serif'; ctx.fillText(`第${r.round}節`,30,y+26); y+=36;
+    for (let i=0;i<r.matches.length;i++) {
+      ctx.fillStyle='white'; ctx.fillRect(16,y,768,46); ctx.fillStyle='#263c4c'; ctx.font='22px sans-serif';
+      ctx.fillText(`${COURTS[i]}コート`,30,y+31);
+      fitText(ctx,`${label(r.matches[i][0],session.mode)}   vs   ${label(r.matches[i][1],session.mode)}`,140,y+31,630,22); y+=46;
+    }
+    const lines=restLines[ri], restH=30+(lines.length-1)*24;
+    ctx.fillStyle='#fff1e9'; ctx.fillRect(16,y,768,restH); ctx.fillStyle='#804321'; ctx.font='18px sans-serif';
+    lines.forEach((line,k)=>ctx.fillText(line,30,y+22+k*24)); y+=restH+6;
+  });
+  return canvas;
+}
+// iOS Safari ignores <a download> and only asks to open an external app, so iPhone users never got the image.
+// Like the doubles page: always show a preview for long-press saving, offer the share sheet when files can be
+// shared, and download directly only outside iOS.
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+}
+let lastImageUrl=null, lastImageFile=null;
+let imageRequestId=0;
+function saveImage(start) {
+  const requestId=++imageRequestId;
+  const owner=session, end=Math.min(start+10,session.totalRounds), fileName=`${session.mode}-court-${start+1}-${end}.png`;
+  let canvas;
+  try { canvas=makeImage(start); } catch { notify('画像を作成できませんでした。もう一度お試しください。'); return; }
+  notify('画像を作成しています…');
+  const show=(url,blob) => {
+    // The table was regenerated or cleared while encoding: never show or save the old table.
+    if (session!==owner) { if (blob) URL.revokeObjectURL(url); return; }
+    if (!isIOSDevice()) {
+      const a=document.createElement('a'); a.href=url; a.download=fileName; document.body.append(a);
+      try { a.click(); } catch { /* in-app browsers without downloads still get the preview */ }
+      a.remove();
+    }
+    // Keep every requested desktop download, but only the latest request owns the preview/share button.
+    if (requestId!==imageRequestId) {
+      if (blob) {
+        if (isIOSDevice()) URL.revokeObjectURL(url);
+        else setTimeout(() => URL.revokeObjectURL(url),60000);
+      }
+      return;
+    }
+    lastImageFile=null;
+    if (blob && typeof File==='function' && navigator.canShare) {
+      try { const f=new File([blob],fileName,{type:'image/png'}); if (navigator.canShare({files:[f]})) lastImageFile=f; } catch { lastImageFile=null; }
+    }
+    const preview=$('imagePreview');
+    if (preview) {
+      const heading=document.createElement('div'); heading.className='preview-label'; heading.textContent=`画像（第${start+1}〜${end}節）`;
+      preview.replaceChildren(heading);
+      if (lastImageFile) { const b=button('📤 写真に保存 / 共有',sharePhoto); b.className='photo-button'; preview.append(b); }
+      if (isIOSDevice()) {
+        const guide=document.createElement('div'); guide.className='preview-guide';
+        guide.textContent=lastImageFile ? '上のボタン、または下の画像を長押しして「"写真"に追加」で保存できます。' : '下の画像を長押しして「"写真"に追加」で保存してください。';
+        preview.append(guide);
+      }
+      const img=document.createElement('img'); img.src=url; img.alt=`対戦表 第${start+1}〜${end}節`; preview.append(img);
+    }
+    // Keep this URL alive for a later long-press; release only the previous one.
+    if (lastImageUrl) URL.revokeObjectURL(lastImageUrl);
+    lastImageUrl=blob ? url : null;
+    notify(isIOSDevice() ? '画像を作成しました。下の画像を長押しして保存できます。' : '画像を保存しました。下にも表示しています。');
+  };
+  const fallback=() => { try { show(canvas.toDataURL('image/png'),null); } catch { notify('画像を作成できませんでした。もう一度お試しください。'); } };
+  // Some devices never call back from toBlob; give up after 15 seconds and use a data URL instead.
+  let settled=false;
+  const watchdog=setTimeout(() => { if (!settled) { settled=true; fallback(); } },15000);
+  try {
+    canvas.toBlob(blob => {
+      if (settled) return;
+      settled=true; clearTimeout(watchdog);
+      if (blob) { try { show(URL.createObjectURL(blob),blob); } catch { fallback(); } }
+      else fallback();
+    },'image/png');
+  } catch { settled=true; clearTimeout(watchdog); fallback(); }
+}
+async function sharePhoto() {
+  if (!lastImageFile) return;
+  try { await navigator.share({files:[lastImageFile]}); }
+  catch(e) { if (e && e.name!=='AbortError') notify('共有できませんでした。画像を長押しして保存してください。'); }
+}
+function clearSession() {
+  if (!confirm('保存した対戦表を消して最初から始めますか？')) return;
+  // Storage may be blocked (private mode, site data disabled); the table on screen must still clear.
+  let removed=true;
+  try { localStorage.removeItem(STORAGE_KEY); } catch { removed=false; }
+  // 次に作る表は今日の練習のもの。前回の表の日付を入力欄に残さない（2026-10-22）
+  session=null; joinPicks=[]; $('practiceDate').value=todayPracticeDate(); practiceDateTouched=''; keptPracticeDate=null;
+  // 前の表の休み指定も消す（残すと次の練習の表にも効く。2026-11-10）
+  $('forcedRests').value=''; $('forcedBox').open=false;
+  render();
+  notify(removed ? '保存した対戦表を消去しました。' : '対戦表を消去しました（この端末では保存が使えません）。');
+}
+function button(text, handler) { const b=document.createElement('button'); b.textContent=text; b.onclick=handler; return b; }
+function render() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  $('results').replaceChildren(); $('summary').replaceChildren();
+  $('summary').hidden=!session; $('changePanel').hidden=!session || viewerMode; $('setup').hidden=viewerMode;
+  ensureScoreState();
+  if (!session) { updateScoreSync(); return; }
+  const title=document.createElement('h2');
+  title.textContent=`${session.mode==='pairs' ? '固定ペア番号' : 'シングルス'} ／ ${session.totalRounds}節${viewerMode ? '（閲覧用）' : ''}`;
+  $('summary').append(title);
+  const description=document.createElement('p'); description.className='muted';
+  description.textContent=`1番号＝${session.mode==='pairs' ? '固定ペア1組' : '1人'}。表示中の表は作成時の設定です。* は指定休み。途中変更がある場合、各番号の参加期間内で集計します。`;
+  $('summary').append(description);
+  const stats=document.createElement('div'); stats.className='stats';
+  const ids=[...new Set(session.rounds.flatMap(r=>r.players))].sort((a,b)=>a-b);
+  for (const p of ids) {
+    const rest=session.rounds.filter(r=>r.rest.includes(p)).length;
+    const played=session.rounds.filter(r=>r.matches.flat().includes(p)).length;
+    const cell=document.createElement('div'), name=document.createElement('strong'), playedText=document.createElement('span'), restText=document.createElement('span');
+    // 名前は番号の下の行に出し、1人の名前の途中では折り返さない（狭い3列でも「濱／島」のように割れない）
+    const nm=namesOf(p);
+    name.textContent=nm ? `${p}番${session.mode==='pairs' ? 'ペア' : ''}` : label(p,session.mode); cell.append(name);
+    if (nm) { const names=document.createElement('span'); names.className='names'; [].concat(nm).forEach((n,i)=>{ if (i) names.append('・'); const e=document.createElement('span'); e.textContent=n; names.append(e); }); cell.append(names); }
+    playedText.textContent=`出場 ${played}回`; restText.textContent=`休み ${rest}回`; cell.append(playedText,restText); stats.append(cell);
+  }
+  $('summary').append(stats);
+  const actions=document.createElement('div'); actions.className='actions';
+  actions.append(button('対戦表のリンクを共有',shareLink));
+  for (let start=0;start<session.totalRounds;start+=10) actions.append(button(`画像保存 ${start+1}〜${Math.min(start+10,session.totalRounds)}節`,()=>saveImage(start)));
+  actions.append(button('印刷',()=>window.print()));
+  if (!viewerMode) actions.append(button('消去して最初から',clearSession));
+  else actions.append(button('自分の対戦表を作る',()=>{ location.hash=''; location.reload(); }));
+  $('summary').append(actions);
+  // 点数の記録（固定ペア＋名簿の表だけ。共有リンクの人には記録中のときだけ出す）
+  if (session.mode==='pairs' && session.names && scoreApi() && (!viewerMode || scoringOn())) $('summary').append(scoreBar());
+  const preview=document.createElement('div'); preview.id='imagePreview'; preview.className='image-preview'; $('summary').append(preview);
+  if (!viewerMode) {
+    // 終了した節は毎回「選んでください」から（ダブルス版と同じ。合わせ忘れて作り直すと、点数の入った試合まで
+    // 組み直して画面から消えるため。2026-10-24）。選ぶまで作り直すボタンは押せない
+    const pick=new Option('選んでください',''); pick.disabled=true;
+    $('consumedRound').replaceChildren(pick,...sequence(session.totalRounds-1).map(n=>new Option(`第${n}節まで`,n)));
+    $('consumedRound').value=''; $('changeBtn').disabled=true;
+    $('changeCourts').value=String(session.courts);
+    $('memberChips').replaceChildren();
+    for (const p of sequence(12)) {
+      const l=document.createElement('label'), input=document.createElement('input'); input.type='checkbox'; input.value=p; input.checked=session.players.includes(p); l.append(input,namesOf(p) ? label(p,session.mode) : `${p}番`); $('memberChips').append(l);
+      // 番号にチェックを付け外しすると、途中から来た人に付く番号が変わる
+      input.onchange=renderJoin;
+    }
+  }
+  renderJoin();
+  let previous=null;
+  for (const r of session.rounds) {
+    if (previous && (previous.courts!==r.courts || previous.players.join(',')!==r.players.join(','))) {
+      const note=document.createElement('p'); note.className='change-note'; note.textContent=`第${r.round}節から ${r.courts}コート・参加番号 ${r.players.join('、')}`; $('results').append(note);
+    }
+    const card=document.createElement('section'); card.className='round-card';
+    if (session.practiceDate) { const date=document.createElement('div'); date.className='round-date'; date.textContent=practiceDateLabel(session.practiceDate); card.append(date); }
+    const header=document.createElement('div'); header.className='round-header';
+    const heading=document.createElement('h2'); heading.textContent=`第${r.round}節`; header.append(heading,button('🔊 読み上げ',()=>speak(r))); card.append(header);
+    r.matches.forEach((m,i)=>{
+      // 名前は共有リンクで細工されうるので innerHTML は使わず textContent で入れる
+      const row=document.createElement('div'); row.className='court-match';
+      const span=(cls,text)=>{ const e=document.createElement('span'); if (cls) e.className=cls; e.textContent=text; return e; };
+      const match=document.createElement('div'); match.className='match';
+      match.append(span('',label(m[0],session.mode)),span('vs','vs'),span('',label(m[1],session.mode)));
+      row.append(span('court-label',COURTS[i]),match); card.append(row);
+      if (scoringOn()) {
+        const score=document.createElement('div'); score.className='score-row'; row.classList.add('has-score');
+        Object.assign(score.dataset,{key:r.round+COURTS[i],round:r.round,court:COURTS[i],a:label(m[0],session.mode),b:label(m[1],session.mode)});
+        card.append(score); paintScoreRow(score,true);
+      }
+    });
+    const rest=document.createElement('div'); rest.className='rest';
+    rest.textContent='休み：';
+    if (!r.rest.length) rest.append('なし');
+    r.rest.forEach((p,i)=>{
+      if (i) rest.append(restSeparator());
+      const number=document.createElement('span'); number.className='rest-number'; number.textContent=label(p,session.mode)+((session.forced[r.round] || []).includes(p) ? '*' : ''); rest.append(number);
+    });
+    card.append(rest); $('results').append(card); previous=r;
+  }
+  paintScoreBar(); updateScoreSync();
+}
+// Restore the settings the table was created with (as before reloading), not those after later changes.
+function restoreInputs() {
+  $('practiceDate').value=session.practiceDate || ''; practiceDateTouched=''; keptPracticeDate=null;
+  const first=session.rounds[0];
+  $('mode').value=session.mode; $('courtCount').value=String(first.courts); $('playerCount').value=String(first.players.length); $('roundCount').value=String(session.totalRounds); $('restOrder').value=session.restOrder;
+  // 名簿の選択も作成時のメンバーに戻す（固定ペアはペア番号順＝タップ順を再現。名簿から外れた人は戻せない）
+  rosterPicks=session.names ? first.players.flatMap(p => [].concat(own(session.names,p) || [])).filter(nm => ROSTER.includes(nm)) : [];
+  if (session.mode==='pairs' && rosterPicks.length%2) rosterPicks.pop();
+  // シングルスの番号は作り直すたびにランダムで変わるので、休み指定は名前で戻す
+  const forcedItem=p => session.mode==='singles' && typeof own(session.names,p)==='string' ? own(session.names,p) : p;
+  // 前回の練習（今日より前の練習日）の休み指定は、次の練習の表に効かないよう入力欄に戻さない（2026-11-10）。
+  // 表示中の表の休み指定（* 印・途中変更）はそのまま
+  const current=!session.practiceDate || session.practiceDate>=todayPracticeDate();
+  $('forcedRests').value=current ? Object.entries(session.forced).map(([rn,ids])=>`${rn}: ${ids.map(forcedItem).join(',')}`).join('\n') : '';
+  renderRoster();
+  // Keep restored imposed rests visible so they are not reused unnoticed.
+  $('forcedBox').open=!!$('forcedRests').value;
+}
+function init() {
+  $('practiceDate').value=todayPracticeDate();
+  $('practiceDate').addEventListener('change',changePracticeDate);
+  window.addEventListener('hashchange',()=>location.reload());
+  $('playerCount').replaceChildren(...sequence(12).slice(1).map(n=>new Option(`${n}人`,n))); $('playerCount').value='12';
+  ['courtCount','playerCount'].forEach(id=>$(id).addEventListener('change',updateInfo));
+  $('mode').addEventListener('change',()=>{ renderRoster(); loadTournaments(); });
+  $('scoring').onchange=()=>{ scoringTouched=true; };
+  // 画面に戻ってきたら、ほかの人が入れた点数をすぐ読む（隠れている間は読まない）
+  document.addEventListener('visibilitychange',()=>{ if (!document.hidden) syncScores(); });
+  // 全員選んだあとに触れて消えると戻せないので、2人以上なら確かめる（2026-11-10）
+  $('rosterClear').onclick=()=>{ if (rosterPicks.length>1 && !confirm(`選んだ${rosterPicks.length}人をすべて外しますか？`)) return; rosterPicks=[]; renderRoster(); };
+  $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; renderRoster();
+  $('consumedRound').addEventListener('change',()=>{ $('changeBtn').disabled=!$('consumedRound').value; });
+  if (location.hash) {
+    viewerMode=true; $('setup').hidden=true;
+    try {
+      // Some apps percent-encode every "=", including the one in the prefix (#sp1%3D...).
+      const hash=location.hash.replace(/^#sp1%3D/i,SHARE_PREFIX).replace(/^#t%3D/i,SHORT_PREFIX);
+      if (hash.startsWith(SHORT_PREFIX)) { openShortLink(hash.slice(SHORT_PREFIX.length)); return; }
+      if (!hash.startsWith(SHARE_PREFIX)) throw Error('このページでは読み込めない共有リンクです。');
+      session=decodeShare(hash.slice(SHARE_PREFIX.length)); notify('共有された対戦表です。'); render();
+    } catch(e) { notify(e.message); $('status').append(document.createTextNode(' ')); const a=document.createElement('a'); a.href=location.pathname+location.search; a.textContent='自分の対戦表に戻る'; $('status').append(a); }
+    return;
+  }
+  // Blocked storage means there is nothing saved, not a failed restore.
+  let saved=null;
+  try { saved=localStorage.getItem(STORAGE_KEY); } catch {}
+  try {
+    if (saved) { const parsed=JSON.parse(saved); if (!validSession(parsed)) throw Error('invalid'); session=parsed; restoreInputs(); if (pendingScoreRegistration()) registerScores(true); render(); notify('前回保存した対戦表を復元しました。'); }
+  } catch { notify('前回のデータを復元できませんでした。新しい対戦表を作成できます。'); }
+  loadTournaments();
+}
+// Startup is kept separate so Node tests exercise the exact production functions.
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>KALIDIA 練習（出欠・コート割）</title>
+<style>
+/* 統合版の入口（2026-11-11〜）。今日の出欠とコート割を1か所に持ち、対戦表の画面（index.html・singles.html）へ引き継ぐ。
+   スマホ1列。上に「出欠→コート割→対戦表」の3ステップ、下に次の操作を固定する。外部の読み込みはしない */
+:root {
+  --bg: #eef3ef; --surface: #ffffff; --sunken: #e3ebe5; --line: #cfdad3; --fg: #13221a; --muted: #5a6b62;
+  --accent: #0a7350; --accent-fg: #ffffff; --accent-soft: #d6efe3; --accent-line: #8fcfb3;
+  --court: #0f5a41; --court-fg: #f2fbf6;
+  --m-bg: #e3f0fb; --m-line: #9cc8ec; --m-fg: #12466f;
+  --f-bg: #fde7ef; --f-line: #f3a9c2; --f-fg: #86204a;
+  --g-bg: #fff0cf; --g-line: #e9bf5c; --g-fg: #6b4300;
+  --off-bg: #e4e8e5; --off-line: #c9d1cc; --off-fg: #7a857e;
+  --tour-bg: #fbefc9; --tour-fg: #7a5600;
+  --warn-bg: #fff3d1; --warn-line: #eccb72; --warn-fg: #6e4b00;
+  --sel: #0a7350; --sel-fg: #ffffff;
+  --font: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button[disabled] { cursor: default; opacity: .45; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+h2, h3, p { margin: 0; }
+[hidden] { display: none !important; }
+.gut { padding-left: 14px; padding-right: 14px; }
+.col { max-width: 600px; margin-left: auto; margin-right: auto; }
+
+/* 上：アプリ名と3ステップ */
+.head { position: sticky; top: 0; z-index: 9; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 10px; padding-bottom: 2px; }
+.brand { font-weight: 900; font-size: 17px; letter-spacing: .02em; }
+.brand small { font-weight: 700; font-size: 11px; color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 4px; padding: 1px 6px; margin-left: 8px; vertical-align: 2px; }
+.date { font-size: 15px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); }
+.step { appearance: none; border: 0; border-bottom: 3px solid transparent; background: none; padding: 8px 2px 7px; display: grid; justify-items: center; gap: 0; color: var(--muted); min-height: 54px; }
+.step b { font-size: 15px; font-weight: 700; }
+.step b i { font-style: normal; margin-right: 5px; }
+.step span { font-size: 11px; }
+.step[aria-current="step"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { padding-top: 16px; padding-bottom: calc(var(--dock-h, 90px) + 28px); display: grid; gap: 12px; }
+h2 { font-size: 22px; font-weight: 900; letter-spacing: .02em; }
+.lead { color: var(--muted); font-size: 13px; }
+.how { font-size: 13px; font-weight: 700; background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; }
+.note { font-size: 12px; color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 6px 10px; }
+.link { appearance: none; border: 0; background: none; padding: 6px 4px; color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.foot { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.grp { font-size: 13px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.grp b { color: var(--fg); font-size: 17px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid; }
+.dot.m { background: var(--m-bg); border-color: var(--m-line); } .dot.f { background: var(--f-bg); border-color: var(--f-line); } .dot.g { background: var(--g-bg); border-color: var(--g-line); }
+
+/* 名前のチップ（色は今のアプリと同じ：男性＝薄い青・女性＝薄いピンク・選んだら濃い緑） */
+.chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.chip, .pm { appearance: none; min-height: 44px; border: 1.5px solid; border-radius: 10px; padding: 4px 6px; font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 4px; overflow-wrap: anywhere; min-width: 0; line-height: 1.2; }
+.m { background: var(--m-bg); border-color: var(--m-line); color: var(--m-fg); }
+.f { background: var(--f-bg); border-color: var(--f-line); color: var(--f-fg); }
+.g { background: var(--g-bg); border-color: var(--g-line); color: var(--g-fg); }
+.chip.off { background: var(--off-bg); border-color: var(--off-line); color: var(--off-fg); text-decoration: line-through; }
+.chip em { font-style: normal; font-size: 10px; text-decoration: none; display: inline-block; border: 1px solid currentColor; border-radius: 4px; padding: 0 3px; }
+.chip.solo { border-style: dashed; }
+.chip.on, .pm.on { background: var(--sel); border-color: var(--sel); color: var(--sel-fg); }
+
+.guest-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.guest-add input { flex: 1; min-width: 110px; height: 44px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 12px; font-size: 16px; }
+
+/* 切り替え・小さなボタン */
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1.5px solid var(--line); border-radius: 12px; background: var(--sunken); padding: 3px; gap: 3px; }
+.seg button { appearance: none; border: 0; background: none; min-height: 42px; border-radius: 9px; font-weight: 700; font-size: 13px; color: var(--muted); padding: 2px 2px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.seg.sm { display: inline-grid; } .seg.sm button { min-width: 44px; font-size: 14px; }
+.vrow { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.act { appearance: none; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--surface); font-weight: 700; font-size: 14px; }
+.act.x { font-size: 18px; padding: 0 14px; }
+.btn { appearance: none; min-height: 48px; padding: 0 18px; border-radius: 12px; border: 1.5px solid var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 900; font-size: 16px; }
+.btn.line { background: transparent; color: var(--accent); border-color: var(--accent-line); }
+.quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.quick .btn { grid-column: 1 / -1; font-size: 15px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; flex-wrap: wrap; }
+.tourline { font-size: 13px; color: var(--tour-fg); background: var(--tour-bg); border-radius: 8px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tourline button { appearance: none; border: 1px solid currentColor; background: none; border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+
+/* コート：体育館と同じ 上段 C D ／ 下段 A B */
+.courts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.court { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.court-h { appearance: none; border: 0; width: 100%; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 4px 12px; background: var(--court); color: var(--court-fg); text-align: left; }
+.faces { font-size: 24px; font-weight: 900; letter-spacing: .04em; line-height: 1.3; }
+.meta { font-size: 12px; font-weight: 700; }
+.court-b { padding: 8px; display: grid; gap: 6px; align-content: start; min-height: 64px; flex: 1; }
+.court.w2 .court-b { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.empty { color: var(--muted); font-size: 12px; text-align: center; padding: 12px 0; grid-column: 1 / -1; }
+.pr { display: flex; border: 1.5px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 0; }
+.pr .pm { flex: 1; border: 0; border-radius: 0; min-height: 42px; font-size: 14px; padding: 2px 3px; }
+.pr .pm + .pm { border-left: 1.5px solid var(--surface); }
+.tag { font-style: normal; font-size: 10px; font-weight: 700; padding: 0 5px; display: flex; align-items: center; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+.tag.tour { background: var(--tour-bg); color: var(--tour-fg); }
+
+/* 下：次の操作 */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 18px rgba(16, 40, 28, .10); padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+.dock-in { display: flex; align-items: center; gap: 10px; }
+.info { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); }
+.info b { color: var(--fg); font-size: 15px; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.dock-in.acts { flex-direction: column; align-items: stretch; gap: 6px; }
+.dock-in.acts .btns { justify-content: flex-start; }
+
+/* 下から出る確認 */
+.scrim { position: fixed; inset: 0; z-index: 20; background: rgba(10, 25, 18, .5); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--surface); width: 100%; max-width: 600px; border-radius: 18px 18px 0 0; padding-top: 18px; padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); max-height: 88%; overflow: auto; }
+.sheet .gut { display: grid; gap: 12px; }
+.sheet h3 { font-size: 18px; font-weight: 900; }
+.opt { appearance: none; text-align: left; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); padding: 12px 14px; display: grid; gap: 2px; min-height: 60px; }
+.opt b { font-size: 16px; } .opt small { font-size: 12px; color: var(--muted); }
+.row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--dock-h, 90px) + 12px); z-index: 30; background: var(--fg); color: var(--bg); font-weight: 700; font-size: 13px; padding: 10px 16px; border-radius: 999px; max-width: calc(100% - 32px); text-align: center; }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="top gut col"><span class="brand">KALIDIA 練習<small>テスト版</small></span><span class="date" id="date"></span></div>
+  <nav class="steps gut col" id="steps" aria-label="今日の流れ"></nav>
+</div>
+<main class="gut col" id="view"></main>
+<div class="dock" id="dock"><div class="dock-in gut col" id="dockin"></div></div>
+<div class="scrim" id="sheet" data-act="close" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+'use strict';
+// 固定名簿（原本は バドミントン系/members.txt。バドミントン系/update_members.py が下のGENDERごと自動更新する）
+const ROSTER = [
+  // 男性
+  '大野','上條','唐澤祐','唐澤郁','北原','越野','小林','善志','髙橋','原','バレ','根津','細井','松武','宮澤輝','渡辺',
+  // 女性
+  '濱島','内田','北澤','黒河内','後藤','酒井','下平','田中','中原','根津真','宮下','依田',
+];
+// 性別（原本の[男性]/[女性]セクションから自動生成）
+const GENDER = {
+  '大野':'M','上條':'M','唐澤祐':'M','唐澤郁':'M','北原':'M','越野':'M','小林':'M','善志':'M','髙橋':'M','原':'M','バレ':'M','根津':'M','細井':'M','松武':'M','宮澤輝':'M','渡辺':'M',
+  '濱島':'F','内田':'F','北澤':'F','黒河内':'F','後藤':'F','酒井':'F','下平':'F','田中':'F','中原':'F','根津真':'F','宮下':'F','依田':'F',
+};
+
+// ── 保存先 ──
+// STATE_KEY：今日の出欠・ゲスト・コート割・ペア（この画面が持つ。入れるのは1回だけ）
+// HANDOFF_KEY：対戦表の画面へ渡す内容（index.html が #today で開かれたときに読む）
+const STATE_KEY = 'kalidia-today-v1';
+const HANDOFF_KEY = 'kalidia-handoff-v1';
+// 大会ペアはスプシ（固定ペア版と同じ窓口）から読む。公開ページ以外（手元のファイル・テスト）では通信しない。
+// テストは window.SCORE_API_URL で偽の窓口に向ける
+const SCORE_API = 'https://script.google.com/macros/s/AKfycbwwYPljkI-6oMhpUZkCY3oohtZFEM6uxlMrtZUEAoq3AJS0zq3e0Nj31ZyMQshIsKM2Zw/exec';
+function scoreApi() {
+  if (typeof window.SCORE_API_URL === 'string') return window.SCORE_API_URL;
+  return location.hostname === 'sasukewebjob-ai.github.io' ? SCORE_API : '';
+}
+const MAX_DOUBLES = 26;   // ダブルス版（index.html）の参加人数の上限
+const MAX_GUEST_NAME = 10;
+
+// ── 面の配置（コート割アプリと同じ。体育館の4面は 上段 C D ／ 下段 A B） ──
+const CELLS = ['C', 'D', 'A', 'B'];
+const POS = { C: [1, 1], D: [1, 2], A: [2, 1], B: [2, 2] };   // [行, 列]
+const LAYOUT_TYPES = [
+  { key: 'single', label: '4コート', variants: [{ id: 'single', groups: [['C'], ['D'], ['A'], ['B']] }] },
+  { key: '2+2', label: '2面+2面', prompt: '統合の向き', variants: [
+    { id: '2+2-h', label: '横', groups: [['C', 'D'], ['A', 'B']] },
+    { id: '2+2-v', label: '縦', groups: [['A', 'C'], ['B', 'D']] }] },
+  { key: '2+1+1', label: '2面+1+1', prompt: '統合する面', variants: [
+    { id: '2+1+1-top', label: '上', groups: [['C', 'D'], ['A'], ['B']] },
+    { id: '2+1+1-bottom', label: '下', groups: [['C'], ['D'], ['A', 'B']] },
+    { id: '2+1+1-left', label: '左', groups: [['A', 'C'], ['D'], ['B']] },
+    { id: '2+1+1-right', label: '右', groups: [['C'], ['B', 'D'], ['A']] }] },
+  { key: '1+3', label: '1面+3面', prompt: '単独にする面', variants: CELLS.map(x => ({ id: '1+3-' + x, label: x, groups: [[x], CELLS.filter(y => y !== x).sort()] })) },
+  { key: 'all', label: '4面統合', variants: [{ id: 'all', groups: [['A', 'B', 'C', 'D']] }] },
+];
+const LAYOUTS = [];
+LAYOUT_TYPES.forEach(t => t.variants.forEach(v => LAYOUTS.push({ id: v.id, type: t.key, label: v.label, groups: v.groups })));
+const gid = cells => cells.join('');
+const glabel = cells => cells.length === 4 ? '全コート' : 'コート' + cells.join('+');
+
+const $ = id => document.getElementById(id);
+const canon = s => String(s).normalize('NFKC').replace(/\s+/g, '').replace(/[髙﨑]/g, c => ({ '髙': '高', '﨑': '崎' })[c]);
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// 'YYYY-MM-DD' → '11/11（水）'。日付は端末の時刻で作る（UTC だと日本時間の朝9時前が前日になる）
+function dayLabel(value) {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number(m[2]) + '/' + Number(m[3]) + '（' + '日月火水木金土'[d.getDay()] + '）';
+}
+
+// 画面の部品は文字列を組み立てず、要素を1つずつ作る（ゲストの名前もすべて文字として入る）
+function h(tag, attrs) {
+  const el = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    const v = attrs[k];
+    if (v == null) continue;
+    if (k.indexOf('aria-') === 0 || k.indexOf('data-') === 0) el.setAttribute(k, String(v));
+    else if (k === 'class') el.className = v;
+    else if (k === 'style') el.style.cssText = v;
+    else if (k === 'disabled') el.disabled = !!v;
+    else if (k === 'value') el.value = v;
+    else if (v !== false) el.setAttribute(k, String(v));
+  }
+  const add = c => { if (c == null || c === false) return; if (Array.isArray(c)) c.forEach(add); else el.append(c.nodeType ? c : document.createTextNode(String(c))); };
+  for (let i = 2; i < arguments.length; i++) add(arguments[i]);
+  return el;
+}
+const B = (cls, act, label, data) => h('button', Object.assign({ class: cls, type: 'button', 'data-act': act }, data), label);
+const segBtn = (act, v, label, on) => h('button', { type: 'button', 'data-act': act, 'data-v': v, 'aria-pressed': on }, label);
+const tagEl = tour => h('i', { class: 'tag' + (tour ? ' tour' : '') }, tour ? '大会' : '練習');
+
+// ── 状態 ──
+// st：保存する内容。ui：保存しない内容（選択中の人・開いている確認・入力途中のゲスト名）
+let st, toastTimer;
+const ui = { sel: [], sheet: null, guestName: '', guestG: 'M' };
+let tour = { status: 'idle' };   // 大会ペアの読み込み状況（idle / off / loading / ok / error）
+
+function fresh(date) {
+  return { v: 1, date, step: 1, off: [], guests: [], mode: 'split', layout: 'single', lastVariant: {}, place: {}, pairs: [],
+    mixCourts: 4, mixRounds: 10, scoring: false, tours: null, built: null };
+}
+const layoutOf = id => LAYOUTS.find(l => l.id === id) || LAYOUTS[0];
+// 保存データは形を確かめて読み直す（壊れた値・名簿から外れた人・今の配置に無いコートは捨てる）
+function sanitize(s) {
+  const f = fresh(typeof s.date === 'string' && dayLabel(s.date) ? s.date : todayStr());
+  const roster = new Set(ROSTER), seen = new Set();
+  (Array.isArray(s.guests) ? s.guests : []).forEach(g => {
+    if (!g || typeof g.name !== 'string') return;
+    const name = g.name.trim();
+    if (!name || name.length > MAX_GUEST_NAME || roster.has(name) || seen.has(name) || (g.g !== 'M' && g.g !== 'F')) return;
+    seen.add(name); f.guests.push({ name, g: g.g });
+  });
+  const all = new Set(ROSTER.concat(f.guests.map(g => g.name)));
+  f.off = Array.from(new Set((Array.isArray(s.off) ? s.off : []).filter(n => all.has(n))));
+  f.mode = s.mode === 'mix' ? 'mix' : 'split';
+  f.layout = layoutOf(s.layout).id;
+  if (s.lastVariant && typeof s.lastVariant === 'object') LAYOUT_TYPES.forEach(t => {
+    const id = s.lastVariant[t.key];
+    if (t.variants.some(v => v.id === id)) f.lastVariant[t.key] = id;
+  });
+  const gids = new Set(layoutOf(f.layout).groups.map(gid)), off = new Set(f.off);
+  if (s.place && typeof s.place === 'object') Object.keys(s.place).forEach(n => { if (all.has(n) && !off.has(n) && gids.has(s.place[n])) f.place[n] = s.place[n]; });
+  const used = new Set();
+  (Array.isArray(s.pairs) ? s.pairs : []).forEach(p => {
+    if (!p || p.a === p.b || used.has(p.a) || used.has(p.b) || !f.place[p.a] || f.place[p.a] !== f.place[p.b]) return;
+    used.add(p.a); used.add(p.b); f.pairs.push({ a: p.a, b: p.b, tour: !!p.tour });
+  });
+  f.mixCourts = [2, 3, 4].indexOf(s.mixCourts) >= 0 ? s.mixCourts : 4;
+  f.mixRounds = [10, 15, 20, 25, 30].indexOf(s.mixRounds) >= 0 ? s.mixRounds : 10;
+  f.scoring = s.scoring === true;
+  f.step = s.step === 2 ? 2 : 1;
+  if (s.tours && typeof s.tours.date === 'string' && Array.isArray(s.tours.list)) f.tours = { date: s.tours.date, list: cleanTours(s.tours.list) };
+  if (s.built && (s.built.t === 'mix' || s.built.t === 'split') && s.built.date === f.date) f.built = { t: s.built.t, date: s.built.date };
+  return f;
+}
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STATE_KEY));
+    return s && s.v === 1 ? sanitize(s) : null;
+  } catch (e) { return null; }
+}
+let saveFailed = false;
+function save() {
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(st)); saveFailed = false; }
+  catch (e) { if (!saveFailed) toast('この端末には保存できません。画面を閉じると消えます。'); saveFailed = true; }
+}
+
+// ── 人・コート・ペア ──
+function people() {
+  return ROSTER.map(n => ({ n, g: GENDER[n] === 'F' ? 'F' : 'M' })).concat(st.guests.map(x => ({ n: x.name, g: x.g, guest: true })));
+}
+const infoOf = n => people().find(p => p.n === n) || { n, g: 'M' };
+const cls = n => { const p = infoOf(n); return p.guest ? 'g' : p.g === 'M' ? 'm' : 'f'; };
+const isOff = n => st.off.indexOf(n) >= 0;
+const present = () => people().filter(p => !isOff(p.n));
+const groups = () => layoutOf(st.layout).groups;
+const membersIn = id => present().filter(p => st.place[p.n] === id).map(p => p.n);
+const pairOf = n => st.pairs.find(p => p.a === n || p.b === n);
+const pairsIn = id => st.pairs.filter(p => st.place[p.a] === id && st.place[p.b] === id);
+function cleanPairs() { st.pairs = st.pairs.filter(p => !isOff(p.a) && !isOff(p.b) && st.place[p.a] && st.place[p.a] === st.place[p.b]); }
+
+// ── 大会ペア（スプシの「ペア」シート。固定ペア版と同じ窓口の tournaments を読む） ──
+function cleanTours(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(t => t && typeof t.name === 'string' && Array.isArray(t.pairs))
+    .map(t => ({ name: t.name, date: String(t.date || ''),
+      pairs: t.pairs.filter(p => p && Array.isArray(p.names) && p.names.length === 2 && p.names.every(x => typeof x === 'string' && x)).map(p => ({ names: p.names.slice(0, 2) })) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+const tourList = () => st.tours && st.tours.date === st.date ? st.tours.list : [];
+// 名簿・ゲストの名前に直した大会ペア（スプシの書き方の違いは同じ人とみなす。相方が2人いるときは大会日の早い方）
+function tourPairs() {
+  const byCanon = {}; people().forEach(p => { byCanon[canon(p.n)] = p.n; });
+  const used = new Set(), out = [];
+  tourList().forEach(t => t.pairs.forEach(p => {
+    const a = byCanon[canon(p.names[0])], b = byCanon[canon(p.names[1])];
+    if (!a || !b || a === b || used.has(a) || used.has(b)) return;
+    used.add(a); used.add(b); out.push([a, b]);
+  }));
+  return out;
+}
+const isTour = (a, b) => tourPairs().some(t => (t[0] === a && t[1] === b) || (t[0] === b && t[1] === a));
+function refreshTourFlags() { st.pairs.forEach(p => { p.tour = isTour(p.a, p.b); }); }
+// 窓口を読む。返事が来ないときは20秒で打ち切り、一時的なエラーは1回だけやり直す（固定ペア版の読み込みと同じ考え方）
+const TOUR_TIMEOUT_MS = 20000, TOUR_RETRY_MS = 1500;
+async function fetchTours(url, date) {
+  for (let attempt = 1; ; attempt++) {
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), TOUR_TIMEOUT_MS) : 0;
+    try {
+      const res = await fetch(url + '?' + new URLSearchParams({ action: 'tournaments', date }), { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+      const r = JSON.parse(await res.text());
+      if (r && r.ok) return cleanTours(r.tournaments);
+    } catch (e) { /* 下でやり直す */ }
+    finally { clearTimeout(timer); }
+    if (attempt >= 2) throw Error('tournaments');
+    await new Promise(done => setTimeout(done, TOUR_RETRY_MS));
+  }
+}
+async function loadTours(force) {
+  const url = scoreApi(), date = st.date;
+  if (!url) { tour = { status: 'off' }; return; }
+  if (tour.status === 'loading' || (tour.status === 'ok' && tour.date === date && !force)) return;
+  tour = { status: 'loading' }; render();
+  try {
+    const list = await fetchTours(url, date);
+    // 読んでいる間に日付が変わった（前回の内容をどうするか選んだ）ら、古い日の結果は使わない
+    if (st.date === date) { st.tours = { date, list }; tour = { status: 'ok', date }; refreshTourFlags(); save(); }
+    else tour = { status: 'idle' };
+  } catch (e) { tour = { status: 'error' }; }
+  render();
+  if (tour.status === 'idle') loadTours();
+}
+
+// ── コートへの振り分け ──
+// 大会ペア（2人とも来ている）をまとめ、残りは2人ずつの仮の組にする
+function unitsOf(names) {
+  const left = new Set(names), units = [];
+  tourPairs().forEach(t => { if (left.has(t[0]) && left.has(t[1])) { units.push([t[0], t[1]]); left.delete(t[0]); left.delete(t[1]); } });
+  const rest = names.filter(n => left.has(n));
+  for (let i = 0; i < rest.length; i += 2) units.push(rest.slice(i, i + 2));
+  return units;
+}
+// 人数の少ないコートから順に入れる
+function spread(units, targets) {
+  const count = {}; targets.forEach(t => { count[t] = membersIn(t).length; });
+  units.forEach(u => {
+    const t = targets.slice().sort((x, y) => count[x] - count[y])[0];
+    u.forEach(n => { st.place[n] = t; }); count[t] += u.length;
+    if (u.length === 2) st.pairs.push({ a: u[0], b: u[1], tour: isTour(u[0], u[1]) });
+  });
+}
+// 今の配置で、男女をどう分けられるか（上段と下段／左と右に分かれていればそこで分ける。分かれていなければ全員を入れる）
+function splitPlan() {
+  const gs = groups(), within = cells => gs.filter(c => c.every(x => cells.indexOf(x) >= 0)).map(gid);
+  const top = within(['C', 'D']), bottom = within(['A', 'B']), left = within(['A', 'C']), right = within(['B', 'D']);
+  if (top.length && bottom.length && top.length + bottom.length === gs.length) return { label: '男子を上段・女子を下段に分ける', m: top, f: bottom };
+  if (left.length && right.length && left.length + right.length === gs.length) return { label: '男子を左・女子を右に分ける', m: left, f: right };
+  return { label: '全員をコートに入れる', m: null, f: null };
+}
+function autoSplit() {
+  st.place = {}; st.pairs = []; ui.sel = [];
+  const plan = splitPlan(), ps = present();
+  const men = ps.filter(p => p.g === 'M').map(p => p.n), women = ps.filter(p => p.g === 'F').map(p => p.n);
+  if (plan.m) { spread(unitsOf(men), plan.m); spread(unitsOf(women), plan.f); }
+  else spread(unitsOf(men).concat(unitsOf(women)), groups().map(gid));
+  pairRest();
+}
+// 同じコートのペアなしの人同士を組む（同性を先に。男女が1人ずつ余ったら男女で組む）
+function pairRest() {
+  let made = 0;
+  groups().map(gid).forEach(id => {
+    const by = { M: [], F: [] }, odd = [];
+    membersIn(id).filter(n => !pairOf(n)).forEach(n => by[infoOf(n).g].push(n));
+    ['M', 'F'].forEach(g => { const a = by[g]; while (a.length >= 2) { const x = a.shift(), y = a.shift(); st.pairs.push({ a: x, b: y, tour: isTour(x, y) }); made++; } odd.push.apply(odd, a); });
+    if (odd.length === 2) { st.pairs.push({ a: odd[0], b: odd[1], tour: isTour(odd[0], odd[1]) }); made++; }
+  });
+  return made;
+}
+function applyTour() {
+  let made = 0;
+  tourPairs().forEach(t => {
+    const a = t[0], b = t[1];
+    if (isOff(a) || isOff(b)) return;
+    const cur = pairOf(a);
+    if (cur && (cur.a === b || cur.b === b)) { cur.tour = true; return; }
+    const target = st.place[a] || st.place[b] || groups().map(gid).sort((x, y) => membersIn(x).length - membersIn(y).length)[0];
+    st.pairs = st.pairs.filter(p => p.a !== a && p.b !== a && p.a !== b && p.b !== b);
+    st.place[a] = target; st.place[b] = target; st.pairs.push({ a, b, tour: true }); made++;
+  });
+  return made;
+}
+// 配置を変えたら、前のコートと面が重なるコートへ移す。分かれるときはペアを崩さずに順番に振り分ける
+function setLayout(id) {
+  if (id === st.layout) return;
+  const old = groups();
+  st.layout = id; st.lastVariant[layoutOf(id).type] = id;
+  const now = groups(), next = {};
+  old.forEach(oc => {
+    const names = Object.keys(st.place).filter(n => st.place[n] === gid(oc));
+    if (!names.length) return;
+    const targets = now.filter(nc => nc.some(x => oc.indexOf(x) >= 0)).map(gid);
+    const seen = new Set(), count = {}; targets.forEach(t => { count[t] = 0; });
+    names.forEach(n => {
+      if (seen.has(n)) return;
+      const p = pairOf(n), u = p && names.indexOf(p.a) >= 0 && names.indexOf(p.b) >= 0 ? [p.a, p.b] : [n];
+      const t = targets.slice().sort((x, y) => count[x] - count[y])[0];
+      u.forEach(x => { seen.add(x); next[x] = t; }); count[t] += u.length;
+    });
+  });
+  st.place = next; ui.sel = []; cleanPairs();
+}
+// 大会ペアは2人一緒に、練習用ペアの人とペアなしの人は1人ずつ選ぶ
+function toggleSel(n) {
+  const p = pairOf(n), names = p && p.tour ? [p.a, p.b] : [n];
+  ui.sel = names.every(x => ui.sel.indexOf(x) >= 0) ? ui.sel.filter(x => names.indexOf(x) < 0) : ui.sel.concat(names.filter(x => ui.sel.indexOf(x) < 0));
+}
+// 選んだ2人の場所を入れ替える。ペアの相方はそのままなので、相手だけが入れ替わる
+function swapSel() {
+  const x = ui.sel[0], y = ui.sel[1], px = pairOf(x), py = pairOf(y), gx = st.place[x], gy = st.place[y];
+  if (gy) st.place[x] = gy; else delete st.place[x];
+  if (gx) st.place[y] = gx; else delete st.place[y];
+  const put = (p, from, to) => { if (!p) return; if (p.a === from) p.a = to; else p.b = to; p.tour = isTour(p.a, p.b); };
+  put(px, x, y); put(py, y, x);
+  ui.sel = []; cleanPairs();
+}
+
+// ── 対戦表の画面へ渡す ──
+function buildMix() {
+  const ps = present(), need = st.mixCourts * 4;
+  if (ps.length < need) { toast(ps.length + '人では' + st.mixCourts + 'コートに足りません（' + need + '人必要）。コート数を減らしてください。'); return; }
+  if (ps.length > MAX_DOUBLES) { toast('ダブルスの表は' + MAX_DOUBLES + '人までです（今 ' + ps.length + '人）。'); return; }
+  const data = { v: 1, t: 'mix', date: st.date, at: Date.now(), courts: st.mixCourts, rounds: st.mixRounds,
+    names: ps.filter(p => !p.guest).map(p => p.n), guests: ps.filter(p => p.guest).map(p => ({ name: p.n, g: p.g })) };
+  try { localStorage.setItem(HANDOFF_KEY, JSON.stringify(data)); }
+  catch (e) { toast('この端末では引き継げません（保存できないため）。'); return; }
+  st.built = { t: 'mix', date: st.date }; save();
+  location.href = 'index.html#today';
+}
+
+// ── 画面 ──
+function viewAttend() {
+  const chip = p => {
+    const off = isOff(p.n);
+    return h('button', { class: 'chip ' + (p.guest ? 'g' : p.g === 'M' ? 'm' : 'f') + (off ? ' off' : ''), type: 'button', 'data-act': 'tog', 'data-n': p.n, 'aria-pressed': off }, p.n, off ? h('em', null, '休') : null);
+  };
+  const ps = people(), m = ps.filter(p => p.g === 'M' && !p.guest), f = ps.filter(p => p.g === 'F' && !p.guest), g = ps.filter(p => p.guest);
+  const here = list => list.filter(p => !isOff(p.n)).length;
+  const grp = (dot, label, list, tail) => h('h3', { class: 'grp' }, h('span', { class: 'dot ' + dot }), label + ' ', h('b', null, here(list)), tail);
+  const offGuests = g.filter(p => isOff(p.n)).length;
+  return [
+    h('h2', null, '今日の出欠'),
+    h('p', { class: 'lead' }, '休みの人をタップします。もう一度タップすると戻ります。入れるのはここで1回だけです。'),
+    grp('m', '男性', m, '/' + m.length + '人'), h('div', { class: 'chips' }, m.map(chip)),
+    grp('f', '女性', f, '/' + f.length + '人'), h('div', { class: 'chips' }, f.map(chip)),
+    grp('g', 'ゲスト', g, '人'), g.length ? h('div', { class: 'chips' }, g.map(chip)) : null,
+    h('div', { class: 'guest-add' },
+      h('input', { id: 'guestName', type: 'text', maxlength: MAX_GUEST_NAME, placeholder: 'ゲストの名前', 'aria-label': 'ゲストの名前', autocomplete: 'off', value: ui.guestName }),
+      h('div', { class: 'seg sm', role: 'group', 'aria-label': 'ゲストの性別' }, segBtn('gg', 'M', '男', ui.guestG === 'M'), segBtn('gg', 'F', '女', ui.guestG === 'F')),
+      B('act', 'addguest', '足す')),
+    h('p', { class: 'foot' }, offGuests ? B('link', 'delguests', '休みにしたゲストを消す') : null, st.off.length ? B('link', 'allon', '全員参加に戻す') : null)
+  ];
+}
+function modeSeg() {
+  return h('div', { class: 'seg', role: 'group', 'aria-label': '今日の回し方' },
+    segBtn('mode', 'mix', '全員ごちゃまぜ', st.mode === 'mix'), segBtn('mode', 'split', 'コートを分ける', st.mode === 'split'));
+}
+function tourLine() {
+  if (tour.status === 'loading') return h('p', { class: 'tourline' }, '大会ペアを確認しています…');
+  const list = tourList(), names = list.map(t => t.name + ' ' + t.pairs.length + '組').join('、');
+  // 通信できなくても、今日すでに読めていた内容があればそれを使う
+  if (tour.status === 'error') return h('p', { class: 'tourline' }, list.length ? '大会ペア：' + names + '（通信できないため、前に読んだ内容です）' : '大会ペアを読み込めませんでした（通信できません）。', B('', 'tourload', 'もう一度'));
+  if (list.length) return h('p', { class: 'tourline' }, '大会ペア：' + names + '（スプシから）');
+  if (tour.status === 'ok') return h('p', { class: 'tourline' }, '今日が練習期間の大会はありません。');
+  return null;
+}
+// コートの画面上の位置 [行, 行数, 列, 列数]。1面+3面のL字は、3面を2面ある段に・1面を自分の段に、どちらも横いっぱいに置く
+function placeOf(cells, gs) {
+  if (gs.some(c => c.length === 3)) {
+    const single = gs.find(c => c.length === 1)[0], row = POS[single][0];
+    return [cells.length === 1 ? row : (row === 1 ? 2 : 1), 1, 1, 2];
+  }
+  const rows = cells.map(c => POS[c][0]), cols = cells.map(c => POS[c][1]);
+  const r0 = Math.min.apply(null, rows), c0 = Math.min.apply(null, cols);
+  return [r0, Math.max.apply(null, rows) - r0 + 1, c0, Math.max.apply(null, cols) - c0 + 1];
+}
+function viewCourt() {
+  if (st.mode === 'mix') {
+    const pick = (act, list, cur) => h('div', { class: 'seg sm' }, list.map(v => segBtn(act, v, String(v), cur === v)));
+    const n = present().length;
+    return [h('h2', null, 'コート割'), modeSeg(),
+      h('div', { class: 'card' },
+        h('p', null, '参加の', h('b', null, n + '人'), 'を全コートで回します。ペアは毎節替わります。コート割は使いません。'),
+        h('div', { class: 'field' }, h('span', null, 'コート数'), pick('mixc', [2, 3, 4], st.mixCourts)),
+        h('div', { class: 'field' }, h('span', null, '節数'), pick('mixr', [10, 15, 20, 25, 30], st.mixRounds)),
+        n > MAX_DOUBLES ? h('p', { class: 'note' }, 'ダブルスの表は' + MAX_DOUBLES + '人までです。') : null)];
+  }
+  const on = n => ui.sel.indexOf(n) >= 0;
+  const pm = n => h('button', { class: 'pm ' + cls(n) + (on(n) ? ' on' : ''), type: 'button', 'data-act': 'sel', 'data-n': n, 'aria-pressed': on(n) }, n);
+  const chip = (n, extra) => h('button', { class: 'chip ' + cls(n) + extra + (on(n) ? ' on' : ''), type: 'button', 'data-act': 'sel', 'data-n': n, 'aria-pressed': on(n) }, n);
+  const gs = groups();
+  const court = cells => {
+    const id = gid(cells), ps = pairsIn(id), solo = membersIn(id).filter(n => !pairOf(n)), at = placeOf(cells, gs);
+    return h('section', { class: 'court' + (at[3] === 2 ? ' w2' : ''), 'data-gid': id, style: 'grid-row:' + at[0] + ' / span ' + at[1] + ';grid-column:' + at[2] + ' / span ' + at[3] },
+      h('button', { class: 'court-h', type: 'button', 'data-act': 'moveto', 'data-id': id, 'aria-label': glabel(cells) + 'へ入れる' },
+        h('span', { class: 'faces' }, cells.join('+')), h('span', { class: 'meta' }, ps.length + 'ペア' + (solo.length ? '＋' + solo.length + '人' : ''))),
+      h('div', { class: 'court-b' },
+        ps.map(p => h('div', { class: 'pr' }, pm(p.a), pm(p.b), tagEl(p.tour))),
+        solo.map(n => chip(n, ' solo')),
+        !ps.length && !solo.length ? h('p', { class: 'empty' }, '人を選んで、ここをタップ') : null));
+  };
+  const cur = layoutOf(st.layout), type = LAYOUT_TYPES.find(t => t.key === cur.type), pool = present().filter(p => !st.place[p.n]);
+  return [h('h2', null, 'コート割'), modeSeg(),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'コートの分け方' }, LAYOUT_TYPES.map(t => segBtn('ltype', t.key, t.label, cur.type === t.key))),
+    type.variants.length > 1 ? h('div', { class: 'vrow' }, h('span', null, type.prompt), h('div', { class: 'seg sm', role: 'group', 'aria-label': type.prompt }, type.variants.map(v => segBtn('layout', v.id, v.label, st.layout === v.id)))) : null,
+    h('div', { class: 'quick' }, B('btn line', 'auto', splitPlan().label), B('act', 'tour', '大会ペア'), B('act', 'pairrest', '残りをペアに'), B('act', 'clear', '空にする')),
+    tourLine(),
+    h('h3', { class: 'grp' }, 'まだ入っていない人 ', h('b', null, pool.length), '人'),
+    pool.length ? h('div', { class: 'chips', id: 'pool' }, pool.map(p => chip(p.n, ''))) : h('p', { class: 'lead' }, present().length ? '全員コートに入りました。' : '参加する人がいません。'),
+    h('p', { class: 'how' }, '名前をタップすると、下に「◯へ」「2人を入れ替える」が出ます。大会ペアは2人一緒に、練習用ペアは1人ずつ選べます。'),
+    h('div', { class: 'courts' }, gs.map(court))];
+}
+function viewTable() {
+  return [h('h2', null, '対戦表'),
+    h('div', { class: 'card' }, h('p', null, 'まだ作っていません。コート割で回し方を決めてから「対戦表を作る」を押します。'), B('btn line', 'step', 'コート割へ', { 'data-v': 2 }))];
+}
+function renderSteps() {
+  const ps = present();
+  const subs = [ps.length + '人', st.mode === 'mix' ? 'ごちゃまぜ' : ps.filter(p => st.place[p.n]).length + '/' + ps.length + '人', st.built ? '作成済み' : 'まだ'];
+  $('steps').replaceChildren.apply($('steps'), ['出欠', 'コート割', '対戦表'].map((l, i) =>
+    h('button', { class: 'step', type: 'button', 'data-act': 'step', 'data-v': i + 1, 'aria-current': st.step === i + 1 ? 'step' : null }, h('b', null, h('i', null, i + 1), l), h('span', null, subs[i]))));
+}
+function renderDock() {
+  const d = $('dockin'), ps = present(); let text, btns, acts = false;
+  if (st.step === 1) {
+    const m = ps.filter(p => p.g === 'M').length;
+    text = ['参加 ', h('b', null, ps.length + '人'), '（男' + m + '・女' + (ps.length - m) + '）　休み ' + (people().length - ps.length) + '人'];
+    btns = B('btn', 'step', 'コート割へ', { 'data-v': 2 });
+  } else if (st.step === 2 && st.mode === 'split' && ui.sel.length) {
+    acts = true;
+    const paired = ui.sel.some(n => pairOf(n)), x = ui.sel[0], y = ui.sel[1];
+    const canSwap = ui.sel.length === 2 && !(pairOf(x) && pairOf(x) === pairOf(y)) && (st.place[x] !== st.place[y] || paired);
+    text = [h('b', null, ui.sel.length <= 2 ? ui.sel.join('・') : ui.sel.length + '人'), ' を選んでいます'];
+    btns = [groups().map(c => B('act', 'moveto', c.join('+') + 'へ', { 'data-id': gid(c) })),
+      canSwap ? B('act', 'swap', '2人を入れ替える') : null,
+      ui.sel.some(n => st.place[n]) ? B('act', 'out', '外す') : null,
+      ui.sel.length === 2 && !paired ? B('act', 'pair', 'ペアにする') : null,
+      paired ? B('act', 'unpair', 'ペアを解く') : null,
+      B('act x', 'selx', '×', { 'aria-label': '選ぶのをやめる' })];
+  } else if (st.step === 2) {
+    if (st.mode === 'split') {
+      const placed = ps.filter(p => st.place[p.n]), solo = placed.filter(p => !pairOf(p.n)).length;
+      text = ['コートに ', h('b', null, placed.length + '/' + ps.length + '人'), solo ? '　ペアなし ' + solo + '人' : ''];
+    } else text = ['全員 ', h('b', null, ps.length + '人'), 'で回します'];
+    btns = B('btn', 'build', '対戦表を作る');
+  } else {
+    text = ['対戦表はまだありません'];
+    btns = B('btn', 'step', 'コート割へ', { 'data-v': 2 });
+  }
+  d.className = 'dock-in gut col' + (acts ? ' acts' : '');
+  d.replaceChildren(h('p', { class: 'info' }, text), h('div', { class: 'btns' }, btns));
+}
+function renderSheet() {
+  const w = $('sheet'), s = ui.sheet;
+  if (!s) { w.hidden = true; w.replaceChildren(); return; }
+  let kids = [];
+  if (s.t === 'newday') {
+    kids = [h('h3', null, '前回（' + dayLabel(s.prev) + '）の内容が残っています'),
+      h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'keep' }, h('b', null, 'そのまま使う'), h('small', null, '前回の出欠・ゲスト・コート割から始めます')),
+      h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'court' }, h('b', null, 'コート割だけ空にする'), h('small', null, '出欠とゲストは前回のまま、コートを空にします')),
+      h('button', { class: 'opt', type: 'button', 'data-act': 'newday', 'data-v': 'all' }, h('b', null, '最初からやり直す'), h('small', null, '全員参加に戻し、ゲストとコート割を消します'))];
+  } else if (s.t === 'clear') {
+    kids = [h('h3', null, 'コートを空にしますか'), h('p', { class: 'lead' }, 'コートに入れた人とペアを、すべて外します。出欠は変わりません。'),
+      h('div', { class: 'row' }, B('act', 'close', 'やめる'), B('btn', 'clearok', '空にする'))];
+  }
+  w.replaceChildren(h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, h('div', { class: 'gut' }, kids)));
+  w.hidden = false;
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+function render() {
+  renderSteps();
+  const v = $('view'), wrap = h('div', null, st.step === 1 ? viewAttend() : st.step === 2 ? viewCourt() : viewTable());
+  v.replaceChildren.apply(v, Array.from(wrap.childNodes));
+  renderDock(); renderSheet();
+  $('date').textContent = dayLabel(st.date);
+  document.documentElement.style.setProperty('--dock-h', $('dock').offsetHeight + 'px');
+}
+const toTop = () => window.scrollTo(0, 0);
+// 対戦表の画面（作ってあればそこへ移る。まだなら、この画面で案内を出す）
+function openTable() {
+  if (st.built && st.built.t === 'mix') { location.href = 'index.html'; return true; }
+  return false;
+}
+
+// ── 操作 ──
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  if (el.id === 'sheet' && e.target !== el) return;   // シートの中の余白では閉じない
+  const a = el.dataset.act, v = el.dataset.v, n = el.dataset.n, id = el.dataset.id;
+  if (a === 'step') {
+    if (Number(v) === 3 && openTable()) return;
+    st.step = Number(v); ui.sel = []; toTop();
+  }
+  else if (a === 'tog') {
+    if (isOff(n)) st.off = st.off.filter(x => x !== n);
+    else { st.off.push(n); delete st.place[n]; ui.sel = ui.sel.filter(x => x !== n); cleanPairs(); }
+  }
+  else if (a === 'allon') st.off = [];
+  else if (a === 'gg') ui.guestG = v;
+  else if (a === 'addguest') {
+    const name = ui.guestName.trim();
+    if (!name) toast('ゲストの名前を入れます');
+    else if (people().some(p => p.n === name || canon(p.n) === canon(name))) toast('同じ名前の人がいます');
+    else { st.guests.push({ name, g: ui.guestG }); ui.guestName = ''; refreshTourFlags(); }
+  }
+  else if (a === 'delguests') {
+    const gone = st.guests.filter(g => isOff(g.name)).map(g => g.name);
+    st.guests = st.guests.filter(g => gone.indexOf(g.name) < 0); st.off = st.off.filter(x => gone.indexOf(x) < 0);
+  }
+  else if (a === 'mode') { st.mode = v; ui.sel = []; }
+  else if (a === 'ltype') { const t = LAYOUT_TYPES.find(x => x.key === v); setLayout(st.lastVariant[v] || t.variants[0].id); }
+  else if (a === 'layout') setLayout(v);
+  else if (a === 'auto') autoSplit();
+  else if (a === 'tour') {
+    if (!tourPairs().length) toast(tour.status === 'loading' ? '大会ペアを確認しています。少しお待ちください。' : '今日の出席者で組める大会ペアがありません');
+    else { const made = applyTour(); toast(made ? '大会ペアを' + made + '組、組みました' : '大会ペアはもう組んであります'); }
+  }
+  else if (a === 'tourload') { loadTours(true); return; }
+  else if (a === 'pairrest') { const made = pairRest(); toast(made ? made + '組のペアを作りました' : 'ペアにできる人がいません'); }
+  else if (a === 'clear') {
+    if (Object.keys(st.place).length) ui.sheet = { t: 'clear' }; else toast('コートは空です');
+  }
+  else if (a === 'clearok') { st.place = {}; st.pairs = []; ui.sel = []; ui.sheet = null; }
+  else if (a === 'sel') toggleSel(n);
+  else if (a === 'moveto') {
+    if (!ui.sel.length) toast('入れる人を先にタップします');
+    else { ui.sel.forEach(x => { st.place[x] = id; }); ui.sel = []; cleanPairs(); }
+  }
+  else if (a === 'out') { ui.sel.forEach(x => { delete st.place[x]; }); ui.sel = []; cleanPairs(); }
+  else if (a === 'pair') {
+    const x = ui.sel[0], y = ui.sel[1];
+    if (!st.place[x] || st.place[x] !== st.place[y]) toast('同じコートに入れてからペアにします');
+    else { st.pairs.push({ a: x, b: y, tour: isTour(x, y) }); ui.sel = []; }
+  }
+  else if (a === 'unpair') { st.pairs = st.pairs.filter(p => ui.sel.indexOf(p.a) < 0 && ui.sel.indexOf(p.b) < 0); ui.sel = []; }
+  else if (a === 'swap') swapSel();
+  else if (a === 'selx') ui.sel = [];
+  else if (a === 'mixc') st.mixCourts = Number(v);
+  else if (a === 'mixr') st.mixRounds = Number(v);
+  else if (a === 'build') {
+    if (st.mode === 'mix') { buildMix(); return; }
+    toast('コートごとの対戦表は、次の更新で入ります。今はコート割まで試せます。');
+  }
+  else if (a === 'newday') {
+    if (v === 'all') st = fresh(todayStr());
+    else { if (v === 'court') { st.place = {}; st.pairs = []; } st.date = todayStr(); st.built = null; st.step = 1; }
+    ui.sheet = null; ui.sel = []; tour = { status: 'idle' }; loadTours();
+  }
+  else if (a === 'close') {
+    if (ui.sheet && ui.sheet.t === 'newday') { st.date = todayStr(); st.built = null; loadTours(); }   // 選ばずに閉じたら、そのまま使う
+    ui.sheet = null;
+  }
+  save(); render();
+});
+document.addEventListener('input', e => { if (e.target.id === 'guestName') ui.guestName = e.target.value; });
+
+// ── 起動 ──
+st = loadState() || fresh(todayStr());
+// ほかの画面の上のタブから来たとき（today.html#court など）は、その画面を開く
+if (location.hash === '#court') st.step = 2; else if (location.hash === '#attend') st.step = 1;
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+// 日付が変わっていたら、前回の内容をどうするか選んでもらう（前回の欠席・配置が黙って残らないように）
+if (st.date !== todayStr()) {
+  const used = st.off.length || st.guests.length || Object.keys(st.place).length;
+  if (used) ui.sheet = { t: 'newday', prev: st.date };
+  else st = fresh(todayStr());
+}
+render();
+if (!ui.sheet) loadTours();
+</script>
+</body>
+</html>
