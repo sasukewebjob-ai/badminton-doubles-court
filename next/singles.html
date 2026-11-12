@@ -114,6 +114,14 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
 .roster-chips button.leaving { border-color: #a93226; background: #c0392b; color: #fff; font-weight: bold; }
 .roster-chips button.leaving .order { background: #fff; color: #a93226; }
 .roster-chips .act { margin-left: 4px; font-size: .75rem; }
+/* 次の周へ（3回目-3） */
+.lap-box { margin: 0 0 6px; padding: 10px; border-radius: 8px; background: #fff; border: 1.5px solid #cfe3d6; }
+.lap-box .check-row { margin: 0; }
+.lap-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.lap-row:empty { display: none; }
+.lap-row button { padding: 8px 10px; font-size: .85rem; background: #eaf6ef; color: #145a32; border: 1.5px solid #9fd3b4; }
+.lap-row button[aria-pressed="true"] { background: #1e8449; border-color: #1e8449; color: #fff; }
+.next-lap { background: #1e8449 !important; color: #fff !important; }
 [hidden] { display: none !important; }
 @media print { body { max-width: none; background: white; } #setup,.actions,.image-preview,#changePanel,nav,#status,.round-header button,.score-bar,.score-row input,.score-row button,.group-box { display: none; } .round-card { break-inside: avoid; border: 1px solid #ccc; } }
 </style>
@@ -158,6 +166,10 @@ summary { cursor: pointer; font-weight: bold; padding: 6px 0; }
     <div class="row"><label for="consumedRound">終了した節</label><select id="consumedRound"></select></div>
     <div class="chips" id="memberChips"></div>
     <div class="day-box" id="dayBox" hidden>
+      <div class="lap-box" id="lapBox">
+        <label class="check-row"><input type="checkbox" id="dayRepair"><span><strong>練習用ペアを組み替える（次の周へ）</strong><br>🏆大会ペアはそのまま。今日まだ組んでいない人と組みます。</span></label>
+        <div class="lap-row" id="dayLaps"></div>
+      </div>
       <p class="day-h">表に入っている人<small>帰る人をタップ</small></p>
       <div class="roster-chips" id="dayIn"></div>
       <div id="dayLateBox"><p class="day-h">遅れて来る人<small>来た人をタップ</small></p><div class="roster-chips" id="dayLate"></div></div>
@@ -986,7 +998,7 @@ function importGroups() {
   } catch { notify('コート別の対戦表を作れませんでした。出欠・コート割の画面で、ペアとコートを確かめてください。'); return false; }
   next.current=next.order[0];
   dayGroups=next; saveGroups();
-  session=dayGroups.sessions[dayGroups.current]; joinPicks=[]; dayLeave.clear(); dayArrive.clear();
+  session=dayGroups.sessions[dayGroups.current]; joinPicks=[]; dayLeave.clear(); dayArrive.clear(); $('dayRepair').checked=false;
   restoreInputs(); persist();
   // 点数を記録する表は、コートごとにスプシへ登録する（開いていないコートの表も送る）。
   // 開いている表を最後に積むと、その表の「登録しています…」がそのまま画面に出る
@@ -998,7 +1010,7 @@ function importGroups() {
 function switchGroup(gid) {
   if (!dayGroups || !own(dayGroups.sessions,gid) || gid===dayGroups.current) return;
   dayGroups.current=gid; saveGroups();
-  session=dayGroups.sessions[gid]; joinPicks=[]; dayLeave.clear(); dayArrive.clear();
+  session=dayGroups.sessions[gid]; joinPicks=[]; dayLeave.clear(); dayArrive.clear(); $('dayRepair').checked=false;
   restoreInputs(); persist(); render();
   if (pendingScoreRegistration()) registerScores(true);
   window.scrollTo(0,0);
@@ -1603,13 +1615,16 @@ function renderJoin() {
 //  4) 1人余った人は、相方が見つかるまで待つ（表には入らない）
 let dayLeave=new Set(), dayArrive=new Set();
 // pairs：今の表のペア [{p:番号, names:[名前,名前]}]、leave・arrive：名前の Set
-function planDay(info, pairs, leave, arrive) {
+// opts（3回目-3「次の周へ」）：{repair:練習用ペアを組み替えるか, tour:大会ペアの番号の Set, history:[[名前,名前]…]＝今日組んだペア}
+// 組み替えでは、今日まだ組んでいない人と組み、男女の組み合わせ（男どうし・男女など）はなるべく元のペアの形を保つ
+function planDay(info, pairs, leave, arrive, opts={}) {
   const origOf=n=>info.orig.find(o=>o[0]===n || o[1]===n);
   const partner=n=>{ const o=origOf(n); return o ? (o[0]===n ? o[1] : o[0]) : null; };
   const back=n=>{ const o=partner(n); return !!o && arrive.has(o); };
-  const keep=[], drop=[], pool=[];
+  const keep=[], drop=[], pool=[], before={};
   pairs.forEach(pr=>{
     if (pr.names.some(n=>leave.has(n) || back(n))) { drop.push(pr.p); pr.names.forEach(n=>{ if (!leave.has(n)) pool.push(n); }); }
+    else if (opts.repair && !(opts.tour && opts.tour.has(pr.p))) { drop.push(pr.p); pool.push(...pr.names); before[pr.names[0]]=pr.names[1]; before[pr.names[1]]=pr.names[0]; }
     else keep.push(pr.p);
   });
   info.wait.forEach(n=>{ if (!leave.has(n) && !pool.includes(n)) pool.push(n); });
@@ -1623,10 +1638,33 @@ function planDay(info, pairs, leave, arrive) {
   const stillLate=new Set(info.late.filter(n=>!arrive.has(n)));
   const waitsLate=n=>{ const o=partner(n); return !!o && stillLate.has(o); };
   const pairUp=(x,y)=>{ made.push({names:[x,y],tour:false,kind:waitsLate(x) || waitsLate(y) ? 'temp' : 'new'}); used.add(x); used.add(y); };
-  const by={M:[],F:[]}, odd=[];
-  pool.filter(n=>!used.has(n)).forEach(n=>by[own(info.g,n)==='F' ? 'F' : 'M'].push(n));
-  ['M','F'].forEach(g=>{ const a=by[g]; while (a.length>=2) pairUp(a.shift(),a.shift()); odd.push(...a); });
-  if (odd.length===2) pairUp(odd[0],odd[1]);
+  const gOf=n=>own(info.g,n)==='F' ? 'F' : 'M';
+  const rest=pool.filter(n=>!used.has(n));
+  if (opts.repair) {
+    // 組み替え：今日組んだ相手と組まない（100点）・元の相方と同じ男女の相手（1点）で、点の少ない組み方を探す
+    const seen=new Set((opts.history || []).map(h=>h.slice().sort().join('|')));
+    const cost=(x,y)=>(seen.has([x,y].sort().join('|')) ? 100 : 0)+(before[x] && gOf(before[x])!==gOf(y) ? 1 : 0)+(before[y] && gOf(before[y])!==gOf(x) ? 1 : 0);
+    // 並べ替えは決まった乱数で行う（見込みに出した組み方と、作り直すときの組み方を同じにする）
+    let seed=rest.length*7919+(opts.history || []).length*131;
+    const rand=()=>{ seed=(seed+0x6D2B79F5)>>>0; let t=seed; t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; };
+    const mix=list=>{ const o=list.slice(); for (let i=o.length-1;i>0;i--) { const j=Math.floor(rand()*(i+1)); [o[i],o[j]]=[o[j],o[i]]; } return o; };
+    let best=null;
+    for (let t=0;t<400 && !(best && best.total===0);t++) {
+      const a=t ? mix(rest) : rest.slice(), got=[]; let total=0;
+      while (a.length>=2) {
+        const x=a.shift(); let k=0;
+        a.forEach((y,i)=>{ if (cost(x,y)<cost(x,a[k])) k=i; });
+        const y=a.splice(k,1)[0]; got.push([x,y]); total+=cost(x,y);
+      }
+      if (!best || total<best.total) best={got,total};
+    }
+    best.got.forEach(([x,y])=>pairUp(x,y));
+  } else {
+    const by={M:[],F:[]}, odd=[];
+    rest.forEach(n=>by[gOf(n)].push(n));
+    ['M','F'].forEach(g=>{ const a=by[g]; while (a.length>=2) pairUp(a.shift(),a.shift()); odd.push(...a); });
+    if (odd.length===2) pairUp(odd[0],odd[1]);
+  }
   const backed=new Set(made.filter(m=>m.kind==='back').flatMap(m=>m.names));
   return {keep,drop,made,wait:pool.filter(n=>!used.has(n)),late:[...stillLate],
     orig:info.orig.filter(o=>!backed.has(o[0]) && !leave.has(o[0]) && !leave.has(o[1])).map(o=>o.slice())};
@@ -1645,6 +1683,44 @@ function dayNumbers(count) {
   const used=new Set([...session.rounds.flatMap(r=>r.players),...Object.keys(session.names || {}).map(Number)]);
   return sequence(MAX_NO).filter(p=>!used.has(p)).slice(0,count);
 }
+// 今の顔ぶれで総当たりが1周する節（今のペアどうしが全部1回ずつ当たった節）。2周目・3周目…も続けて数える（3回目-3）
+function lapEnds(s) {
+  const last=s.rounds[s.rounds.length-1], same=r=>r.courts===last.courts && r.players.join(',')===last.players.join(',');
+  let start=s.rounds.length-1;
+  while (start>0 && same(s.rounds[start-1])) start--;
+  const n=last.players.length, need=n*(n-1)/2, out=[];
+  let seen=new Set();
+  for (let i=start;i<s.rounds.length;i++) {
+    s.rounds[i].matches.forEach(m=>seen.add(key(...m)));
+    if (seen.size>=need) { out.push(i+1); seen=new Set(); }
+  }
+  return out;
+}
+// 今の表の練習用ペア（大会ペアでない番号）の数
+const practiceCount = () => session.players.filter(p=>!isTourPair(p)).length;
+// 今日組んだペア（この表で名前の付いたすべての番号）。組み替えでは、この相手とは組まない
+const dayHistory = () => Object.values(session.names || {}).filter(v=>Array.isArray(v) && v.length===2);
+// 終わっている節（これより前から作り直すと、終わった試合が組み替わる）。
+// 前の作り直しで残した節（completedThrough）と、点数の入っている節のうち大きい方（2026-11-12 Codex のレビュー：
+// 第6節まで終わってから「次の周へ」を押すと第3節が選ばれ、第4〜6節まで作り直されていた）
+function finishedThrough() {
+  let n=isInt(session.completedThrough,0,session.totalRounds) ? session.completedThrough : 0;
+  const sc=scoreState && session.scoreId && scoreState.id===session.scoreId ? scoreState.scores : null;
+  if (sc) Object.keys(sc).forEach(k=>{ const r=parseInt(k,10); if (isInt(r,1,session.totalRounds) && r>n) n=r; });
+  return n;
+}
+// 次の周へ（組み替え）に使える、総当たりが1周する節（終わっている節より後だけ）
+const nextLaps = () => { const done=finishedThrough(); return lapEnds(session).filter(r=>r>=done && r<session.totalRounds); };
+// 「次の周へ」：来た・帰るの欄を開き、組み替えにチェックして、今の周が終わる節を選ぶ
+function openNextLap() {
+  const laps=nextLaps();
+  $('changePanel').querySelector('details').open=true;
+  $('dayRepair').checked=true;
+  if (laps.length) { $('consumedRound').value=String(laps[0]); $('changeBtn').disabled=false; }
+  renderDay();
+  $('changePanel').scrollIntoView({behavior:'smooth',block:'start'});
+  notify(laps.length ? `第${laps[0]}節で今のペアの総当たりが1周します。ちがう節で組み替えるときは「終了した節」を選び直してください。` : `このあと総当たりが1周する節がありません。組み替える節を「終了した節」で選んでください（第${finishedThrough()}節までは終わっています）。`);
+}
 function renderDay() {
   const on=dayOn();
   $('dayBox').hidden=!on; $('memberChips').hidden=on;
@@ -1653,7 +1729,16 @@ function renderDay() {
     ? '終わった節を残して、次の節から作り直します。帰る人・来た人をタップすると、残った人と待っている人でペアを組み直します（遅れて来た人は元のペアに戻ります）。'
     : '終了した節を残して、それ以降を作り直します。参加する番号にチェックしてください。固定ペアではペア単位で変更します。';
   if (!on) return;
-  const info=dayInfo();
+  const info=dayInfo(), repair=$('dayRepair').checked;
+  // 次の周へ：組み替えのチェックと、総当たりが1周する節のボタン（押すと「終了した節」に入る）
+  $('lapBox').hidden=practiceCount()<2 && !repair;
+  const laps=nextLaps().slice(0,4);
+  $('dayLaps').replaceChildren(...laps.map((r,i)=>{
+    const b=document.createElement('button'); b.type='button'; b.dataset.round=String(r);
+    b.textContent=`第${r}節で${lapEnds(session).indexOf(r)+1}周`; b.setAttribute('aria-pressed',String($('consumedRound').value===String(r)));
+    b.onclick=()=>{ $('consumedRound').value=String(r); $('changeBtn').disabled=false; $('dayRepair').checked=true; renderDay(); };
+    return b;
+  }));
   const chip=(nm, set, act, num)=>{
     const b=document.createElement('button'); b.type='button'; b.dataset.name=nm;
     if (genderClass(nm)) b.classList.add(genderClass(nm));
@@ -1667,11 +1752,13 @@ function renderDay() {
   $('dayIn').replaceChildren(...dayPairs().flatMap(pr=>pr.names.map(nm=>chip(nm,dayLeave,'帰る',pr.p))));
   $('dayLateBox').hidden=!info.late.length; $('dayLate').replaceChildren(...info.late.map(nm=>chip(nm,dayArrive,'来た')));
   $('dayWaitBox').hidden=!info.wait.length; $('dayWait').replaceChildren(...info.wait.map(nm=>chip(nm,dayLeave,'帰る')));
-  const plan=planDay(info,dayPairs(),dayLeave,dayArrive), nums=dayNumbers(plan.made.length), lines=[];
+  const plan=planDay(info,dayPairs(),dayLeave,dayArrive,dayOpts()), nums=dayNumbers(plan.made.length), lines=[];
   const li=(text, cls)=>{ const e=document.createElement('li'); e.textContent=text; if (cls) e.className=cls; lines.push(e); };
+  if (repair && practiceCount()<2) li('組み替えられる練習用ペアが2組ありません（🏆大会ペアは組み替えません）。','pending');
   if (dayLeave.size) li(`帰る：${[...dayLeave].join('、')}`);
   if (dayArrive.size) li(`来た：${[...dayArrive].join('、')}`);
-  plan.made.forEach((m,i)=>li(`${nums[i] ? nums[i]+'番ペア' : '番号なし'}：${m.tour ? '🏆' : ''}${m.names.join('・')}（${m.kind==='back' ? '元のペアに戻る' : m.kind==='temp' ? '仮のペア。相方が来るまで' : '組み直し'}）`));
+  const seen=new Set(dayHistory().map(h=>h.slice().sort().join('|')));
+  plan.made.forEach((m,i)=>li(`${nums[i] ? nums[i]+'番ペア' : '番号なし'}：${m.tour ? '🏆' : ''}${m.names.join('・')}（${m.kind==='back' ? '元のペアに戻る' : m.kind==='temp' ? '仮のペア。相方が来るまで' : repair ? '組み替え' : '組み直し'}${m.kind!=='back' && seen.has(m.names.slice().sort().join('|')) ? '。今日2回目' : ''}）`));
   if (plan.drop.length) li(`次の節から外れる番号：${plan.drop.map(p=>p+'番').join('、')}`);
   if (plan.wait.length) li(`待つ：${plan.wait.join('、')}（組む相手が来るまで、表に入りません）`,'pending');
   const n=plan.keep.length+plan.made.length, faces=Array.isArray(session.faces) ? session.faces.length : 4, want=Number($('changeCourts').value) || session.courts;
@@ -1683,10 +1770,29 @@ function renderDay() {
   }
   $('dayPreview').hidden=!lines.length; $('dayPreview').replaceChildren(...lines);
 }
+const dayOpts = () => ({repair:$('dayRepair').checked,tour:new Set(Array.isArray(session.tour) ? session.tour : []),history:dayHistory()});
+// 来た人は「遅れて来る」の印を外し、帰った人は「休み」にする（今日の分の出欠・コート割だけ）。
+// しないと、出欠・コート割の画面から表を作り直したときに、来た人のペアが「あとから入る」として外れていた
+// （2026-11-12 Codex のレビュー）。帰った人は、作り直したときに表へ戻らないよう休みにする
+const TODAY_KEY = 'kalidia-today-v1';
+function syncTodayAttendance(arrived, left) {
+  if (!arrived.length && !left.length) return;
+  try {
+    const t=JSON.parse(localStorage.getItem(TODAY_KEY));
+    if (!t || t.v!==1 || t.date!==todayPracticeDate()) return;
+    const gone=new Set(left), came=new Set(arrived);
+    t.late=(Array.isArray(t.late) ? t.late : []).filter(n=>!came.has(n) && !gone.has(n));
+    t.off=[...new Set((Array.isArray(t.off) ? t.off : []).concat(left))];
+    if (t.place && typeof t.place==='object') left.forEach(n=>{ delete t.place[n]; });
+    localStorage.setItem(TODAY_KEY,JSON.stringify(t));
+  } catch { /* 出欠の画面の保存が読めない・書けない端末は、そのまま */ }
+}
 function applyDayChange() {
   const consumed=Number($('consumedRound').value);
   if (!isInt(consumed,1,session.totalRounds-1)) throw Error('終了した節を選んでください。');
-  const info=dayInfo(), plan=planDay(info,dayPairs(),dayLeave,dayArrive), nums=dayNumbers(plan.made.length);
+  const repair=$('dayRepair').checked;
+  if (repair && practiceCount()<2) throw Error('組み替えられる練習用ペアが2組ありません（🏆大会ペアは組み替えません）。チェックを外すと、来た・帰るだけで作り直せます。');
+  const info=dayInfo(), plan=planDay(info,dayPairs(),dayLeave,dayArrive,dayOpts()), nums=dayNumbers(plan.made.length);
   if (nums.length<plan.made.length) throw Error('この表で使える番号がなくなりました。出欠・コート割の画面から作り直してください。');
   const players=plan.keep.concat(nums).sort((a,b)=>a-b);
   if (players.length<2) throw Error('表に入るペアが1組以下になります。2組から作れます。');
@@ -1696,11 +1802,16 @@ function applyDayChange() {
   const names={...session.names}; plan.made.forEach((m,i)=>{ names[nums[i]]=m.names.slice(); });
   const tour=(Array.isArray(session.tour) ? session.tour : []).concat(plan.made.flatMap((m,i)=>m.tour ? [nums[i]] : []));
   const next=buildSession({...session,names,players,courts:Math.min(want,Math.floor(players.length/2)),tour},session.rounds.slice(0,consumed));
-  if (!confirm(`第${consumed+1}節以降を作り直しますか？`)) return;
+  const done=finishedThrough();
+  if (consumed<done && !confirm(`第${done}節までは終わっています（点数が入っている、または前に作り直したときに残した節）。第${consumed+1}〜${done}節も組み替わりますが、よろしいですか？`)) return;
+  if (!confirm(repair ? `第${consumed+1}節から、練習用ペアを組み替えて作り直しますか？` : `第${consumed+1}節以降を作り直しますか？`)) return;
   if (!dayGroups.people) dayGroups.people={};
   dayGroups.people[dayGroups.current]={late:plan.late,wait:plan.wait,orig:plan.orig,g:{...info.g}};
-  dayLeave.clear(); dayArrive.clear(); joinPicks=[];
-  session=revised(next); notify(`第${consumed}節までを残して更新しました。${plan.wait.length ? `${plan.wait.join('、')}は、組む相手が来るまで待ちます。` : ''}`); persist(); registerScores(); render();
+  syncTodayAttendance([...dayArrive],[...dayLeave]);
+  dayLeave.clear(); dayArrive.clear(); joinPicks=[]; $('dayRepair').checked=false;
+  session=revised(next);
+  notify(`第${consumed}節までを残して${repair ? '、練習用ペアを組み替えました（次の周）' : '更新しました'}。${plan.wait.length ? `${plan.wait.join('、')}は、組む相手が来るまで待ちます。` : ''}画像・共有を送り直してください。`);
+  persist(); registerScores(); render();
 }
 function applyChange() {
   if (dayOn()) { try { applyDayChange(); } catch(e) { notify(e.message); } return; }
@@ -1954,6 +2065,8 @@ function render() {
   }
   $('summary').append(stats);
   const actions=document.createElement('div'); actions.className='actions';
+  // コート別の表で練習用ペアが2組以上あれば「次の周へ」（3回目-3）
+  if (dayOn() && practiceCount()>=2) { const b=button('🔄 次の周へ（練習用ペアを組み替える）',openNextLap); b.className='next-lap'; actions.append(b); }
   actions.append(button('対戦表のリンクを共有',shareLink));
   for (let start=0;start<session.totalRounds;start+=10) actions.append(button(`画像保存 ${start+1}〜${Math.min(start+10,session.totalRounds)}節`,()=>saveImage(start)));
   actions.append(button('印刷',()=>window.print()));
@@ -2047,6 +2160,8 @@ function init() {
   $('generateBtn').onclick=generate; $('changeBtn').onclick=applyChange; renderRoster();
   $('consumedRound').addEventListener('change',()=>{ $('changeBtn').disabled=!$('consumedRound').value; });
   $('changeCourts').addEventListener('change',()=>{ if (dayOn()) renderDay(); });
+  $('consumedRound').addEventListener('change',()=>{ if (dayOn()) renderDay(); });
+  $('dayRepair').addEventListener('change',()=>{ if (dayOn()) renderDay(); });
   // 出欠・コート割の画面（today.html）から「コートを分ける」で来たとき：コートごとの表を作る（統合版。2026-11-11）
   // 読み込めなかったときは、下の普段の起動（今日のコート別の表・前回の表の復元）に進む
   if (location.hash==='#today' && importGroups()) { loadTournaments(); return; }

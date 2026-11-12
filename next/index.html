@@ -958,6 +958,9 @@ function restoreSession() {
   if (s.names) {
     const initialPlayers = s.everPlayers.filter(p => !laterAdded.has(p));
     const activeNames = new Set(initialPlayers.map(p => s.names[p]).filter(Boolean));
+    // 出欠の画面から来たゲストは名簿にいないので、チップを作り直す。作らないと、作り直したときに
+    // ゲストが参加者から消えていた（2026-11-12 Codex のレビュー）
+    restoreGuestChips(initialPlayers.filter(p => s.names[p] && !ROSTER.includes(s.names[p])).map(p => ({ name: s.names[p], g: genderOfSaved(s, p) })));
     document.querySelectorAll('#rosterChips .chip').forEach(b =>
       b.classList.toggle('selected', activeNames.has(b.dataset.name)));
   }
@@ -2534,6 +2537,8 @@ function generate(opts) {
     names,
     genderMode,
     guestGenders: genderMode ? dayGuestGendersOf(names) : null,
+    // 出欠の画面から来たゲストの性別も覚える（再読み込みでゲストのチップを作り直すため。2026-11-12）
+    genders: dayGuestGendersOf(names),
     forcedRests: forced.count > 0 ? forced.byRound : null,
     changes: [],
     rounds
@@ -3769,6 +3774,26 @@ function readHandoff() {
   }
   return { courts: d.courts, rounds: d.rounds, date: d.date, names, guests };
 }
+// 番号の性別（表に覚えた性別 → 種目別コートのゲストの性別）。分からなければ null
+function genderOfSaved(s, p) {
+  const g = (s.genders && ownValue(s.genders, p)) || (s.guestGenders && ownValue(s.guestGenders, p));
+  return g === 'M' || g === 'F' ? g : null;
+}
+// ゲストのチップ（その場だけの名簿チップ）を作り直す。前に足したものは消してから足し、性別を dayGuests に覚える
+function restoreGuestChips(guests) {
+  const box = document.getElementById('rosterChips');
+  box.querySelectorAll('.chip-guest').forEach(b => b.remove());
+  dayGuests = {};
+  for (const g of guests) {
+    if (g.g) dayGuests[g.name] = g.g;
+    const b = document.createElement('button');
+    b.className = 'chip chip-roster chip-guest' + (g.g ? ' ' + (g.g === 'M' ? 'gender-m' : 'gender-f') : '');
+    b.dataset.name = g.name;
+    b.textContent = g.name;
+    b.onclick = () => { b.classList.toggle('selected'); onRosterChange(); };
+    box.appendChild(b);
+  }
+}
 function importFromToday() {
   if (location.hash !== '#today') return false;
   // 再読み込みしても作り直さないよう、目印を消す（履歴だけ書き換えるので hashchange は起きない）
@@ -3788,17 +3813,7 @@ function importFromToday() {
   document.getElementById('genderMode').value = 'off';
   // ゲストのチップ（前に足したものは消してから足す）
   const box = document.getElementById('rosterChips');
-  box.querySelectorAll('.chip-guest').forEach(b => b.remove());
-  dayGuests = {};
-  for (const g of d.guests) {
-    dayGuests[g.name] = g.g;
-    const b = document.createElement('button');
-    b.className = 'chip chip-roster chip-guest ' + (g.g === 'M' ? 'gender-m' : 'gender-f');
-    b.dataset.name = g.name;
-    b.textContent = g.name;
-    b.onclick = () => { b.classList.toggle('selected'); onRosterChange(); };
-    box.appendChild(b);
-  }
+  restoreGuestChips(d.guests);
   const picked = new Set(d.names.concat(d.guests.map(g => g.name)));
   box.querySelectorAll('.chip').forEach(b => b.classList.toggle('selected', picked.has(b.dataset.name)));
   // 前の表の休み指定は引き継がない（今日の表に効かないように）
